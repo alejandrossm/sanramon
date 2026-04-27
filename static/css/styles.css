@@ -1,0 +1,59 @@
+:root {
+    --app-bg: #f5f7fb;
+    --app-border: #dde4ef;
+}
+
+body {
+    min-height: 100vh;
+    background: var(--app-bg);
+}
+
+.navbar {
+    box-shadow: 0 2px 12px rgba(15, 23, 42, 0.12);
+}
+
+.page-heading {
+    margin-bottom: 1.5rem;
+}
+
+.auth-shell {
+    display: grid;
+    min-height: calc(100vh - 9rem);
+    place-items: center;
+}
+
+.auth-panel,
+.form-panel,
+.status-panel,
+.app-card,
+.app-table {
+    background: #fff;
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
+    box-shadow: 0 8px 28px rgba(15, 23, 42, 0.06);
+}
+
+.auth-panel {
+    width: min(100%, 440px);
+    padding: 2rem;
+}
+
+.form-panel,
+.status-panel {
+    padding: 1.5rem;
+}
+
+.app-table {
+    overflow: hidden;
+}
+
+.table thead th {
+    background: #eef3f9;
+    color: #334155;
+    font-size: 0.875rem;
+    white-space: nowrap;
+}
+
+.table td {
+    vertical-align: middle;
+}

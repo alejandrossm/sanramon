@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard | Sistema San Ramon{% endblock %}
+
+{% block content %}
+<div class="page-heading">
+    <p class="text-uppercase text-primary fw-semibold small mb-1">Panel principal</p>
+    <h1 class="h3 mb-1">Bienvenido, {{ user.nombre_completo }}</h1>
+    <p class="text-muted mb-0">Rol actual: {{ user.get_rol_display }}</p>
+</div>
+
+{% if puede_gestionar_usuarios %}
+    <section class="row g-3">
+        <div class="col-md-6 col-xl-4">
+            <div class="card app-card h-100">
+                <div class="card-body">
+                    <h2 class="h5">Gestion de usuarios</h2>
+                    <p class="text-muted">Administra cuentas, roles y estado de acceso.</p>
+                    <a href="{% url 'usuarios:listado_usuarios' %}" class="btn btn-primary">Abrir usuarios</a>
+                </div>
+            </div>
+        </div>
+    </section>
+{% elif user.rol == 'ENCARGADO_REGISTRO' %}
+    <section class="status-panel">
+        <h2 class="h5">Acceso operativo</h2>
+        <p class="mb-0 text-muted">Tu cuenta esta preparada para el modulo de registro de asistencia que se desarrollara en un siguiente sprint.</p>
+    </section>
+{% else %}
+    <section class="status-panel">
+        <h2 class="h5">Acceso de consulta</h2>
+        <p class="mb-0 text-muted">Tu cuenta esta preparada para futuras consultas asociadas al modulo de socios.</p>
+    </section>
+{% endif %}
+{% endblock %}

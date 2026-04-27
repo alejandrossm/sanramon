@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% load crispy_forms_tags %}
+
+{% block title %}Editar usuario | Sistema San Ramon{% endblock %}
+
+{% block content %}
+<div class="page-heading">
+    <p class="text-uppercase text-primary fw-semibold small mb-1">Administracion</p>
+    <h1 class="h3 mb-1">Editar usuario</h1>
+    <p class="text-muted mb-0">Actualiza los datos de {{ usuario_obj.nombre_completo }}.</p>
+</div>
+
+<section class="form-panel">
+    {% crispy form %}
+    <a href="{% url 'usuarios:listado_usuarios' %}" class="btn btn-link ps-0 mt-2">Volver al listado</a>
+</section>
+{% endblock %}
