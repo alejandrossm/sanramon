@@ -230,14 +230,18 @@ a:hover {
     box-shadow: 0 0 0 0.2rem rgba(60, 122, 115, 0.18);
 }
 
-/* Focus invertido del formulario de registro: el campo queda blanco al enfocarse. */
+/* Focus invertido en formularios de usuarios: el campo queda blanco al enfocarse. */
 .registro-usuario-panel .form-control,
-.registro-usuario-panel .form-select {
+.registro-usuario-panel .form-select,
+.edicion-usuario-panel .form-control,
+.edicion-usuario-panel .form-select {
     background-color: var(--color-logo-sand-light);
 }
 
 .registro-usuario-panel .form-control:focus,
-.registro-usuario-panel .form-select:focus {
+.registro-usuario-panel .form-select:focus,
+.edicion-usuario-panel .form-control:focus,
+.edicion-usuario-panel .form-select:focus {
     background-color: #fff;
     border-color: var(--color-primary);
     box-shadow: 0 0 0 0.2rem rgba(47, 93, 80, 0.22);

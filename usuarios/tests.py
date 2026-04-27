@@ -92,7 +92,7 @@ class UsuariosModuloTests(TestCase):
                 'email': 'encargado.nuevo@example.com',
                 'first_name': 'Encargado',
                 'last_name': 'Registro',
-                'rut': '33.333.333-3',
+                'rut': '333333333',
                 'rol': self.User.ENCARGADO_REGISTRO,
                 'is_active': 'on',
                 'password1': 'ClaveSegura123',
@@ -100,7 +100,8 @@ class UsuariosModuloTests(TestCase):
             },
         )
         self.assertRedirects(response, reverse('usuarios:listado_usuarios'))
-        self.assertTrue(self.User.objects.filter(username='encargado_nuevo').exists())
+        usuario = self.User.objects.get(username='encargado_nuevo')
+        self.assertEqual(usuario.rut, '33333333-3')
 
     def test_encargado_accede_a_listado_sin_administradores(self):
         """Oculta cuentas administradoras al encargado de registro."""
@@ -158,8 +159,8 @@ class UsuariosModuloTests(TestCase):
         self.admin_user.refresh_from_db()
         self.assertTrue(self.admin_user.is_active)
 
-    def test_administrador_edita_usuario_y_normaliza_datos(self):
-        """Normaliza email, RUT y rol al editar un usuario."""
+    def test_administrador_edita_usuario_sin_modificar_rut(self):
+        """Normaliza email y rol, pero conserva el RUT original al editar."""
         self.client.login(username='admin', password='ClaveSegura123')
         response = self.client.post(
             reverse('usuarios:editar_usuario', args=[self.socio_user.pk]),
@@ -168,7 +169,7 @@ class UsuariosModuloTests(TestCase):
                 'email': 'SOCIO.ACTUALIZADO@EXAMPLE.COM',
                 'first_name': 'Socio',
                 'last_name': 'Actualizado',
-                'rut': '22.222.222-2',
+                'rut': '99.999.999-9',
                 'rol': self.User.ENCARGADO_REGISTRO,
                 'is_active': 'on',
             },

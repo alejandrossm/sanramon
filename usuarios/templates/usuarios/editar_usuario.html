@@ -10,7 +10,7 @@
     <p class="text-muted mb-0">Actualiza los datos de {{ usuario_obj.nombre_completo }}.</p>
 </div>
 
-<section class="form-panel">
+<section class="form-panel edicion-usuario-panel">
     {% crispy form %}
     <a href="{% url 'usuarios:listado_usuarios' %}" class="btn btn-link ps-0 mt-2">Volver al listado</a>
 </section>

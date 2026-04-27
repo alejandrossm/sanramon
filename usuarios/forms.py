@@ -126,10 +126,10 @@ class UsuarioUpdateForm(forms.ModelForm):
     """Formulario de edicion de usuario con cambio opcional de password."""
 
     password1 = forms.CharField(
-        label='Nueva contrasena',
+        label='Nueva contraseña',
         required=False,
         widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
-        help_text='Dejar en blanco para conservar la contrasena actual.',
+        help_text='Dejar en blanco para conservar la contraseña actual.',
     )
     password2 = forms.CharField(
         label='Confirmar nueva contrasena',
@@ -162,6 +162,10 @@ class UsuarioUpdateForm(forms.ModelForm):
         """Recibe el usuario actor y construye el layout de edicion."""
         self.actor = kwargs.pop('actor', None)
         super().__init__(*args, **kwargs)
+        self.fields['rut'].disabled = True
+        self.fields['rut'].help_text = 'El RUT no puede modificarse una vez creado.'
+        if self.instance.pk:
+            self.initial['rut'] = normalizar_rut(self.instance.rut)
         self._limitar_roles_por_actor()
         self.helper = FormHelper()
         self.helper.form_method = 'post'
@@ -197,7 +201,10 @@ class UsuarioUpdateForm(forms.ModelForm):
         return email
 
     def clean_rut(self):
-        """Normaliza y valida unicidad del RUT excluyendo el usuario editado."""
+        """Mantiene el RUT original aunque el POST intente modificarlo."""
+        if self.instance.pk:
+            return normalizar_rut(self.instance.rut)
+
         rut = normalizar_rut(self.cleaned_data['rut'])
         qs = Usuario.objects.filter(rut__iexact=rut)
         if self.instance.pk:

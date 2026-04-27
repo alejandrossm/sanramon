@@ -4,8 +4,15 @@ from django.db import models
 
 
 def normalizar_rut(rut):
-    """Normaliza el RUT para comparaciones y almacenamiento consistente."""
-    return (rut or '').replace('.', '').replace(' ', '').upper()
+    """Normaliza el RUT al formato cuerpo-digito, sin puntos."""
+    valor = ''.join(
+        caracter
+        for caracter in (rut or '').upper()
+        if caracter not in '.-' and not caracter.isspace()
+    )
+    if len(valor) <= 1:
+        return valor
+    return f'{valor[:-1]}-{valor[-1]}'
 
 
 class Usuario(AbstractUser):
