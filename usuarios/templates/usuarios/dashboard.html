@@ -15,7 +15,11 @@
             <div class="card app-card h-100">
                 <div class="card-body">
                     <h2 class="h5">Gestion de usuarios</h2>
-                    <p class="text-muted">Administra cuentas, roles y estado de acceso.</p>
+                    {% if puede_administrar_privilegios %}
+                        <p class="text-muted">Administra cuentas, roles y estado de acceso.</p>
+                    {% else %}
+                        <p class="text-muted">Gestiona usuarios operativos sin modificar administradores.</p>
+                    {% endif %}
                     <a href="{% url 'usuarios:listado_usuarios' %}" class="btn btn-primary">Abrir usuarios</a>
                 </div>
             </div>

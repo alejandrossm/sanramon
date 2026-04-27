@@ -18,14 +18,23 @@
             <div class="collapse navbar-collapse" id="mainNav">
                 <ul class="navbar-nav me-auto mb-2 mb-lg-0">
                     {% if user.is_authenticated %}
-                        <li class="nav-item">
-                            <a class="nav-link" href="{% url 'usuarios:dashboard' %}">Dashboard</a>
-                        </li>
-                        {% if user.is_superuser or user.rol == 'ADMINISTRADOR' %}
+                        {% if user.rol == 'SOCIO' and not user.is_superuser %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'usuarios:mis_asistencias' %}">Mis asistencias</a>
+                            </li>
+                        {% else %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'usuarios:dashboard' %}">Dashboard</a>
+                            </li>
+                        {% endif %}
+                        {% if user.is_superuser or user.rol == 'ADMINISTRADOR' or user.rol == 'ENCARGADO_REGISTRO' %}
                             <li class="nav-item">
                                 <a class="nav-link" href="{% url 'usuarios:listado_usuarios' %}">Usuarios</a>
                             </li>
                         {% endif %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{% url 'usuarios:cambiar_mi_password' %}">Mi contrasena</a>
+                        </li>
                     {% endif %}
                 </ul>
                 {% if user.is_authenticated %}

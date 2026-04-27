@@ -1,13 +1,14 @@
 from functools import wraps
 
 from django.contrib import messages
+from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView, LogoutView
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.views.decorators.http import require_POST
 
-from .forms import LoginForm, UsuarioCreationForm, UsuarioUpdateForm
+from .forms import CambioPasswordForm, LoginForm, UsuarioCreationForm, UsuarioUpdateForm
 from .models import Usuario
 
 
@@ -17,14 +18,48 @@ def es_administrador(user):
     )
 
 
-def administrador_required(view_func):
+def es_encargado_registro(user):
+    return (
+        user.is_authenticated
+        and getattr(user, 'rol', None) == Usuario.ENCARGADO_REGISTRO
+        and not user.is_superuser
+    )
+
+
+def es_socio(user):
+    return (
+        user.is_authenticated
+        and getattr(user, 'rol', None) == Usuario.SOCIO
+        and not es_administrador(user)
+    )
+
+
+def puede_gestionar_usuarios(user):
+    return es_administrador(user) or es_encargado_registro(user)
+
+
+def puede_modificar_usuario(actor, usuario):
+    if es_administrador(actor):
+        return True
+    if not es_encargado_registro(actor):
+        return False
+    return not usuario.is_superuser and usuario.rol != Usuario.ADMINISTRADOR
+
+
+def redireccion_sin_permiso(user):
+    if es_socio(user):
+        return redirect('usuarios:mis_asistencias')
+    return redirect('usuarios:dashboard')
+
+
+def gestor_usuarios_required(view_func):
     @wraps(view_func)
     @login_required
     def wrapper(request, *args, **kwargs):
-        if es_administrador(request.user):
+        if puede_gestionar_usuarios(request.user):
             return view_func(request, *args, **kwargs)
         messages.error(request, 'No tienes permisos para administrar usuarios.')
-        return redirect('usuarios:dashboard')
+        return redireccion_sin_permiso(request.user)
 
     return wrapper
 
@@ -35,6 +70,8 @@ class UsuarioLoginView(LoginView):
     redirect_authenticated_user = True
 
     def get_success_url(self):
+        if es_socio(self.request.user):
+            return reverse_lazy('usuarios:mis_asistencias')
         return reverse_lazy('usuarios:dashboard')
 
 
@@ -44,38 +81,81 @@ class UsuarioLogoutView(LogoutView):
 
 @login_required
 def dashboard(request):
+    if es_socio(request.user):
+        return redirect('usuarios:mis_asistencias')
     return render(
         request,
         'usuarios/dashboard.html',
-        {'puede_gestionar_usuarios': es_administrador(request.user)},
+        {
+            'puede_gestionar_usuarios': puede_gestionar_usuarios(request.user),
+            'puede_administrar_privilegios': es_administrador(request.user),
+        },
     )
 
 
-@administrador_required
+@login_required
+def mis_asistencias(request):
+    if not es_socio(request.user):
+        messages.error(request, 'Esta vista solo esta disponible para socios.')
+        return redirect('usuarios:dashboard')
+    return render(request, 'usuarios/mis_asistencias.html')
+
+
+@login_required
+def cambiar_mi_password(request):
+    if request.method == 'POST':
+        form = CambioPasswordForm(user=request.user, data=request.POST)
+        if form.is_valid():
+            form.save()
+            update_session_auth_hash(request, request.user)
+            messages.success(request, 'Contrasena actualizada correctamente.')
+            if es_socio(request.user):
+                return redirect('usuarios:mis_asistencias')
+            return redirect('usuarios:dashboard')
+    else:
+        form = CambioPasswordForm(user=request.user)
+
+    return render(request, 'usuarios/cambiar_mi_password.html', {'form': form})
+
+
+@gestor_usuarios_required
 def listado_usuarios(request):
     usuarios = Usuario.objects.all()
-    return render(request, 'usuarios/listado_usuarios.html', {'usuarios': usuarios})
+    if not es_administrador(request.user):
+        usuarios = usuarios.exclude(is_superuser=True).exclude(rol=Usuario.ADMINISTRADOR)
+    return render(
+        request,
+        'usuarios/listado_usuarios.html',
+        {
+            'usuarios': usuarios,
+            'puede_administrar_privilegios': es_administrador(request.user),
+        },
+    )
 
 
-@administrador_required
+@gestor_usuarios_required
 def registro_usuario(request):
     if request.method == 'POST':
-        form = UsuarioCreationForm(request.POST)
+        form = UsuarioCreationForm(request.POST, actor=request.user)
         if form.is_valid():
             usuario = form.save()
             messages.success(request, f'Usuario {usuario.username} creado correctamente.')
             return redirect('usuarios:listado_usuarios')
     else:
-        form = UsuarioCreationForm()
+        form = UsuarioCreationForm(actor=request.user)
 
     return render(request, 'usuarios/registro_usuario.html', {'form': form})
 
 
-@administrador_required
+@gestor_usuarios_required
 def editar_usuario(request, pk):
     usuario = get_object_or_404(Usuario, pk=pk)
+    if not puede_modificar_usuario(request.user, usuario):
+        messages.error(request, 'No tienes permisos para modificar este usuario.')
+        return redirect('usuarios:listado_usuarios')
+
     if request.method == 'POST':
-        form = UsuarioUpdateForm(request.POST, instance=usuario)
+        form = UsuarioUpdateForm(request.POST, instance=usuario, actor=request.user)
         if form.is_valid():
             usuario_editado = form.save(commit=False)
             if usuario_editado.pk == request.user.pk and not usuario_editado.is_active:
@@ -85,7 +165,7 @@ def editar_usuario(request, pk):
                 messages.success(request, 'Usuario actualizado correctamente.')
                 return redirect('usuarios:listado_usuarios')
     else:
-        form = UsuarioUpdateForm(instance=usuario)
+        form = UsuarioUpdateForm(instance=usuario, actor=request.user)
 
     return render(
         request,
@@ -95,9 +175,13 @@ def editar_usuario(request, pk):
 
 
 @require_POST
-@administrador_required
+@gestor_usuarios_required
 def cambiar_estado_usuario(request, pk):
     usuario = get_object_or_404(Usuario, pk=pk)
+    if not puede_modificar_usuario(request.user, usuario):
+        messages.error(request, 'No tienes permisos para cambiar el estado de este usuario.')
+        return redirect('usuarios:listado_usuarios')
+
     if usuario.pk == request.user.pk and usuario.is_active:
         messages.error(request, 'No puedes desactivar tu propio usuario.')
         return redirect('usuarios:listado_usuarios')

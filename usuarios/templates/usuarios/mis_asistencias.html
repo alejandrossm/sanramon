@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block title %}Mis asistencias | Sistema San Ramon{% endblock %}
+
+{% block content %}
+<div class="page-heading">
+    <p class="text-uppercase text-primary fw-semibold small mb-1">Asistencias</p>
+    <h1 class="h3 mb-1">Mis asistencias</h1>
+    <p class="text-muted mb-0">{{ user.nombre_completo }}</p>
+</div>
+
+<section class="status-panel">
+    <h2 class="h5">No hay asistencias registradas.</h2>
+    <p class="mb-0 text-muted">Cuando exista registro de asistencia, se mostrara en esta seccion.</p>
+</section>
+{% endblock %}
