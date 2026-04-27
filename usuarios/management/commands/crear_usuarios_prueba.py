@@ -41,7 +41,7 @@ class Command(BaseCommand):
     ]
 
     def handle(self, *args, **options):
-        """Crea o actualiza usuarios demo usando username como contrasena."""
+        """Crea o actualiza usuarios demo usando username como contraseña."""
         User = get_user_model()
 
         for datos in self.usuarios:

@@ -98,12 +98,25 @@ def dashboard(request):
     """Muestra el panel principal para roles internos y redirige socios."""
     if es_socio(request.user):
         return redirect('usuarios:mis_asistencias')
+
+    usuarios = Usuario.objects.all()
+    total_usuarios = usuarios.count()
+    usuarios_activos = usuarios.filter(is_active=True).count()
+    usuarios_inactivos = total_usuarios - usuarios_activos
+
     return render(
         request,
         'usuarios/dashboard.html',
         {
             'puede_gestionar_usuarios': puede_gestionar_usuarios(request.user),
             'puede_administrar_privilegios': es_administrador(request.user),
+            'total_usuarios': total_usuarios,
+            'usuarios_activos': usuarios_activos,
+            'usuarios_inactivos': usuarios_inactivos,
+            'usuarios_admin': usuarios.filter(rol=Usuario.ADMINISTRADOR).count(),
+            'usuarios_encargados': usuarios.filter(rol=Usuario.ENCARGADO_REGISTRO).count(),
+            'usuarios_socios': usuarios.filter(rol=Usuario.SOCIO).count(),
+            'usuarios_barra_porcentaje': 100 if total_usuarios else 0,
         },
     )
 
@@ -119,13 +132,13 @@ def mis_asistencias(request):
 
 @login_required
 def cambiar_mi_password(request):
-    """Permite al usuario autenticado actualizar su propia contrasena."""
+    """Permite al usuario autenticado actualizar su propia contraseña."""
     if request.method == 'POST':
         form = CambioPasswordForm(user=request.user, data=request.POST)
         if form.is_valid():
             form.save()
             update_session_auth_hash(request, request.user)
-            messages.success(request, 'Contrasena actualizada correctamente.')
+            messages.success(request, 'Contraseña actualizada correctamente.')
             if es_socio(request.user):
                 return redirect('usuarios:mis_asistencias')
             return redirect('usuarios:dashboard')

@@ -1,39 +1,67 @@
 {% extends "base.html" %}
-
 {% block title %}Dashboard | Sistema San Ramon{% endblock %}
 
 {% block content %}
-<div class="page-heading">
-    <p class="text-uppercase text-primary fw-semibold small mb-1">Panel principal</p>
-    <h1 class="h3 mb-1">Bienvenido, {{ user.nombre_completo }}</h1>
-    <p class="text-muted mb-0">Rol actual: {{ user.get_rol_display }}</p>
-</div>
+<section class="dashboard-data">
+    <div class="dashboard-heading">
+        <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Resumen operativo</p>
+            <h2 class="h3 mb-1">Usuarios registrados</h2>
+            <p class="text-muted mb-0">Estado actual de cuentas del sistema.</p>
+        </div>
+        {% if puede_gestionar_usuarios %}
+            <a href="{% url 'usuarios:listado_usuarios' %}" class="btn btn-primary">Gestionar usuarios</a>
+        {% endif %}
+    </div>
 
-{% if puede_gestionar_usuarios %}
-    <section class="row g-3">
-        <div class="col-md-6 col-xl-4">
-            <div class="card app-card h-100">
-                <div class="card-body">
-                    <h2 class="h5">Gestion de usuarios</h2>
-                    {% if puede_administrar_privilegios %}
-                        <p class="text-muted">Administra cuentas, roles y estado de acceso.</p>
-                    {% else %}
-                        <p class="text-muted">Gestiona usuarios operativos sin modificar administradores.</p>
-                    {% endif %}
-                    <a href="{% url 'usuarios:listado_usuarios' %}" class="btn btn-primary">Abrir usuarios</a>
+    <div class="dashboard-metrics" aria-label="Metricas de usuarios">
+        <article class="dashboard-metric">
+            <span>Total</span>
+            <strong>{{ total_usuarios }}</strong>
+        </article>
+        <article class="dashboard-metric">
+            <span>Activos</span>
+            <strong>{{ usuarios_activos }}</strong>
+        </article>
+        <article class="dashboard-metric">
+            <span>Inactivos</span>
+            <strong>{{ usuarios_inactivos }}</strong>
+        </article>
+    </div>
+
+    <article class="dashboard-chart-panel">
+        <div class="dashboard-chart-header">
+            <div>
+                <p class="text-uppercase text-primary fw-semibold small mb-1">Gráfico</p>
+                <h3 class="h5 mb-0">Total de usuarios registrados</h3>
+            </div>
+            <span class="dashboard-chart-total">{{ total_usuarios }}</span>
+        </div>
+
+        <div class="dashboard-bar-chart" role="img" aria-label="Total de usuarios registrados: {{ total_usuarios }}">
+            <div class="dashboard-bar-row">
+                <span class="dashboard-bar-label">Usuarios</span>
+                <div class="dashboard-bar-track">
+                    <div class="dashboard-bar-fill" style="width: {{ usuarios_barra_porcentaje }}%;"></div>
                 </div>
+                <strong class="dashboard-bar-value">{{ total_usuarios }}</strong>
             </div>
         </div>
-    </section>
-{% elif user.rol == 'ENCARGADO_REGISTRO' %}
-    <section class="status-panel">
-        <h2 class="h5">Acceso operativo</h2>
-        <p class="mb-0 text-muted">Tu cuenta esta preparada para el modulo de registro de asistencia que se desarrollara en un siguiente sprint.</p>
-    </section>
-{% else %}
-    <section class="status-panel">
-        <h2 class="h5">Acceso de consulta</h2>
-        <p class="mb-0 text-muted">Tu cuenta esta preparada para futuras consultas asociadas al modulo de socios.</p>
-    </section>
-{% endif %}
+    </article>
+
+    <div class="dashboard-breakdown" aria-label="Distribucion por rol">
+        <article class="dashboard-breakdown-item">
+            <span>Administradores</span>
+            <strong>{{ usuarios_admin }}</strong>
+        </article>
+        <article class="dashboard-breakdown-item">
+            <span>Encargados</span>
+            <strong>{{ usuarios_encargados }}</strong>
+        </article>
+        <article class="dashboard-breakdown-item">
+            <span>Socios</span>
+            <strong>{{ usuarios_socios }}</strong>
+        </article>
+    </div>
+</section>
 {% endblock %}

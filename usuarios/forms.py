@@ -132,7 +132,7 @@ class UsuarioUpdateForm(forms.ModelForm):
         help_text='Dejar en blanco para conservar la contraseña actual.',
     )
     password2 = forms.CharField(
-        label='Confirmar nueva contrasena',
+        label='Confirmar nueva contraseña',
         required=False,
         widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
     )
@@ -221,7 +221,7 @@ class UsuarioUpdateForm(forms.ModelForm):
 
         if password1 or password2:
             if password1 != password2:
-                self.add_error('password2', 'Las contrasenas no coinciden.')
+                self.add_error('password2', 'Las contraseñas no coinciden.')
             elif password1:
                 validate_password(password1, self.instance)
 
@@ -235,7 +235,7 @@ class UsuarioUpdateForm(forms.ModelForm):
         return rol
 
     def save(self, commit=True):
-        """Guarda el usuario y aplica hashing si se cambio la contrasena."""
+        """Guarda el usuario y aplica hashing si se cambio la contraseña."""
         usuario = super().save(commit=False)
         password = self.cleaned_data.get('password1')
         if password:
@@ -267,23 +267,23 @@ class UsuarioUpdateForm(forms.ModelForm):
 
 
 class CambioPasswordForm(PasswordChangeForm):
-    """Formulario para que cada usuario cambie su propia contrasena."""
+    """Formulario para que cada usuario cambie su propia contraseña."""
 
     old_password = forms.CharField(
-        label='Contrasena actual',
+        label='Contraseña actual',
         widget=forms.PasswordInput(attrs={'autocomplete': 'current-password'}),
     )
     new_password1 = forms.CharField(
-        label='Nueva contrasena',
+        label='Nueva contraseña',
         widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
     )
     new_password2 = forms.CharField(
-        label='Confirmar nueva contrasena',
+        label='Confirmar nueva contraseña',
         widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
     )
 
     def __init__(self, *args, **kwargs):
-        """Configura crispy forms para el flujo de cambio de contrasena."""
+        """Configura crispy forms para el flujo de cambio de contraseña."""
         super().__init__(*args, **kwargs)
         self.helper = FormHelper()
         self.helper.form_method = 'post'
@@ -293,5 +293,5 @@ class CambioPasswordForm(PasswordChangeForm):
                 Column('new_password1', css_class='col-md-6'),
                 Column('new_password2', css_class='col-md-6'),
             ),
-            Submit('submit', 'Actualizar contrasena', css_class='btn btn-primary'),
+            Submit('submit', 'Actualizar contraseña', css_class='btn btn-primary'),
         )

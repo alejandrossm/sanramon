@@ -6,66 +6,93 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Sistema San Ramon{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="{% static 'css/styles.css' %}?v=paleta-1" rel="stylesheet">
+    <link href="{% static 'css/styles.css' %}?v=sidebar-1" rel="stylesheet">
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark app-navbar">
-        <div class="container">
-            <a class="navbar-brand fw-semibold" href="{% url 'usuarios:dashboard' %}">San Ramon</a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav" aria-controls="mainNav" aria-expanded="false" aria-label="Abrir navegacion">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="mainNav">
-                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-                    {% if user.is_authenticated %}
-                        {% if user.rol == 'SOCIO' and not user.is_superuser %}
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'usuarios:mis_asistencias' %}">Mis asistencias</a>
-                            </li>
-                        {% else %}
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'usuarios:dashboard' %}">Dashboard</a>
-                            </li>
-                        {% endif %}
-                        {% if user.is_superuser or user.rol == 'ADMINISTRADOR' or user.rol == 'ENCARGADO_REGISTRO' %}
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'usuarios:listado_usuarios' %}">Usuarios</a>
-                            </li>
-                        {% endif %}
-                        <li class="nav-item">
-                            <a class="nav-link" href="{% url 'usuarios:cambiar_mi_password' %}">Mi contraseña</a>
-                        </li>
-                    {% endif %}
-                </ul>
-                {% if user.is_authenticated %}
-                    <div class="d-flex align-items-center gap-3 text-white">
-                        <span class="small">{{ user.nombre_completo }}</span>
-                        <form method="post" action="{% url 'usuarios:logout' %}">
-                            {% csrf_token %}
-                            <button type="submit" class="btn btn-outline-light btn-sm">Cerrar sesion</button>
-                        </form>
-                    </div>
-                {% endif %}
+    <div class="app-shell">
+        <aside class="app-sidebar" aria-label="Panel de acciones">
+            <div class="sidebar-brand">
+                <img src="{% static 'images/logo.png' %}" alt="San Ramon" class="sidebar-logo">
+                <div>
+                    <p class="sidebar-kicker">Valle San Ramon</p>
+                    <h1 class="sidebar-title">Sistema de asistencia</h1>
+                </div>
             </div>
-        </div>
-    </nav>
 
-    <main class="py-4">
-        <div class="container">
-            {% if messages %}
-                <div class="messages">
-                    {% for message in messages %}
-                        <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show" role="alert">
-                            {{ message }}
-                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
-                        </div>
-                    {% endfor %}
+            {% if user.is_authenticated %}
+                <div class="sidebar-user">
+                    <span>Sesion activa</span>
+                    <strong>{{ user.nombre_completo }}</strong>
+                    <small>{{ user.get_rol_display }}</small>
+                </div>
+
+                <nav class="sidebar-nav" aria-label="Navegacion principal">
+                    {% if user.rol == 'SOCIO' and not user.is_superuser %}
+                        <a class="sidebar-link" href="{% url 'usuarios:mis_asistencias' %}">
+                            <span class="sidebar-icon" aria-hidden="true"></span>
+                            <span>Mis asistencias</span>
+                        </a>
+                    {% else %}
+                        <a class="sidebar-link" href="{% url 'usuarios:dashboard' %}">
+                            <span class="sidebar-icon" aria-hidden="true"></span>
+                            <span>Dashboard</span>
+                        </a>
+                    {% endif %}
+
+                    {% if user.is_superuser or user.rol == 'ADMINISTRADOR' or user.rol == 'ENCARGADO_REGISTRO' %}
+                        <a class="sidebar-link" href="{% url 'usuarios:listado_usuarios' %}">
+                            <span class="sidebar-icon" aria-hidden="true"></span>
+                            <span>Usuarios</span>
+                        </a>
+                        <a class="sidebar-link" href="{% url 'usuarios:registro_usuario' %}">
+                            <span class="sidebar-icon" aria-hidden="true"></span>
+                            <span>Registrar usuario</span>
+                        </a>
+                    {% endif %}
+
+                    <a class="sidebar-link" href="{% url 'usuarios:cambiar_mi_password' %}">
+                        <span class="sidebar-icon" aria-hidden="true"></span>
+                        <span>Mi contraseña</span>
+                    </a>
+                </nav>
+
+                <form method="post" action="{% url 'usuarios:logout' %}" class="sidebar-logout">
+                    {% csrf_token %}
+                    <button type="submit" class="sidebar-link sidebar-button">
+                        <span class="sidebar-icon" aria-hidden="true"></span>
+                        <span>Cerrar sesion</span>
+                    </button>
+                </form>
+            {% else %}
+                <div class="sidebar-user">
+                    <span>Acceso</span>
+                    <strong>Inicia sesion</strong>
+                    <small>Gestion interna</small>
                 </div>
             {% endif %}
+        </aside>
 
-            {% block content %}{% endblock %}
+        <div class="app-main">
+            <main class="app-content">
+                {% if messages %}
+                    <div class="messages">
+                        {% for message in messages %}
+                            <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show" role="alert">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                {% block content %}{% endblock %}
+            </main>
+
+            <footer class="app-footer">
+                valle san ramón
+            </footer>
         </div>
-    </main>
+    </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>

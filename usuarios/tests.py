@@ -82,6 +82,30 @@ class UsuariosModuloTests(TestCase):
             f"{reverse('usuarios:login')}?next={reverse('usuarios:dashboard')}",
         )
 
+    def test_dashboard_muestra_logo_y_total_de_usuarios(self):
+        """Renderiza el panel moderno con logo y total de usuarios."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:dashboard'))
+        self.assertContains(response, 'images/logo.png')
+        self.assertContains(response, 'Total de usuarios registrados')
+        self.assertContains(response, '<strong>3</strong>', html=True)
+
+    def test_formularios_cargan_en_layout_lateral(self):
+        """Verifica que los formularios principales carguen con sidebar global."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        urls = [
+            reverse('usuarios:registro_usuario'),
+            reverse('usuarios:editar_usuario', args=[self.socio_user.pk]),
+            reverse('usuarios:cambiar_mi_password'),
+        ]
+
+        for url in urls:
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, 'app-sidebar')
+                self.assertContains(response, 'valle san ramon')
+
     def test_administrador_crea_usuario(self):
         """Permite al administrador crear un usuario operativo."""
         self.client.login(username='admin', password='ClaveSegura123')
@@ -181,7 +205,7 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(self.socio_user.rol, self.User.ENCARGADO_REGISTRO)
 
     def test_administrador_edita_password_de_usuario_con_hash(self):
-        """Guarda con hash la contrasena cambiada por un administrador."""
+        """Guarda con hash la contraseña cambiada por un administrador."""
         self.client.login(username='admin', password='ClaveSegura123')
         response = self.client.post(
             reverse('usuarios:editar_usuario', args=[self.socio_user.pk]),
@@ -202,7 +226,7 @@ class UsuariosModuloTests(TestCase):
         self.assertTrue(self.socio_user.check_password('NuevaClaveSegura123'))
         self.assertNotEqual(self.socio_user.password, 'NuevaClaveSegura123')
 
-    def test_editar_usuario_sin_password_conserva_contrasena_actual(self):
+    def test_editar_usuario_sin_password_conserva_contraseña_actual(self):
         """Mantiene el hash actual si los campos de password quedan vacios."""
         password_original = self.socio_user.password
         self.client.login(username='admin', password='ClaveSegura123')
@@ -224,8 +248,8 @@ class UsuariosModuloTests(TestCase):
         self.socio_user.refresh_from_db()
         self.assertEqual(self.socio_user.password, password_original)
 
-    def test_usuario_cambia_su_propia_contrasena(self):
-        """Permite que un usuario cambie su propia contrasena."""
+    def test_usuario_cambia_su_propia_contraseña(self):
+        """Permite que un usuario cambie su propia contraseña."""
         self.client.login(username='socio', password='ClaveSegura123')
         response = self.client.post(
             reverse('usuarios:cambiar_mi_password'),
