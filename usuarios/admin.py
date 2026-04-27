@@ -6,6 +6,8 @@ from .models import Usuario
 
 @admin.register(Usuario)
 class UsuarioAdmin(UserAdmin):
+    """Configuracion del modelo Usuario dentro del admin de Django."""
+
     list_display = (
         'username',
         'email',

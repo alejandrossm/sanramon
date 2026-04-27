@@ -4,10 +4,13 @@ from django.db import models
 
 
 def normalizar_rut(rut):
+    """Normaliza el RUT para comparaciones y almacenamiento consistente."""
     return (rut or '').replace('.', '').replace(' ', '').upper()
 
 
 class Usuario(AbstractUser):
+    """Usuario principal del sistema con RUT, correo unico y rol operativo."""
+
     ADMINISTRADOR = 'ADMINISTRADOR'
     ENCARGADO_REGISTRO = 'ENCARGADO_REGISTRO'
     SOCIO = 'SOCIO'
@@ -37,15 +40,19 @@ class Usuario(AbstractUser):
     REQUIRED_FIELDS = ['email', 'first_name', 'last_name', 'rut']
 
     class Meta:
+        """Orden y nombres legibles del modelo en Django."""
+
         ordering = ['last_name', 'first_name', 'username']
         verbose_name = 'usuario'
         verbose_name_plural = 'usuarios'
 
     @property
     def nombre_completo(self):
+        """Devuelve el nombre completo o el username cuando no hay nombres cargados."""
         return self.get_full_name() or self.username
 
     def save(self, *args, **kwargs):
+        """Normaliza email y RUT antes de persistir el usuario."""
         self.email = (self.email or '').strip().lower()
         self.rut = normalizar_rut(self.rut)
         super().save(*args, **kwargs)

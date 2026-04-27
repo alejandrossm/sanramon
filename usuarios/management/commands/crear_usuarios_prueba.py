@@ -3,6 +3,8 @@ from django.core.management.base import BaseCommand
 
 
 class Command(BaseCommand):
+    """Comando idempotente para preparar usuarios demo de desarrollo."""
+
     help = 'Crea o actualiza usuarios de prueba para desarrollo local.'
 
     usuarios = [
@@ -39,6 +41,7 @@ class Command(BaseCommand):
     ]
 
     def handle(self, *args, **options):
+        """Crea o actualiza usuarios demo usando username como contrasena."""
         User = get_user_model()
 
         for datos in self.usuarios:

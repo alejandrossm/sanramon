@@ -13,12 +13,14 @@ from .models import Usuario
 
 
 def es_administrador(user):
+    """Determina si el usuario tiene privilegios administrativos completos."""
     return user.is_authenticated and (
         user.is_superuser or getattr(user, 'rol', None) == Usuario.ADMINISTRADOR
     )
 
 
 def es_encargado_registro(user):
+    """Determina si el usuario tiene rol operativo de encargado de registro."""
     return (
         user.is_authenticated
         and getattr(user, 'rol', None) == Usuario.ENCARGADO_REGISTRO
@@ -27,6 +29,7 @@ def es_encargado_registro(user):
 
 
 def es_socio(user):
+    """Determina si el usuario debe quedar limitado al portal de socio."""
     return (
         user.is_authenticated
         and getattr(user, 'rol', None) == Usuario.SOCIO
@@ -35,10 +38,12 @@ def es_socio(user):
 
 
 def puede_gestionar_usuarios(user):
+    """Indica si el usuario puede ingresar al modulo de gestion de usuarios."""
     return es_administrador(user) or es_encargado_registro(user)
 
 
 def puede_modificar_usuario(actor, usuario):
+    """Valida si el actor puede editar o cambiar estado del usuario objetivo."""
     if es_administrador(actor):
         return True
     if not es_encargado_registro(actor):
@@ -47,15 +52,19 @@ def puede_modificar_usuario(actor, usuario):
 
 
 def redireccion_sin_permiso(user):
+    """Envia al usuario a la vista permitida cuando intenta acceder sin permisos."""
     if es_socio(user):
         return redirect('usuarios:mis_asistencias')
     return redirect('usuarios:dashboard')
 
 
 def gestor_usuarios_required(view_func):
+    """Protege vistas de usuarios para administradores y encargados autorizados."""
+
     @wraps(view_func)
     @login_required
     def wrapper(request, *args, **kwargs):
+        """Ejecuta la vista protegida o redirige con mensaje de error."""
         if puede_gestionar_usuarios(request.user):
             return view_func(request, *args, **kwargs)
         messages.error(request, 'No tienes permisos para administrar usuarios.')
@@ -65,22 +74,28 @@ def gestor_usuarios_required(view_func):
 
 
 class UsuarioLoginView(LoginView):
+    """Vista de login con redireccion por rol despues de autenticar."""
+
     authentication_form = LoginForm
     template_name = 'usuarios/login.html'
     redirect_authenticated_user = True
 
     def get_success_url(self):
+        """Redirige socios a asistencias y otros roles al dashboard."""
         if es_socio(self.request.user):
             return reverse_lazy('usuarios:mis_asistencias')
         return reverse_lazy('usuarios:dashboard')
 
 
 class UsuarioLogoutView(LogoutView):
+    """Vista de cierre de sesion que vuelve al login."""
+
     next_page = reverse_lazy('usuarios:login')
 
 
 @login_required
 def dashboard(request):
+    """Muestra el panel principal para roles internos y redirige socios."""
     if es_socio(request.user):
         return redirect('usuarios:mis_asistencias')
     return render(
@@ -95,6 +110,7 @@ def dashboard(request):
 
 @login_required
 def mis_asistencias(request):
+    """Muestra al socio su estado actual de asistencia registrada."""
     if not es_socio(request.user):
         messages.error(request, 'Esta vista solo esta disponible para socios.')
         return redirect('usuarios:dashboard')
@@ -103,6 +119,7 @@ def mis_asistencias(request):
 
 @login_required
 def cambiar_mi_password(request):
+    """Permite al usuario autenticado actualizar su propia contrasena."""
     if request.method == 'POST':
         form = CambioPasswordForm(user=request.user, data=request.POST)
         if form.is_valid():
@@ -120,6 +137,7 @@ def cambiar_mi_password(request):
 
 @gestor_usuarios_required
 def listado_usuarios(request):
+    """Lista usuarios visibles segun el nivel de privilegio del actor."""
     usuarios = Usuario.objects.all()
     if not es_administrador(request.user):
         usuarios = usuarios.exclude(is_superuser=True).exclude(rol=Usuario.ADMINISTRADOR)
@@ -135,6 +153,7 @@ def listado_usuarios(request):
 
 @gestor_usuarios_required
 def registro_usuario(request):
+    """Crea usuarios nuevos respetando las restricciones de rol del actor."""
     if request.method == 'POST':
         form = UsuarioCreationForm(request.POST, actor=request.user)
         if form.is_valid():
@@ -149,6 +168,7 @@ def registro_usuario(request):
 
 @gestor_usuarios_required
 def editar_usuario(request, pk):
+    """Edita datos, estado y password de un usuario permitido."""
     usuario = get_object_or_404(Usuario, pk=pk)
     if not puede_modificar_usuario(request.user, usuario):
         messages.error(request, 'No tienes permisos para modificar este usuario.')
@@ -177,6 +197,7 @@ def editar_usuario(request, pk):
 @require_POST
 @gestor_usuarios_required
 def cambiar_estado_usuario(request, pk):
+    """Activa o desactiva un usuario permitido desde una peticion POST."""
     usuario = get_object_or_404(Usuario, pk=pk)
     if not puede_modificar_usuario(request.user, usuario):
         messages.error(request, 'No tienes permisos para cambiar el estado de este usuario.')

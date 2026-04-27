@@ -8,12 +8,15 @@ from .models import Usuario, normalizar_rut
 
 
 class LoginForm(AuthenticationForm):
+    """Formulario de acceso que acepta username o correo electronico."""
+
     username = forms.CharField(
         label='Usuario o correo electronico',
         widget=forms.TextInput(attrs={'autofocus': True, 'autocomplete': 'username'}),
     )
 
     def __init__(self, *args, **kwargs):
+        """Configura crispy forms para renderizar el formulario de login."""
         super().__init__(*args, **kwargs)
         self.helper = FormHelper()
         self.helper.form_method = 'post'
@@ -25,7 +28,11 @@ class LoginForm(AuthenticationForm):
 
 
 class UsuarioCreationForm(UserCreationForm):
+    """Formulario de alta de usuarios con control de roles segun actor."""
+
     class Meta:
+        """Campos permitidos al crear usuarios desde el modulo propio."""
+
         model = Usuario
         fields = (
             'username',
@@ -45,6 +52,7 @@ class UsuarioCreationForm(UserCreationForm):
         }
 
     def __init__(self, *args, **kwargs):
+        """Recibe el usuario actor y adapta layout y roles disponibles."""
         self.actor = kwargs.pop('actor', None)
         super().__init__(*args, **kwargs)
         self.fields['is_active'].initial = True
@@ -73,24 +81,28 @@ class UsuarioCreationForm(UserCreationForm):
         )
 
     def clean_email(self):
+        """Valida que el correo sea unico sin distinguir mayusculas."""
         email = self.cleaned_data['email'].strip().lower()
         if Usuario.objects.filter(email__iexact=email).exists():
             raise forms.ValidationError('Ya existe un usuario con este correo.')
         return email
 
     def clean_rut(self):
+        """Normaliza y valida unicidad del RUT ingresado."""
         rut = normalizar_rut(self.cleaned_data['rut'])
         if Usuario.objects.filter(rut__iexact=rut).exists():
             raise forms.ValidationError('Ya existe un usuario con este RUT.')
         return rut
 
     def clean_rol(self):
+        """Impide que actores no administradores asignen rol administrador."""
         rol = self.cleaned_data['rol']
         if rol == Usuario.ADMINISTRADOR and not self._actor_es_administrador():
             raise forms.ValidationError('No tienes permisos para asignar rol administrador.')
         return rol
 
     def _actor_es_administrador(self):
+        """Indica si el actor puede administrar privilegios de alto nivel."""
         return bool(
             self.actor
             and self.actor.is_authenticated
@@ -101,6 +113,7 @@ class UsuarioCreationForm(UserCreationForm):
         )
 
     def _limitar_roles_por_actor(self):
+        """Oculta el rol administrador cuando el actor no puede asignarlo."""
         if not self._actor_es_administrador():
             self.fields['rol'].choices = [
                 choice
@@ -110,6 +123,8 @@ class UsuarioCreationForm(UserCreationForm):
 
 
 class UsuarioUpdateForm(forms.ModelForm):
+    """Formulario de edicion de usuario con cambio opcional de password."""
+
     password1 = forms.CharField(
         label='Nueva contrasena',
         required=False,
@@ -123,6 +138,8 @@ class UsuarioUpdateForm(forms.ModelForm):
     )
 
     class Meta:
+        """Campos editables desde la pantalla de administracion de usuarios."""
+
         model = Usuario
         fields = (
             'username',
@@ -142,6 +159,7 @@ class UsuarioUpdateForm(forms.ModelForm):
         }
 
     def __init__(self, *args, **kwargs):
+        """Recibe el usuario actor y construye el layout de edicion."""
         self.actor = kwargs.pop('actor', None)
         super().__init__(*args, **kwargs)
         self._limitar_roles_por_actor()
@@ -169,6 +187,7 @@ class UsuarioUpdateForm(forms.ModelForm):
         )
 
     def clean_email(self):
+        """Valida unicidad del correo excluyendo el usuario editado."""
         email = self.cleaned_data['email'].strip().lower()
         qs = Usuario.objects.filter(email__iexact=email)
         if self.instance.pk:
@@ -178,6 +197,7 @@ class UsuarioUpdateForm(forms.ModelForm):
         return email
 
     def clean_rut(self):
+        """Normaliza y valida unicidad del RUT excluyendo el usuario editado."""
         rut = normalizar_rut(self.cleaned_data['rut'])
         qs = Usuario.objects.filter(rut__iexact=rut)
         if self.instance.pk:
@@ -187,6 +207,7 @@ class UsuarioUpdateForm(forms.ModelForm):
         return rut
 
     def clean(self):
+        """Valida coincidencia y seguridad del password cuando se informa."""
         cleaned_data = super().clean()
         password1 = cleaned_data.get('password1')
         password2 = cleaned_data.get('password2')
@@ -200,12 +221,14 @@ class UsuarioUpdateForm(forms.ModelForm):
         return cleaned_data
 
     def clean_rol(self):
+        """Impide que actores no administradores eleven privilegios."""
         rol = self.cleaned_data['rol']
         if rol == Usuario.ADMINISTRADOR and not self._actor_es_administrador():
             raise forms.ValidationError('No tienes permisos para asignar rol administrador.')
         return rol
 
     def save(self, commit=True):
+        """Guarda el usuario y aplica hashing si se cambio la contrasena."""
         usuario = super().save(commit=False)
         password = self.cleaned_data.get('password1')
         if password:
@@ -216,6 +239,7 @@ class UsuarioUpdateForm(forms.ModelForm):
         return usuario
 
     def _actor_es_administrador(self):
+        """Indica si el actor puede editar privilegios administrativos."""
         return bool(
             self.actor
             and self.actor.is_authenticated
@@ -226,6 +250,7 @@ class UsuarioUpdateForm(forms.ModelForm):
         )
 
     def _limitar_roles_por_actor(self):
+        """Oculta el rol administrador para actores sin privilegios."""
         if not self._actor_es_administrador():
             self.fields['rol'].choices = [
                 choice
@@ -235,6 +260,8 @@ class UsuarioUpdateForm(forms.ModelForm):
 
 
 class CambioPasswordForm(PasswordChangeForm):
+    """Formulario para que cada usuario cambie su propia contrasena."""
+
     old_password = forms.CharField(
         label='Contrasena actual',
         widget=forms.PasswordInput(attrs={'autocomplete': 'current-password'}),
@@ -249,6 +276,7 @@ class CambioPasswordForm(PasswordChangeForm):
     )
 
     def __init__(self, *args, **kwargs):
+        """Configura crispy forms para el flujo de cambio de contrasena."""
         super().__init__(*args, **kwargs)
         self.helper = FormHelper()
         self.helper.form_method = 'post'
