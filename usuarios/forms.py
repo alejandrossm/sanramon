@@ -95,10 +95,10 @@ class UsuarioCreationForm(UserCreationForm):
         return rut
 
     def clean_rol(self):
-        """Impide que actores no administradores asignen rol administrador."""
+        """Impide que actores no administradores asignen roles internos."""
         rol = self.cleaned_data['rol']
-        if rol == Usuario.ADMINISTRADOR and not self._actor_es_administrador():
-            raise forms.ValidationError('No tienes permisos para asignar rol administrador.')
+        if not self._actor_es_administrador() and rol != Usuario.SOCIO:
+            raise forms.ValidationError('Solo puedes registrar usuarios con rol socio.')
         return rol
 
     def _actor_es_administrador(self):
@@ -113,12 +113,12 @@ class UsuarioCreationForm(UserCreationForm):
         )
 
     def _limitar_roles_por_actor(self):
-        """Oculta el rol administrador cuando el actor no puede asignarlo."""
+        """Limita a rol socio cuando el actor no administra privilegios."""
         if not self._actor_es_administrador():
             self.fields['rol'].choices = [
                 choice
                 for choice in self.fields['rol'].choices
-                if choice[0] != Usuario.ADMINISTRADOR
+                if choice[0] == Usuario.SOCIO
             ]
 
 
@@ -228,10 +228,10 @@ class UsuarioUpdateForm(forms.ModelForm):
         return cleaned_data
 
     def clean_rol(self):
-        """Impide que actores no administradores eleven privilegios."""
+        """Impide que actores no administradores asignen roles internos."""
         rol = self.cleaned_data['rol']
-        if rol == Usuario.ADMINISTRADOR and not self._actor_es_administrador():
-            raise forms.ValidationError('No tienes permisos para asignar rol administrador.')
+        if not self._actor_es_administrador() and rol != Usuario.SOCIO:
+            raise forms.ValidationError('Solo puedes asignar rol socio.')
         return rol
 
     def save(self, commit=True):
@@ -257,12 +257,12 @@ class UsuarioUpdateForm(forms.ModelForm):
         )
 
     def _limitar_roles_por_actor(self):
-        """Oculta el rol administrador para actores sin privilegios."""
+        """Limita a rol socio para actores sin privilegios."""
         if not self._actor_es_administrador():
             self.fields['rol'].choices = [
                 choice
                 for choice in self.fields['rol'].choices
-                if choice[0] != Usuario.ADMINISTRADOR
+                if choice[0] == Usuario.SOCIO
             ]
 
 

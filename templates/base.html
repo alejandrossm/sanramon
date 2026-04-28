@@ -37,13 +37,22 @@
                             <span class="sidebar-icon" aria-hidden="true"></span>
                             <span>Dashboard</span>
                         </a>
+                        <a class="sidebar-link" href="{% url 'usuarios:listado_socios_asistencia' %}">
+                            <span class="sidebar-icon" aria-hidden="true"></span>
+                            <span>Asistencia</span>
+                        </a>
                     {% endif %}
 
-                    {% if user.is_superuser or user.rol == 'ADMINISTRADOR' or user.rol == 'ENCARGADO_REGISTRO' %}
+                    {% if user.is_superuser or user.rol == 'ADMINISTRADOR' %}
                         <a class="sidebar-link" href="{% url 'usuarios:listado_usuarios' %}">
                             <span class="sidebar-icon" aria-hidden="true"></span>
                             <span>Usuarios</span>
                         </a>
+                        <a class="sidebar-link" href="{% url 'usuarios:registro_usuario' %}">
+                            <span class="sidebar-icon" aria-hidden="true"></span>
+                            <span>Registrar usuario</span>
+                        </a>
+                    {% elif user.rol == 'ENCARGADO_REGISTRO' %}
                         <a class="sidebar-link" href="{% url 'usuarios:registro_usuario' %}">
                             <span class="sidebar-icon" aria-hidden="true"></span>
                             <span>Registrar usuario</span>

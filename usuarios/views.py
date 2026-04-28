@@ -38,17 +38,23 @@ def es_socio(user):
 
 
 def puede_gestionar_usuarios(user):
-    """Indica si el usuario puede ingresar al modulo de gestion de usuarios."""
+    """Indica si el usuario puede administrar usuarios sin restricciones."""
+    return es_administrador(user)
+
+
+def puede_registrar_usuarios(user):
+    """Indica si el usuario puede registrar nuevas cuentas."""
+    return es_administrador(user) or es_encargado_registro(user)
+
+
+def puede_acceder_asistencia(user):
+    """Indica si el usuario puede entrar al modulo operativo de asistencia."""
     return es_administrador(user) or es_encargado_registro(user)
 
 
 def puede_modificar_usuario(actor, usuario):
     """Valida si el actor puede editar o cambiar estado del usuario objetivo."""
-    if es_administrador(actor):
-        return True
-    if not es_encargado_registro(actor):
-        return False
-    return not usuario.is_superuser and usuario.rol != Usuario.ADMINISTRADOR
+    return es_administrador(actor)
 
 
 def redireccion_sin_permiso(user):
@@ -59,7 +65,7 @@ def redireccion_sin_permiso(user):
 
 
 def gestor_usuarios_required(view_func):
-    """Protege vistas de usuarios para administradores y encargados autorizados."""
+    """Protege vistas de gestion completa para administradores."""
 
     @wraps(view_func)
     @login_required
@@ -68,6 +74,36 @@ def gestor_usuarios_required(view_func):
         if puede_gestionar_usuarios(request.user):
             return view_func(request, *args, **kwargs)
         messages.error(request, 'No tienes permisos para administrar usuarios.')
+        return redireccion_sin_permiso(request.user)
+
+    return wrapper
+
+
+def registro_usuarios_required(view_func):
+    """Protege el registro de usuarios para administradores y encargados."""
+
+    @wraps(view_func)
+    @login_required
+    def wrapper(request, *args, **kwargs):
+        """Ejecuta el registro o redirige si el rol no esta autorizado."""
+        if puede_registrar_usuarios(request.user):
+            return view_func(request, *args, **kwargs)
+        messages.error(request, 'No tienes permisos para registrar usuarios.')
+        return redireccion_sin_permiso(request.user)
+
+    return wrapper
+
+
+def asistencia_required(view_func):
+    """Protege vistas operativas de asistencia para administradores y encargados."""
+
+    @wraps(view_func)
+    @login_required
+    def wrapper(request, *args, **kwargs):
+        """Ejecuta la vista de asistencia o redirige al destino permitido."""
+        if puede_acceder_asistencia(request.user):
+            return view_func(request, *args, **kwargs)
+        messages.error(request, 'No tienes permisos para acceder al modulo de asistencia.')
         return redireccion_sin_permiso(request.user)
 
     return wrapper
@@ -109,6 +145,8 @@ def dashboard(request):
         'usuarios/dashboard.html',
         {
             'puede_gestionar_usuarios': puede_gestionar_usuarios(request.user),
+            'puede_registrar_usuarios': puede_registrar_usuarios(request.user),
+            'puede_acceder_asistencia': puede_acceder_asistencia(request.user),
             'puede_administrar_privilegios': es_administrador(request.user),
             'total_usuarios': total_usuarios,
             'usuarios_activos': usuarios_activos,
@@ -128,6 +166,25 @@ def mis_asistencias(request):
         messages.error(request, 'Esta vista solo esta disponible para socios.')
         return redirect('usuarios:dashboard')
     return render(request, 'usuarios/mis_asistencias.html')
+
+
+@asistencia_required
+def listado_socios_asistencia(request):
+    """Lista socios disponibles para los futuros flujos de asistencia."""
+    socios = Usuario.objects.filter(rol=Usuario.SOCIO)
+    total_socios = socios.count()
+    socios_activos = socios.filter(is_active=True).count()
+
+    return render(
+        request,
+        'usuarios/listado_socios_asistencia.html',
+        {
+            'socios': socios,
+            'total_socios': total_socios,
+            'socios_activos': socios_activos,
+            'socios_inactivos': total_socios - socios_activos,
+        },
+    )
 
 
 @login_required
@@ -164,7 +221,7 @@ def listado_usuarios(request):
     )
 
 
-@gestor_usuarios_required
+@registro_usuarios_required
 def registro_usuario(request):
     """Crea usuarios nuevos respetando las restricciones de rol del actor."""
     if request.method == 'POST':
@@ -172,11 +229,20 @@ def registro_usuario(request):
         if form.is_valid():
             usuario = form.save()
             messages.success(request, f'Usuario {usuario.username} creado correctamente.')
-            return redirect('usuarios:listado_usuarios')
+            if puede_gestionar_usuarios(request.user):
+                return redirect('usuarios:listado_usuarios')
+            return redirect('usuarios:dashboard')
     else:
         form = UsuarioCreationForm(actor=request.user)
 
-    return render(request, 'usuarios/registro_usuario.html', {'form': form})
+    return render(
+        request,
+        'usuarios/registro_usuario.html',
+        {
+            'form': form,
+            'puede_gestionar_usuarios': puede_gestionar_usuarios(request.user),
+        },
+    )
 
 
 @gestor_usuarios_required

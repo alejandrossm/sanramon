@@ -54,6 +54,12 @@ class UsuariosModuloTests(TestCase):
         response = self.client.get(reverse('usuarios:listado_usuarios'))
         self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
 
+    def test_socio_no_accede_a_vista_de_asistencia(self):
+        """Redirige al socio cuando intenta entrar al modulo de asistencia."""
+        self.client.login(username='socio', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+
     def test_socio_login_redirige_a_mis_asistencias(self):
         """Envia al socio a su vista de asistencias despues del login."""
         response = self.client.post(
@@ -82,6 +88,12 @@ class UsuariosModuloTests(TestCase):
             f"{reverse('usuarios:login')}?next={reverse('usuarios:dashboard')}",
         )
 
+    def test_usuario_no_autenticado_no_accede_a_asistencia(self):
+        """Protege la vista de asistencia para visitantes no autenticados."""
+        url = reverse('usuarios:listado_socios_asistencia')
+        response = self.client.get(url)
+        self.assertRedirects(response, f"{reverse('usuarios:login')}?next={url}")
+
     def test_dashboard_muestra_logo_y_total_de_usuarios(self):
         """Renderiza el panel moderno con logo y total de usuarios."""
         self.client.login(username='admin', password='ClaveSegura123')
@@ -89,6 +101,25 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'images/logo.png')
         self.assertContains(response, 'Total de usuarios registrados')
         self.assertContains(response, '<strong>3</strong>', html=True)
+
+    def test_administrador_accede_a_asistencia_y_ve_solo_socios(self):
+        """Permite al administrador ver el listado operativo de socios."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Listado operativo de socios')
+        self.assertContains(response, 'socio@example.com')
+        self.assertNotContains(response, 'admin@example.com')
+        self.assertNotContains(response, 'encargado@example.com')
+
+    def test_encargado_accede_a_asistencia_y_ve_solo_socios(self):
+        """Permite al encargado ver el listado operativo de socios."""
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'socio@example.com')
+        self.assertNotContains(response, 'admin@example.com')
+        self.assertNotContains(response, 'encargado@example.com')
 
     def test_formularios_cargan_en_layout_lateral(self):
         """Verifica que los formularios principales carguen con sidebar global."""
@@ -104,7 +135,7 @@ class UsuariosModuloTests(TestCase):
                 response = self.client.get(url)
                 self.assertEqual(response.status_code, 200)
                 self.assertContains(response, 'app-sidebar')
-                self.assertContains(response, 'valle san ramon')
+                self.assertContains(response, 'Valle San Ramon')
 
     def test_administrador_crea_usuario(self):
         """Permite al administrador crear un usuario operativo."""
@@ -127,12 +158,32 @@ class UsuariosModuloTests(TestCase):
         usuario = self.User.objects.get(username='encargado_nuevo')
         self.assertEqual(usuario.rut, '33333333-3')
 
-    def test_encargado_accede_a_listado_sin_administradores(self):
-        """Oculta cuentas administradoras al encargado de registro."""
+    def test_encargado_no_accede_a_listado_de_usuarios(self):
+        """Impide que el encargado entre al listado de gestion."""
         self.client.login(username='encargado', password='ClaveSegura123')
         response = self.client.get(reverse('usuarios:listado_usuarios'))
-        self.assertContains(response, 'socio@example.com')
-        self.assertNotContains(response, 'admin@example.com')
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+
+    def test_encargado_registra_solo_socios(self):
+        """Permite al encargado registrar cuentas de socio."""
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:registro_usuario'),
+            {
+                'username': 'socio_nuevo',
+                'email': 'socio.nuevo@example.com',
+                'first_name': 'Socio',
+                'last_name': 'Nuevo',
+                'rut': '66.666.666-6',
+                'rol': self.User.SOCIO,
+                'is_active': 'on',
+                'password1': 'ClaveSegura123',
+                'password2': 'ClaveSegura123',
+            },
+        )
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+        usuario = self.User.objects.get(username='socio_nuevo')
+        self.assertEqual(usuario.rol, self.User.SOCIO)
 
     def test_encargado_no_crea_administrador(self):
         """Impide que el encargado cree usuarios administradores."""
@@ -154,6 +205,26 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(self.User.objects.filter(username='admin_no_permitido').exists())
 
+    def test_encargado_no_crea_otro_encargado(self):
+        """Impide que el encargado cree usuarios con roles internos."""
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:registro_usuario'),
+            {
+                'username': 'encargado_no_permitido',
+                'email': 'encargado.no.permitido@example.com',
+                'first_name': 'Encargado',
+                'last_name': 'No Permitido',
+                'rut': '77.777.777-7',
+                'rol': self.User.ENCARGADO_REGISTRO,
+                'is_active': 'on',
+                'password1': 'ClaveSegura123',
+                'password2': 'ClaveSegura123',
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(self.User.objects.filter(username='encargado_no_permitido').exists())
+
     def test_encargado_no_edita_administrador(self):
         """Impide que el encargado modifique un usuario administrador."""
         self.client.login(username='encargado', password='ClaveSegura123')
@@ -169,9 +240,29 @@ class UsuariosModuloTests(TestCase):
                 'is_active': 'on',
             },
         )
-        self.assertRedirects(response, reverse('usuarios:listado_usuarios'))
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
         self.admin_user.refresh_from_db()
         self.assertEqual(self.admin_user.rol, self.User.ADMINISTRADOR)
+
+    def test_encargado_no_edita_socios(self):
+        """Impide que el encargado edite usuarios ya creados."""
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:editar_usuario', args=[self.socio_user.pk]),
+            {
+                'username': 'socio_editado',
+                'email': 'socio.editado@example.com',
+                'first_name': 'Socio',
+                'last_name': 'Editado',
+                'rut': '22.222.222-2',
+                'rol': self.User.SOCIO,
+                'is_active': 'on',
+            },
+        )
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+        self.socio_user.refresh_from_db()
+        self.assertEqual(self.socio_user.username, 'socio')
+        self.assertEqual(self.socio_user.email, 'socio@example.com')
 
     def test_encargado_no_desactiva_administrador(self):
         """Impide que el encargado desactive cuentas administradoras."""
@@ -179,9 +270,19 @@ class UsuariosModuloTests(TestCase):
         response = self.client.post(
             reverse('usuarios:cambiar_estado_usuario', args=[self.admin_user.pk]),
         )
-        self.assertRedirects(response, reverse('usuarios:listado_usuarios'))
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
         self.admin_user.refresh_from_db()
         self.assertTrue(self.admin_user.is_active)
+
+    def test_encargado_no_cambia_estado_de_socios(self):
+        """Impide que el encargado active o desactive usuarios."""
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:cambiar_estado_usuario', args=[self.socio_user.pk]),
+        )
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+        self.socio_user.refresh_from_db()
+        self.assertTrue(self.socio_user.is_active)
 
     def test_administrador_edita_usuario_sin_modificar_rut(self):
         """Normaliza email y rol, pero conserva el RUT original al editar."""
