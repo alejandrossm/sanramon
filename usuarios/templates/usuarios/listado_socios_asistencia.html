@@ -10,6 +10,7 @@
         <p class="text-muted mb-0">Listado operativo de socios para registro de asistencia.</p>
     </div>
     <div class="d-flex flex-wrap gap-2">
+        <a href="{% url 'usuarios:registro_socio' %}" class="btn btn-primary">Registrar socio</a>
         <span class="badge text-bg-success align-self-center">Activos: {{ socios_activos }}</span>
         <span class="badge text-bg-secondary align-self-center">Inactivos: {{ socios_inactivos }}</span>
     </div>
@@ -22,7 +23,6 @@
                 <th>Socio</th>
                 <th>RUT</th>
                 <th>Email</th>
-                <th>Usuario</th>
                 <th>Estado</th>
             </tr>
         </thead>
@@ -32,7 +32,6 @@
                     <td class="fw-semibold">{{ socio.nombre_completo }}</td>
                     <td>{{ socio.rut }}</td>
                     <td>{{ socio.email }}</td>
-                    <td>{{ socio.username }}</td>
                     <td>
                         {% if socio.is_active %}
                             <span class="badge text-bg-success">Activo</span>
@@ -43,7 +42,7 @@
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="5" class="text-center text-muted py-4">No hay socios registrados.</td>
+                    <td colspan="4" class="text-center text-muted py-4">No hay socios registrados.</td>
                 </tr>
             {% endfor %}
         </tbody>

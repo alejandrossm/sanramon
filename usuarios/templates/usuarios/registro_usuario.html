@@ -7,19 +7,11 @@
 <div class="page-heading">
     <p class="text-uppercase text-primary fw-semibold small mb-1">Administracion</p>
     <h1 class="h3 mb-1">Registrar usuario</h1>
-    {% if puede_gestionar_usuarios %}
-        <p class="text-muted mb-0">Crea una cuenta para administrador, encargado de registro o socio.</p>
-    {% else %}
-        <p class="text-muted mb-0">Crea una cuenta de socio para el sistema.</p>
-    {% endif %}
+    <p class="text-muted mb-0">Crea una cuenta interna para administradores o encargados de registro.</p>
 </div>
 
 <section class="form-panel registro-usuario-panel">
     {% crispy form %}
-    {% if puede_gestionar_usuarios %}
-        <a href="{% url 'usuarios:listado_usuarios' %}" class="btn btn-link ps-0 mt-2">Volver al listado</a>
-    {% else %}
-        <a href="{% url 'usuarios:dashboard' %}" class="btn btn-link ps-0 mt-2">Volver al dashboard</a>
-    {% endif %}
+    <a href="{% url 'usuarios:listado_usuarios' %}" class="btn btn-link ps-0 mt-2">Volver al listado</a>
 </section>
 {% endblock %}

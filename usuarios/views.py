@@ -8,7 +8,13 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.views.decorators.http import require_POST
 
-from .forms import CambioPasswordForm, LoginForm, UsuarioCreationForm, UsuarioUpdateForm
+from .forms import (
+    CambioPasswordForm,
+    LoginForm,
+    SocioCreationForm,
+    UsuarioCreationForm,
+    UsuarioUpdateForm,
+)
 from .models import Usuario
 
 
@@ -43,7 +49,12 @@ def puede_gestionar_usuarios(user):
 
 
 def puede_registrar_usuarios(user):
-    """Indica si el usuario puede registrar nuevas cuentas."""
+    """Indica si el usuario puede registrar cuentas internas."""
+    return es_administrador(user)
+
+
+def puede_registrar_socios(user):
+    """Indica si el usuario puede registrar cuentas de socio."""
     return es_administrador(user) or es_encargado_registro(user)
 
 
@@ -80,7 +91,7 @@ def gestor_usuarios_required(view_func):
 
 
 def registro_usuarios_required(view_func):
-    """Protege el registro de usuarios para administradores y encargados."""
+    """Protege el registro de usuarios internos para administradores."""
 
     @wraps(view_func)
     @login_required
@@ -88,7 +99,22 @@ def registro_usuarios_required(view_func):
         """Ejecuta el registro o redirige si el rol no esta autorizado."""
         if puede_registrar_usuarios(request.user):
             return view_func(request, *args, **kwargs)
-        messages.error(request, 'No tienes permisos para registrar usuarios.')
+        messages.error(request, 'No tienes permisos para registrar usuarios internos.')
+        return redireccion_sin_permiso(request.user)
+
+    return wrapper
+
+
+def registro_socios_required(view_func):
+    """Protege el registro de socios para administradores y encargados."""
+
+    @wraps(view_func)
+    @login_required
+    def wrapper(request, *args, **kwargs):
+        """Ejecuta el registro de socios o redirige si el rol no esta autorizado."""
+        if puede_registrar_socios(request.user):
+            return view_func(request, *args, **kwargs)
+        messages.error(request, 'No tienes permisos para registrar socios.')
         return redireccion_sin_permiso(request.user)
 
     return wrapper
@@ -146,6 +172,7 @@ def dashboard(request):
         {
             'puede_gestionar_usuarios': puede_gestionar_usuarios(request.user),
             'puede_registrar_usuarios': puede_registrar_usuarios(request.user),
+            'puede_registrar_socios': puede_registrar_socios(request.user),
             'puede_acceder_asistencia': puede_acceder_asistencia(request.user),
             'puede_administrar_privilegios': es_administrador(request.user),
             'total_usuarios': total_usuarios,
@@ -223,15 +250,13 @@ def listado_usuarios(request):
 
 @registro_usuarios_required
 def registro_usuario(request):
-    """Crea usuarios nuevos respetando las restricciones de rol del actor."""
+    """Crea usuarios internos respetando las restricciones de rol del actor."""
     if request.method == 'POST':
         form = UsuarioCreationForm(request.POST, actor=request.user)
         if form.is_valid():
             usuario = form.save()
             messages.success(request, f'Usuario {usuario.username} creado correctamente.')
-            if puede_gestionar_usuarios(request.user):
-                return redirect('usuarios:listado_usuarios')
-            return redirect('usuarios:dashboard')
+            return redirect('usuarios:listado_usuarios')
     else:
         form = UsuarioCreationForm(actor=request.user)
 
@@ -240,9 +265,23 @@ def registro_usuario(request):
         'usuarios/registro_usuario.html',
         {
             'form': form,
-            'puede_gestionar_usuarios': puede_gestionar_usuarios(request.user),
         },
     )
+
+
+@registro_socios_required
+def registro_socio(request):
+    """Crea socios sin credenciales tradicionales de username y password."""
+    if request.method == 'POST':
+        form = SocioCreationForm(request.POST)
+        if form.is_valid():
+            socio = form.save()
+            messages.success(request, f'Socio {socio.nombre_completo} creado correctamente.')
+            return redirect('usuarios:listado_socios_asistencia')
+    else:
+        form = SocioCreationForm()
+
+    return render(request, 'usuarios/registro_socio.html', {'form': form})
 
 
 @gestor_usuarios_required

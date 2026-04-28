@@ -15,6 +15,9 @@
             {% elif puede_registrar_usuarios %}
                 <a href="{% url 'usuarios:registro_usuario' %}" class="btn btn-primary">Registrar usuario</a>
             {% endif %}
+            {% if puede_registrar_socios %}
+                <a href="{% url 'usuarios:registro_socio' %}" class="btn btn-primary">Registrar socio</a>
+            {% endif %}
             {% if puede_acceder_asistencia %}
                 <a href="{% url 'usuarios:listado_socios_asistencia' %}" class="btn btn-outline-primary">Asistencia</a>
             {% endif %}

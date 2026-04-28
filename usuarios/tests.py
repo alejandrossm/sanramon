@@ -126,6 +126,7 @@ class UsuariosModuloTests(TestCase):
         self.client.login(username='admin', password='ClaveSegura123')
         urls = [
             reverse('usuarios:registro_usuario'),
+            reverse('usuarios:registro_socio'),
             reverse('usuarios:editar_usuario', args=[self.socio_user.pk]),
             reverse('usuarios:cambiar_mi_password'),
         ]
@@ -158,6 +159,61 @@ class UsuariosModuloTests(TestCase):
         usuario = self.User.objects.get(username='encargado_nuevo')
         self.assertEqual(usuario.rut, '33333333-3')
 
+    def test_registro_usuario_interno_no_ofrece_rol_socio(self):
+        """Reserva el formulario interno para administradores y encargados."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:registro_usuario'))
+        self.assertContains(response, 'ADMINISTRADOR')
+        self.assertContains(response, 'ENCARGADO_REGISTRO')
+        self.assertNotContains(response, 'value="SOCIO"')
+
+    def test_administrador_no_crea_socio_desde_registro_interno(self):
+        """Impide crear socios desde el formulario con username y password."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:registro_usuario'),
+            {
+                'username': 'socio_interno',
+                'email': 'socio.interno@example.com',
+                'first_name': 'Socio',
+                'last_name': 'Interno',
+                'rut': '88.888.888-8',
+                'rol': self.User.SOCIO,
+                'is_active': 'on',
+                'password1': 'ClaveSegura123',
+                'password2': 'ClaveSegura123',
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(self.User.objects.filter(email='socio.interno@example.com').exists())
+
+    def test_registro_socio_no_muestra_usuario_ni_password_y_pide_confirmacion(self):
+        """Renderiza el formulario de socio sin credenciales tradicionales."""
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:registro_socio'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'email_confirmacion')
+        self.assertNotContains(response, 'name="username"')
+        self.assertNotContains(response, 'name="password1"')
+        self.assertNotContains(response, 'name="password2"')
+
+    def test_registro_socio_valida_confirmacion_de_correo(self):
+        """Exige confirmar el correo al registrar un socio."""
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:registro_socio'),
+            {
+                'email': 'socio.nuevo@example.com',
+                'email_confirmacion': 'otro.correo@example.com',
+                'first_name': 'Socio',
+                'last_name': 'Nuevo',
+                'rut': '66.666.666-6',
+                'is_active': 'on',
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(self.User.objects.filter(email='socio.nuevo@example.com').exists())
+
     def test_encargado_no_accede_a_listado_de_usuarios(self):
         """Impide que el encargado entre al listado de gestion."""
         self.client.login(username='encargado', password='ClaveSegura123')
@@ -168,25 +224,24 @@ class UsuariosModuloTests(TestCase):
         """Permite al encargado registrar cuentas de socio."""
         self.client.login(username='encargado', password='ClaveSegura123')
         response = self.client.post(
-            reverse('usuarios:registro_usuario'),
+            reverse('usuarios:registro_socio'),
             {
-                'username': 'socio_nuevo',
                 'email': 'socio.nuevo@example.com',
+                'email_confirmacion': 'socio.nuevo@example.com',
                 'first_name': 'Socio',
                 'last_name': 'Nuevo',
                 'rut': '66.666.666-6',
-                'rol': self.User.SOCIO,
                 'is_active': 'on',
-                'password1': 'ClaveSegura123',
-                'password2': 'ClaveSegura123',
             },
         )
-        self.assertRedirects(response, reverse('usuarios:dashboard'))
-        usuario = self.User.objects.get(username='socio_nuevo')
+        self.assertRedirects(response, reverse('usuarios:listado_socios_asistencia'))
+        usuario = self.User.objects.get(email='socio.nuevo@example.com')
         self.assertEqual(usuario.rol, self.User.SOCIO)
+        self.assertEqual(usuario.username, 'socio_666666666')
+        self.assertFalse(usuario.has_usable_password())
 
-    def test_encargado_no_crea_administrador(self):
-        """Impide que el encargado cree usuarios administradores."""
+    def test_encargado_no_accede_a_registro_de_usuarios_internos(self):
+        """Impide que el encargado use el alta de usuarios internos."""
         self.client.login(username='encargado', password='ClaveSegura123')
         response = self.client.post(
             reverse('usuarios:registro_usuario'),
@@ -202,11 +257,11 @@ class UsuariosModuloTests(TestCase):
                 'password2': 'ClaveSegura123',
             },
         )
-        self.assertEqual(response.status_code, 200)
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
         self.assertFalse(self.User.objects.filter(username='admin_no_permitido').exists())
 
     def test_encargado_no_crea_otro_encargado(self):
-        """Impide que el encargado cree usuarios con roles internos."""
+        """Impide que el encargado cree usuarios internos."""
         self.client.login(username='encargado', password='ClaveSegura123')
         response = self.client.post(
             reverse('usuarios:registro_usuario'),
@@ -222,7 +277,7 @@ class UsuariosModuloTests(TestCase):
                 'password2': 'ClaveSegura123',
             },
         )
-        self.assertEqual(response.status_code, 200)
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
         self.assertFalse(self.User.objects.filter(username='encargado_no_permitido').exists())
 
     def test_encargado_no_edita_administrador(self):

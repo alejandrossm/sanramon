@@ -52,10 +52,14 @@
                             <span class="sidebar-icon" aria-hidden="true"></span>
                             <span>Registrar usuario</span>
                         </a>
-                    {% elif user.rol == 'ENCARGADO_REGISTRO' %}
-                        <a class="sidebar-link" href="{% url 'usuarios:registro_usuario' %}">
+                        <a class="sidebar-link" href="{% url 'usuarios:registro_socio' %}">
                             <span class="sidebar-icon" aria-hidden="true"></span>
-                            <span>Registrar usuario</span>
+                            <span>Registrar socio</span>
+                        </a>
+                    {% elif user.rol == 'ENCARGADO_REGISTRO' %}
+                        <a class="sidebar-link" href="{% url 'usuarios:registro_socio' %}">
+                            <span class="sidebar-icon" aria-hidden="true"></span>
+                            <span>Registrar socio</span>
                         </a>
                     {% endif %}
 

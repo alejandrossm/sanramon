@@ -95,10 +95,12 @@ class UsuarioCreationForm(UserCreationForm):
         return rut
 
     def clean_rol(self):
-        """Impide que actores no administradores asignen roles internos."""
+        """Impide crear socios desde el formulario de usuarios internos."""
         rol = self.cleaned_data['rol']
-        if not self._actor_es_administrador() and rol != Usuario.SOCIO:
-            raise forms.ValidationError('Solo puedes registrar usuarios con rol socio.')
+        if not self._actor_es_administrador():
+            raise forms.ValidationError('No tienes permisos para registrar usuarios internos.')
+        if rol == Usuario.SOCIO:
+            raise forms.ValidationError('Usa el formulario de registro de socios.')
         return rol
 
     def _actor_es_administrador(self):
@@ -113,13 +115,107 @@ class UsuarioCreationForm(UserCreationForm):
         )
 
     def _limitar_roles_por_actor(self):
-        """Limita a rol socio cuando el actor no administra privilegios."""
-        if not self._actor_es_administrador():
-            self.fields['rol'].choices = [
-                choice
-                for choice in self.fields['rol'].choices
-                if choice[0] == Usuario.SOCIO
-            ]
+        """Limita el alta interna a roles administrativos y operativos."""
+        self.fields['rol'].choices = [
+            choice
+            for choice in self.fields['rol'].choices
+            if choice[0] != Usuario.SOCIO
+        ]
+
+
+class SocioCreationForm(forms.ModelForm):
+    """Formulario de alta de socios sin credenciales de acceso tradicional."""
+
+    email_confirmacion = forms.EmailField(label='Confirmar correo electronico')
+
+    class Meta:
+        """Campos requeridos para crear una cuenta de socio."""
+
+        model = Usuario
+        fields = (
+            'first_name',
+            'last_name',
+            'rut',
+            'email',
+            'is_active',
+        )
+        labels = {
+            'first_name': 'Nombre',
+            'last_name': 'Apellido',
+            'email': 'Correo electronico',
+            'is_active': 'Socio activo',
+        }
+
+    def __init__(self, *args, **kwargs):
+        """Configura crispy forms para el registro operativo de socios."""
+        super().__init__(*args, **kwargs)
+        self.fields['is_active'].initial = True
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.layout = Layout(
+            Row(
+                Column('first_name', css_class='col-md-6'),
+                Column('last_name', css_class='col-md-6'),
+            ),
+            Row(
+                Column('rut', css_class='col-md-6'),
+                Column('email', css_class='col-md-6'),
+            ),
+            Row(
+                Column('email_confirmacion', css_class='col-md-6'),
+            ),
+            'is_active',
+            Submit('submit', 'Guardar socio', css_class='btn btn-primary'),
+        )
+
+    def clean_email(self):
+        """Valida que el correo sea unico sin distinguir mayusculas."""
+        email = self.cleaned_data['email'].strip().lower()
+        if Usuario.objects.filter(email__iexact=email).exists():
+            raise forms.ValidationError('Ya existe un usuario con este correo.')
+        return email
+
+    def clean_rut(self):
+        """Normaliza y valida unicidad del RUT ingresado."""
+        rut = normalizar_rut(self.cleaned_data['rut'])
+        if Usuario.objects.filter(rut__iexact=rut).exists():
+            raise forms.ValidationError('Ya existe un usuario con este RUT.')
+        return rut
+
+    def clean(self):
+        """Verifica que el correo ingresado coincida con su confirmacion."""
+        cleaned_data = super().clean()
+        email = (cleaned_data.get('email') or '').strip().lower()
+        email_confirmacion = (cleaned_data.get('email_confirmacion') or '').strip().lower()
+        if email and email_confirmacion and email != email_confirmacion:
+            self.add_error('email_confirmacion', 'La confirmacion del correo no coincide.')
+        return cleaned_data
+
+    def save(self, commit=True):
+        """Crea un socio sin password utilizable y con username interno."""
+        socio = super().save(commit=False)
+        socio.rol = Usuario.SOCIO
+        socio.username = self._generar_username(socio.rut)
+        socio.set_unusable_password()
+        if commit:
+            socio.save()
+            self.save_m2m()
+        return socio
+
+    def _generar_username(self, rut):
+        """Genera un username tecnico a partir del RUT normalizado."""
+        rut_limpio = ''.join(
+            caracter.lower()
+            for caracter in normalizar_rut(rut)
+            if caracter.isalnum()
+        )
+        base = f'socio_{rut_limpio}' if rut_limpio else 'socio'
+        username = base
+        contador = 1
+        while Usuario.objects.filter(username__iexact=username).exists():
+            contador += 1
+            username = f'{base}_{contador}'
+        return username
 
 
 class UsuarioUpdateForm(forms.ModelForm):
