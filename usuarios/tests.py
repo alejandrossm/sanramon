@@ -186,8 +186,11 @@ class UsuariosModuloTests(TestCase):
         response = self.client.get(reverse('usuarios:listado_usuarios'))
 
         self.assertContains(response, 'data-enable-delete-column')
+        self.assertContains(response, 'data-delete-enabled="false"')
         self.assertContains(response, 'Activar eliminacion')
+        self.assertContains(response, 'Desactivar eliminacion')
         self.assertContains(response, 'Eliminacion activada')
+        self.assertContains(response, 'aria-pressed="false"')
         self.assertContains(response, reverse('usuarios:eliminar_usuario', args=[self.encargado_user.pk]))
         self.assertContains(response, 'data-delete-user-button')
         self.assertContains(response, 'data-delete-allowed="true"')

@@ -186,20 +186,34 @@
                 });
             }
 
-            const enableDeleteButtons = () => {
+            const setDeleteButtonsEnabled = (enabled) => {
                 document
                     .querySelectorAll('[data-delete-user-button][data-delete-allowed="true"]')
                     .forEach((button) => {
-                        button.disabled = false;
+                        button.disabled = !enabled;
                     });
             };
 
             document.querySelectorAll('[data-enable-delete-column]').forEach((button) => {
+                const setToggleState = (enabled) => {
+                    button.dataset.deleteEnabled = enabled ? 'true' : 'false';
+                    button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+                    button.textContent = enabled
+                        ? button.dataset.disableDeleteLabel || 'Desactivar eliminacion'
+                        : button.dataset.enableDeleteLabel || 'Activar eliminacion';
+                    setDeleteButtonsEnabled(enabled);
+                };
+
+                setToggleState(button.dataset.deleteEnabled === 'true');
+
                 button.addEventListener('click', () => {
+                    if (button.dataset.deleteEnabled === 'true') {
+                        setToggleState(false);
+                        return;
+                    }
+
                     const activateDeletion = () => {
-                        enableDeleteButtons();
-                        button.disabled = true;
-                        button.textContent = 'Eliminacion activada';
+                        setToggleState(true);
                     };
 
                     if (!window.Swal) {
