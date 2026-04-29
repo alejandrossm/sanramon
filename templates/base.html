@@ -56,11 +56,6 @@
                             <span class="sidebar-icon" aria-hidden="true"></span>
                             <span>Registrar socio</span>
                         </a>
-                    {% elif user.rol == 'ENCARGADO_REGISTRO' %}
-                        <a class="sidebar-link" href="{% url 'usuarios:registro_socio' %}">
-                            <span class="sidebar-icon" aria-hidden="true"></span>
-                            <span>Registrar socio</span>
-                        </a>
                     {% endif %}
 
                     <a class="sidebar-link" href="{% url 'usuarios:cambiar_mi_password' %}">
@@ -90,7 +85,13 @@
                 {% if messages %}
                     <div class="messages">
                         {% for message in messages %}
-                            <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show" role="alert">
+                            <div
+                                class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show"
+                                role="alert"
+                                data-app-message
+                                data-message-level="{{ message.tags|default:'info' }}"
+                                data-message-text="{{ message|escape }}"
+                            >
                                 {{ message }}
                                 <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
                             </div>
@@ -108,5 +109,91 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            if (window.Swal) {
+                const iconByLevel = {
+                    success: 'success',
+                    error: 'error',
+                    danger: 'error',
+                    warning: 'warning',
+                    info: 'info',
+                };
+
+                document.querySelectorAll('[data-app-message]').forEach((message) => {
+                    const level = message.dataset.messageLevel || 'info';
+                    const text = message.dataset.messageText || message.textContent.trim();
+
+                    if (!text) {
+                        return;
+                    }
+
+                    Swal.fire({
+                        toast: true,
+                        position: 'top-end',
+                        icon: iconByLevel[level] || 'info',
+                        title: text,
+                        showConfirmButton: false,
+                        timer: 3600,
+                        timerProgressBar: true,
+                    });
+                });
+
+                document.querySelectorAll('[data-confirm-submit]').forEach((form) => {
+                    form.addEventListener('submit', (event) => {
+                        if (form.dataset.confirmed === 'true') {
+                            return;
+                        }
+
+                        event.preventDefault();
+
+                        Swal.fire({
+                            title: form.dataset.confirmTitle || 'Confirmar accion',
+                            text: form.dataset.confirmText || 'Esta accion se aplicara inmediatamente.',
+                            icon: form.dataset.confirmIcon || 'warning',
+                            showCancelButton: true,
+                            confirmButtonText: form.dataset.confirmButton || 'Confirmar',
+                            cancelButtonText: form.dataset.cancelButton || 'Cancelar',
+                            confirmButtonColor: form.dataset.confirmColor || '#2f5d50',
+                            cancelButtonColor: '#5d6b74',
+                        }).then((result) => {
+                            if (result.isConfirmed) {
+                                form.dataset.confirmed = 'true';
+                                form.submit();
+                            }
+                        });
+                    });
+                });
+            }
+
+            const cleanRut = (value) => value
+                .toUpperCase()
+                .replace(/[^0-9K]/g, '')
+                .slice(0, 9);
+
+            const formatRut = (value) => {
+                const cleanValue = cleanRut(value);
+                if (cleanValue.length <= 1) {
+                    return cleanValue;
+                }
+
+                const body = cleanValue.slice(0, -1);
+                const verifier = cleanValue.slice(-1);
+                const formattedBody = body.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+
+                return `${formattedBody}-${verifier}`;
+            };
+
+            document.querySelectorAll('[data-rut-format]').forEach((input) => {
+                input.value = formatRut(input.value);
+
+                input.addEventListener('input', () => {
+                    input.value = formatRut(input.value);
+                    input.setSelectionRange(input.value.length, input.value.length);
+                });
+            });
+        });
+    </script>
 </body>
 </html>

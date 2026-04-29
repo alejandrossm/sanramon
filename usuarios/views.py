@@ -12,6 +12,7 @@ from .forms import (
     CambioPasswordForm,
     LoginForm,
     SocioCreationForm,
+    SocioUpdateForm,
     UsuarioCreationForm,
     UsuarioUpdateForm,
 )
@@ -55,7 +56,12 @@ def puede_registrar_usuarios(user):
 
 def puede_registrar_socios(user):
     """Indica si el usuario puede registrar cuentas de socio."""
-    return es_administrador(user) or es_encargado_registro(user)
+    return es_administrador(user)
+
+
+def puede_editar_socios(user):
+    """Indica si el usuario puede actualizar datos operativos de socios."""
+    return es_administrador(user)
 
 
 def puede_acceder_asistencia(user):
@@ -106,7 +112,7 @@ def registro_usuarios_required(view_func):
 
 
 def registro_socios_required(view_func):
-    """Protege el registro de socios para administradores y encargados."""
+    """Protege el registro de socios solo para administradores."""
 
     @wraps(view_func)
     @login_required
@@ -115,6 +121,21 @@ def registro_socios_required(view_func):
         if puede_registrar_socios(request.user):
             return view_func(request, *args, **kwargs)
         messages.error(request, 'No tienes permisos para registrar socios.')
+        return redireccion_sin_permiso(request.user)
+
+    return wrapper
+
+
+def edicion_socios_required(view_func):
+    """Protege la edicion operativa de socios."""
+
+    @wraps(view_func)
+    @login_required
+    def wrapper(request, *args, **kwargs):
+        """Ejecuta la edicion de socios o redirige si el rol no esta autorizado."""
+        if puede_editar_socios(request.user):
+            return view_func(request, *args, **kwargs)
+        messages.error(request, 'No tienes permisos para editar socios.')
         return redireccion_sin_permiso(request.user)
 
     return wrapper
@@ -201,6 +222,7 @@ def listado_socios_asistencia(request):
     socios = Usuario.objects.filter(rol=Usuario.SOCIO)
     total_socios = socios.count()
     socios_activos = socios.filter(is_active=True).count()
+    socios = agregar_resumen_asistencia_socios(socios)
 
     return render(
         request,
@@ -210,8 +232,40 @@ def listado_socios_asistencia(request):
             'total_socios': total_socios,
             'socios_activos': socios_activos,
             'socios_inactivos': total_socios - socios_activos,
+            'puede_registrar_socios': puede_registrar_socios(request.user),
+            'puede_editar_socios': puede_editar_socios(request.user),
         },
     )
+
+
+def agregar_resumen_asistencia_socios(socios):
+    """Agrega contadores base hasta integrar reuniones y asistencias reales."""
+    socios_resumidos = []
+    for socio in socios:
+        socio.total_reuniones = 0
+        socio.total_asistencias = 0
+        socio.total_ausencias = 0
+        socio.indicador_asistencia = obtener_indicador_asistencia(socio.total_ausencias)
+        socios_resumidos.append(socio)
+    return socios_resumidos
+
+
+def obtener_indicador_asistencia(total_ausencias):
+    """Calcula el indicador visual segun la cantidad de ausencias."""
+    if total_ausencias >= 2:
+        return {
+            'label': 'Bloqueado',
+            'badge_class': 'text-bg-danger',
+        }
+    if total_ausencias == 1:
+        return {
+            'label': 'Una inasistencia',
+            'badge_class': 'text-bg-warning',
+        }
+    return {
+        'label': 'Sin ausencias',
+        'badge_class': 'text-bg-success',
+    }
 
 
 @login_required
@@ -288,6 +342,9 @@ def registro_socio(request):
 def editar_usuario(request, pk):
     """Edita datos, estado y password de un usuario permitido."""
     usuario = get_object_or_404(Usuario, pk=pk)
+    if usuario.rol == Usuario.SOCIO:
+        return redirect('usuarios:editar_socio', pk=usuario.pk)
+
     if not puede_modificar_usuario(request.user, usuario):
         messages.error(request, 'No tienes permisos para modificar este usuario.')
         return redirect('usuarios:listado_usuarios')
@@ -309,6 +366,27 @@ def editar_usuario(request, pk):
         request,
         'usuarios/editar_usuario.html',
         {'form': form, 'usuario_obj': usuario},
+    )
+
+
+@edicion_socios_required
+def editar_socio(request, pk):
+    """Edita datos propios de un socio sin permitir cambiar su perfil."""
+    socio = get_object_or_404(Usuario, pk=pk, rol=Usuario.SOCIO)
+
+    if request.method == 'POST':
+        form = SocioUpdateForm(request.POST, instance=socio)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Socio actualizado correctamente.')
+            return redirect('usuarios:listado_socios_asistencia')
+    else:
+        form = SocioUpdateForm(instance=socio)
+
+    return render(
+        request,
+        'usuarios/editar_socio.html',
+        {'form': form, 'socio': socio},
     )
 
 

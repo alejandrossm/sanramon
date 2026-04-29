@@ -46,8 +46,20 @@
                     </td>
                     <td class="text-end">
                         <div class="d-inline-flex gap-2">
-                            <a href="{% url 'usuarios:editar_usuario' usuario.pk %}" class="btn btn-outline-primary btn-sm">Editar</a>
-                            <form method="post" action="{% url 'usuarios:cambiar_estado_usuario' usuario.pk %}">
+                            {% if usuario.rol == 'SOCIO' %}
+                                <a href="{% url 'usuarios:editar_socio' usuario.pk %}" class="btn btn-outline-primary btn-sm">Editar</a>
+                            {% else %}
+                                <a href="{% url 'usuarios:editar_usuario' usuario.pk %}" class="btn btn-outline-primary btn-sm">Editar</a>
+                            {% endif %}
+                            <form
+                                method="post"
+                                action="{% url 'usuarios:cambiar_estado_usuario' usuario.pk %}"
+                                data-confirm-submit
+                                data-confirm-title="{% if usuario.is_active %}Desactivar usuario{% else %}Activar usuario{% endif %}"
+                                data-confirm-text="{% if usuario.is_active %}El usuario no podra iniciar sesion mientras este inactivo.{% else %}El usuario volvera a poder iniciar sesion.{% endif %}"
+                                data-confirm-button="{% if usuario.is_active %}Desactivar{% else %}Activar{% endif %}"
+                                data-confirm-color="{% if usuario.is_active %}#b42318{% else %}#2f5d50{% endif %}"
+                            >
                                 {% csrf_token %}
                                 <button type="submit" class="btn btn-outline-secondary btn-sm">
                                     {% if usuario.is_active %}Desactivar{% else %}Activar{% endif %}

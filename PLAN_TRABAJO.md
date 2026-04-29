@@ -39,7 +39,7 @@ sanramon/
 └── .gitignore
 ```
 
-La app `asistencia_qr` se conserva en el proyecto como espacio reservado para el modulo de registro de asistencia futuro. En este sprint no se registra en `INSTALLED_APPS` ni se implementa logica dentro de ella.
+El registro de asistencia, reuniones y consultas de socios se centralizara dentro de la app `usuarios`. No se mantendra una app separada `asistencia_qr`.
 
 ## Decision tecnica principal
 

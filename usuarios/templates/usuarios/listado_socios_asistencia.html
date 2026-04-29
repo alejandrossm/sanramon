@@ -10,7 +10,9 @@
         <p class="text-muted mb-0">Listado operativo de socios para registro de asistencia.</p>
     </div>
     <div class="d-flex flex-wrap gap-2">
-        <a href="{% url 'usuarios:registro_socio' %}" class="btn btn-primary">Registrar socio</a>
+        {% if puede_registrar_socios %}
+            <a href="{% url 'usuarios:registro_socio' %}" class="btn btn-primary">Registrar socio</a>
+        {% endif %}
         <span class="badge text-bg-success align-self-center">Activos: {{ socios_activos }}</span>
         <span class="badge text-bg-secondary align-self-center">Inactivos: {{ socios_inactivos }}</span>
     </div>
@@ -23,7 +25,14 @@
                 <th>Socio</th>
                 <th>RUT</th>
                 <th>Email</th>
+                <th class="text-center">Reuniones</th>
+                <th class="text-center">Asistencias</th>
+                <th class="text-center">Ausencias</th>
+                <th>Indicador</th>
                 <th>Estado</th>
+                {% if puede_editar_socios %}
+                    <th class="text-end">Acciones</th>
+                {% endif %}
             </tr>
         </thead>
         <tbody>
@@ -32,6 +41,14 @@
                     <td class="fw-semibold">{{ socio.nombre_completo }}</td>
                     <td>{{ socio.rut }}</td>
                     <td>{{ socio.email }}</td>
+                    <td class="text-center">{{ socio.total_reuniones }}</td>
+                    <td class="text-center">{{ socio.total_asistencias }}</td>
+                    <td class="text-center">{{ socio.total_ausencias }}</td>
+                    <td>
+                        <span class="badge {{ socio.indicador_asistencia.badge_class }}">
+                            {{ socio.indicador_asistencia.label }}
+                        </span>
+                    </td>
                     <td>
                         {% if socio.is_active %}
                             <span class="badge text-bg-success">Activo</span>
@@ -39,10 +56,15 @@
                             <span class="badge text-bg-secondary">Inactivo</span>
                         {% endif %}
                     </td>
+                    {% if puede_editar_socios %}
+                        <td class="text-end">
+                            <a href="{% url 'usuarios:editar_socio' socio.pk %}" class="btn btn-outline-primary btn-sm">Editar</a>
+                        </td>
+                    {% endif %}
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="4" class="text-center text-muted py-4">No hay socios registrados.</td>
+                    <td colspan="{% if puede_editar_socios %}9{% else %}8{% endif %}" class="text-center text-muted py-4">No hay socios registrados.</td>
                 </tr>
             {% endfor %}
         </tbody>

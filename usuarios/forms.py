@@ -7,6 +7,17 @@ from django.contrib.auth.password_validation import validate_password
 from .models import Usuario, normalizar_rut
 
 
+def marcar_campo_rut(field):
+    """Agrega atributos usados por el formateo visual de RUT en cliente."""
+    field.widget.attrs.update(
+        {
+            'data-rut-format': 'true',
+            'autocomplete': 'off',
+            'inputmode': 'text',
+        }
+    )
+
+
 class LoginForm(AuthenticationForm):
     """Formulario de acceso que acepta username o correo electronico."""
 
@@ -56,6 +67,7 @@ class UsuarioCreationForm(UserCreationForm):
         self.actor = kwargs.pop('actor', None)
         super().__init__(*args, **kwargs)
         self.fields['is_active'].initial = True
+        marcar_campo_rut(self.fields['rut'])
         self._limitar_roles_por_actor()
         self.helper = FormHelper()
         self.helper.form_method = 'post'
@@ -150,6 +162,7 @@ class SocioCreationForm(forms.ModelForm):
         """Configura crispy forms para el registro operativo de socios."""
         super().__init__(*args, **kwargs)
         self.fields['is_active'].initial = True
+        marcar_campo_rut(self.fields['rut'])
         self.helper = FormHelper()
         self.helper.form_method = 'post'
         self.helper.layout = Layout(
@@ -173,6 +186,8 @@ class SocioCreationForm(forms.ModelForm):
         email = self.cleaned_data['email'].strip().lower()
         if Usuario.objects.filter(email__iexact=email).exists():
             raise forms.ValidationError('Ya existe un usuario con este correo.')
+        if Usuario.objects.filter(username__iexact=email).exists():
+            raise forms.ValidationError('Ya existe un usuario tecnico con este correo.')
         return email
 
     def clean_rut(self):
@@ -195,27 +210,87 @@ class SocioCreationForm(forms.ModelForm):
         """Crea un socio sin password utilizable y con username interno."""
         socio = super().save(commit=False)
         socio.rol = Usuario.SOCIO
-        socio.username = self._generar_username(socio.rut)
+        socio.username = socio.email
         socio.set_unusable_password()
         if commit:
             socio.save()
             self.save_m2m()
         return socio
 
-    def _generar_username(self, rut):
-        """Genera un username tecnico a partir del RUT normalizado."""
-        rut_limpio = ''.join(
-            caracter.lower()
-            for caracter in normalizar_rut(rut)
-            if caracter.isalnum()
+
+class SocioUpdateForm(forms.ModelForm):
+    """Formulario especifico para editar socios sin exponer rol ni password."""
+
+    class Meta:
+        """Campos editables para mantener datos operativos del socio."""
+
+        model = Usuario
+        fields = (
+            'first_name',
+            'last_name',
+            'rut',
+            'email',
+            'is_active',
         )
-        base = f'socio_{rut_limpio}' if rut_limpio else 'socio'
-        username = base
-        contador = 1
-        while Usuario.objects.filter(username__iexact=username).exists():
-            contador += 1
-            username = f'{base}_{contador}'
-        return username
+        labels = {
+            'first_name': 'Nombre',
+            'last_name': 'Apellido',
+            'email': 'Correo electronico',
+            'is_active': 'Socio activo',
+        }
+
+    def __init__(self, *args, **kwargs):
+        """Construye layout de edicion sin permitir cambiar el RUT."""
+        super().__init__(*args, **kwargs)
+        self.fields['rut'].disabled = True
+        marcar_campo_rut(self.fields['rut'])
+        self.fields['rut'].help_text = 'El RUT no puede modificarse una vez creado.'
+        if self.instance.pk:
+            self.initial['rut'] = normalizar_rut(self.instance.rut)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.layout = Layout(
+            Row(
+                Column('first_name', css_class='col-md-6'),
+                Column('last_name', css_class='col-md-6'),
+            ),
+            Row(
+                Column('rut', css_class='col-md-6'),
+                Column('email', css_class='col-md-6'),
+            ),
+            'is_active',
+            Submit('submit', 'Actualizar socio', css_class='btn btn-primary'),
+        )
+
+    def clean_email(self):
+        """Valida unicidad de correo y username tecnico excluyendo al socio."""
+        email = self.cleaned_data['email'].strip().lower()
+        email_qs = Usuario.objects.filter(email__iexact=email)
+        username_qs = Usuario.objects.filter(username__iexact=email)
+        if self.instance.pk:
+            email_qs = email_qs.exclude(pk=self.instance.pk)
+            username_qs = username_qs.exclude(pk=self.instance.pk)
+        if email_qs.exists():
+            raise forms.ValidationError('Ya existe un usuario con este correo.')
+        if username_qs.exists():
+            raise forms.ValidationError('Ya existe un usuario tecnico con este correo.')
+        return email
+
+    def clean_rut(self):
+        """Mantiene el RUT original aunque el POST intente modificarlo."""
+        if self.instance.pk:
+            return normalizar_rut(self.instance.rut)
+        return normalizar_rut(self.cleaned_data['rut'])
+
+    def save(self, commit=True):
+        """Actualiza el socio conservando siempre su rol de socio."""
+        socio = super().save(commit=False)
+        socio.rol = Usuario.SOCIO
+        socio.username = socio.email
+        if commit:
+            socio.save()
+            self.save_m2m()
+        return socio
 
 
 class UsuarioUpdateForm(forms.ModelForm):
@@ -259,6 +334,7 @@ class UsuarioUpdateForm(forms.ModelForm):
         self.actor = kwargs.pop('actor', None)
         super().__init__(*args, **kwargs)
         self.fields['rut'].disabled = True
+        marcar_campo_rut(self.fields['rut'])
         self.fields['rut'].help_text = 'El RUT no puede modificarse una vez creado.'
         if self.instance.pk:
             self.initial['rut'] = normalizar_rut(self.instance.rut)
