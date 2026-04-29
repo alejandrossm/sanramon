@@ -2,6 +2,7 @@ from io import StringIO
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.contrib.staticfiles import finders
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -107,6 +108,25 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'images/logo.png')
         self.assertContains(response, 'Total de usuarios registrados')
         self.assertContains(response, '<strong>3</strong>', html=True)
+
+    def test_layout_usa_bootstrap_y_sweetalert_locales(self):
+        """Carga dependencias visuales desde static local sin CDN."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:dashboard'))
+
+        self.assertNotContains(response, 'cdn.jsdelivr.net')
+        self.assertContains(response, 'vendor/bootstrap/bootstrap.min.css')
+        self.assertContains(response, 'vendor/bootstrap/bootstrap.bundle.min.js')
+        self.assertContains(response, 'vendor/sweetalert2/sweetalert2.all.min.js')
+
+        rutas_estaticas = [
+            'vendor/bootstrap/bootstrap.min.css',
+            'vendor/bootstrap/bootstrap.bundle.min.js',
+            'vendor/sweetalert2/sweetalert2.all.min.js',
+        ]
+        for ruta in rutas_estaticas:
+            with self.subTest(ruta=ruta):
+                self.assertIsNotNone(finders.find(ruta))
 
     def test_dashboard_encargado_no_muestra_registro_socio(self):
         """Oculta el acceso de registro de socio para encargados."""
