@@ -28,36 +28,50 @@
 
                 <nav class="sidebar-nav" aria-label="Navegacion principal">
                     {% if user.rol == 'SOCIO' and not user.is_superuser %}
+                        <p class="sidebar-section-title">Socio</p>
                         <a class="sidebar-link" href="{% url 'usuarios:mis_asistencias' %}">
                             <span class="sidebar-icon" aria-hidden="true"></span>
                             <span>Mis asistencias</span>
                         </a>
                     {% else %}
+                        <p class="sidebar-section-title">General</p>
                         <a class="sidebar-link" href="{% url 'usuarios:dashboard' %}">
                             <span class="sidebar-icon" aria-hidden="true"></span>
                             <span>Dashboard</span>
                         </a>
-                        <a class="sidebar-link" href="{% url 'usuarios:listado_socios_asistencia' %}">
-                            <span class="sidebar-icon" aria-hidden="true"></span>
-                            <span>Asistencia</span>
-                        </a>
                     {% endif %}
 
                     {% if user.is_superuser or user.rol == 'ADMINISTRADOR' %}
+                        <p class="sidebar-section-title">Usuarios</p>
                         <a class="sidebar-link" href="{% url 'usuarios:listado_usuarios' %}">
                             <span class="sidebar-icon" aria-hidden="true"></span>
-                            <span>Usuarios</span>
+                            <span>Listado usuarios</span>
                         </a>
                         <a class="sidebar-link" href="{% url 'usuarios:registro_usuario' %}">
                             <span class="sidebar-icon" aria-hidden="true"></span>
                             <span>Registrar usuario</span>
                         </a>
-                        <a class="sidebar-link" href="{% url 'usuarios:registro_socio' %}">
+                    {% endif %}
+
+                    {% if user.rol != 'SOCIO' or user.is_superuser %}
+                        <p class="sidebar-section-title">Socios</p>
+                        {% if user.is_superuser or user.rol == 'ADMINISTRADOR' %}
+                            <a class="sidebar-link" href="{% url 'usuarios:listado_socios' %}">
+                                <span class="sidebar-icon" aria-hidden="true"></span>
+                                <span>Listado socios</span>
+                            </a>
+                            <a class="sidebar-link" href="{% url 'usuarios:registro_socio' %}">
+                                <span class="sidebar-icon" aria-hidden="true"></span>
+                                <span>Registrar socio</span>
+                            </a>
+                        {% endif %}
+                        <a class="sidebar-link" href="{% url 'usuarios:listado_socios_asistencia' %}">
                             <span class="sidebar-icon" aria-hidden="true"></span>
-                            <span>Registrar socio</span>
+                            <span>Listado asistencia</span>
                         </a>
                     {% endif %}
 
+                    <p class="sidebar-section-title">Cuenta</p>
                     <a class="sidebar-link" href="{% url 'usuarios:cambiar_mi_password' %}">
                         <span class="sidebar-icon" aria-hidden="true"></span>
                         <span>Mi contraseña</span>
@@ -120,6 +134,13 @@
                     warning: 'warning',
                     info: 'info',
                 };
+                const titleByLevel = {
+                    success: 'Operacion completada',
+                    error: 'No se pudo completar',
+                    danger: 'No se pudo completar',
+                    warning: 'Atencion',
+                    info: 'Informacion',
+                };
 
                 document.querySelectorAll('[data-app-message]').forEach((message) => {
                     const level = message.dataset.messageLevel || 'info';
@@ -130,13 +151,11 @@
                     }
 
                     Swal.fire({
-                        toast: true,
-                        position: 'top-end',
                         icon: iconByLevel[level] || 'info',
-                        title: text,
-                        showConfirmButton: false,
-                        timer: 3600,
-                        timerProgressBar: true,
+                        title: titleByLevel[level] || 'Informacion',
+                        text,
+                        confirmButtonText: 'Aceptar',
+                        confirmButtonColor: '#2f5d50',
                     });
                 });
 

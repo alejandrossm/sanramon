@@ -46,11 +46,7 @@
                     </td>
                     <td class="text-end">
                         <div class="d-inline-flex gap-2">
-                            {% if usuario.rol == 'SOCIO' %}
-                                <a href="{% url 'usuarios:editar_socio' usuario.pk %}" class="btn btn-outline-primary btn-sm">Editar</a>
-                            {% else %}
-                                <a href="{% url 'usuarios:editar_usuario' usuario.pk %}" class="btn btn-outline-primary btn-sm">Editar</a>
-                            {% endif %}
+                            <a href="{% url 'usuarios:editar_usuario' usuario.pk %}" class="btn btn-outline-primary btn-sm">Editar</a>
                             <form
                                 method="post"
                                 action="{% url 'usuarios:cambiar_estado_usuario' usuario.pk %}"

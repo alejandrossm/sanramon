@@ -17,3 +17,7 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
   - Verde: sin ausencias.
   - Amarillo: una inasistencia.
   - Rojo: bloqueado por dos inasistencias.
+
+## Pendientes por definir
+
+- [ ] Modo seguro de eliminacion. Al retomar el proyecto, preguntar como debe funcionar antes de implementarlo.

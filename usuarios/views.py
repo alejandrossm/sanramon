@@ -288,16 +288,33 @@ def cambiar_mi_password(request):
 
 @gestor_usuarios_required
 def listado_usuarios(request):
-    """Lista usuarios visibles segun el nivel de privilegio del actor."""
-    usuarios = Usuario.objects.all()
-    if not es_administrador(request.user):
-        usuarios = usuarios.exclude(is_superuser=True).exclude(rol=Usuario.ADMINISTRADOR)
+    """Lista cuentas internas sin mezclar socios."""
+    usuarios = Usuario.objects.exclude(rol=Usuario.SOCIO)
     return render(
         request,
         'usuarios/listado_usuarios.html',
         {
             'usuarios': usuarios,
             'puede_administrar_privilegios': es_administrador(request.user),
+        },
+    )
+
+
+@gestor_usuarios_required
+def listado_socios(request):
+    """Lista socios en una vista administrativa separada de usuarios internos."""
+    socios = Usuario.objects.filter(rol=Usuario.SOCIO)
+    total_socios = socios.count()
+    socios_activos = socios.filter(is_active=True).count()
+
+    return render(
+        request,
+        'usuarios/listado_socios.html',
+        {
+            'socios': socios,
+            'total_socios': total_socios,
+            'socios_activos': socios_activos,
+            'socios_inactivos': total_socios - socios_activos,
         },
     )
 
@@ -331,7 +348,7 @@ def registro_socio(request):
         if form.is_valid():
             socio = form.save()
             messages.success(request, f'Socio {socio.nombre_completo} creado correctamente.')
-            return redirect('usuarios:listado_socios_asistencia')
+            return redirect('usuarios:listado_socios')
     else:
         form = SocioCreationForm()
 
@@ -379,7 +396,7 @@ def editar_socio(request, pk):
         if form.is_valid():
             form.save()
             messages.success(request, 'Socio actualizado correctamente.')
-            return redirect('usuarios:listado_socios_asistencia')
+            return redirect('usuarios:listado_socios')
     else:
         form = SocioUpdateForm(instance=socio)
 
@@ -408,4 +425,6 @@ def cambiar_estado_usuario(request, pk):
 
     estado = 'activado' if usuario.is_active else 'desactivado'
     messages.success(request, f'Usuario {usuario.username} {estado} correctamente.')
+    if usuario.rol == Usuario.SOCIO:
+        return redirect('usuarios:listado_socios')
     return redirect('usuarios:listado_usuarios')

@@ -221,6 +221,8 @@ class SocioCreationForm(forms.ModelForm):
 class SocioUpdateForm(forms.ModelForm):
     """Formulario especifico para editar socios sin exponer rol ni password."""
 
+    email_confirmacion = forms.EmailField(label='Confirmar correo electronico')
+
     class Meta:
         """Campos editables para mantener datos operativos del socio."""
 
@@ -230,13 +232,11 @@ class SocioUpdateForm(forms.ModelForm):
             'last_name',
             'rut',
             'email',
-            'is_active',
         )
         labels = {
             'first_name': 'Nombre',
             'last_name': 'Apellido',
             'email': 'Correo electronico',
-            'is_active': 'Socio activo',
         }
 
     def __init__(self, *args, **kwargs):
@@ -247,6 +247,7 @@ class SocioUpdateForm(forms.ModelForm):
         self.fields['rut'].help_text = 'El RUT no puede modificarse una vez creado.'
         if self.instance.pk:
             self.initial['rut'] = normalizar_rut(self.instance.rut)
+            self.initial['email_confirmacion'] = self.instance.email
         self.helper = FormHelper()
         self.helper.form_method = 'post'
         self.helper.layout = Layout(
@@ -258,7 +259,9 @@ class SocioUpdateForm(forms.ModelForm):
                 Column('rut', css_class='col-md-6'),
                 Column('email', css_class='col-md-6'),
             ),
-            'is_active',
+            Row(
+                Column('email_confirmacion', css_class='col-md-6'),
+            ),
             Submit('submit', 'Actualizar socio', css_class='btn btn-primary'),
         )
 
@@ -275,6 +278,15 @@ class SocioUpdateForm(forms.ModelForm):
         if username_qs.exists():
             raise forms.ValidationError('Ya existe un usuario tecnico con este correo.')
         return email
+
+    def clean(self):
+        """Verifica que el correo editado coincida con su confirmacion."""
+        cleaned_data = super().clean()
+        email = (cleaned_data.get('email') or '').strip().lower()
+        email_confirmacion = (cleaned_data.get('email_confirmacion') or '').strip().lower()
+        if email and email_confirmacion and email != email_confirmacion:
+            self.add_error('email_confirmacion', 'La confirmacion del correo no coincide.')
+        return cleaned_data
 
     def clean_rut(self):
         """Mantiene el RUT original aunque el POST intente modificarlo."""
@@ -319,14 +331,12 @@ class UsuarioUpdateForm(forms.ModelForm):
             'rut',
             'email',
             'rol',
-            'is_active',
         )
         labels = {
             'username': 'Usuario',
             'first_name': 'Nombre',
             'last_name': 'Apellido',
             'email': 'Correo electronico',
-            'is_active': 'Usuario activo',
         }
 
     def __init__(self, *args, **kwargs):
@@ -358,7 +368,6 @@ class UsuarioUpdateForm(forms.ModelForm):
                 Column('password1', css_class='col-md-6'),
                 Column('password2', css_class='col-md-6'),
             ),
-            'is_active',
             Submit('submit', 'Actualizar usuario', css_class='btn btn-primary'),
         )
 

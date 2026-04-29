@@ -11,6 +11,7 @@ urlpatterns = [
     path('logout/', views.UsuarioLogoutView.as_view(), name='logout'),
     path('mis-asistencias/', views.mis_asistencias, name='mis_asistencias'),
     path('asistencia/', views.listado_socios_asistencia, name='listado_socios_asistencia'),
+    path('socios/', views.listado_socios, name='listado_socios'),
     path('registrar_socio/', views.registro_socio, name='registro_socio'),
     path('socios/<int:pk>/editar/', views.editar_socio, name='editar_socio'),
     path('mi-contrasena/', views.cambiar_mi_password, name='cambiar_mi_password'),
