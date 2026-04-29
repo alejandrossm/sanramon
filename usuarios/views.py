@@ -74,6 +74,13 @@ def puede_modificar_usuario(actor, usuario):
     return es_administrador(actor)
 
 
+def puede_eliminar_usuario_interno(actor, usuario):
+    """Valida eliminacion de administradores y encargados desde gestion interna."""
+    if not es_administrador(actor) or usuario.pk == actor.pk:
+        return False
+    return usuario.rol in (Usuario.ADMINISTRADOR, Usuario.ENCARGADO_REGISTRO)
+
+
 def redireccion_sin_permiso(user):
     """Envia al usuario a la vista permitida cuando intenta acceder sin permisos."""
     if es_socio(user):
@@ -242,12 +249,40 @@ def agregar_resumen_asistencia_socios(socios):
     """Agrega contadores base hasta integrar reuniones y asistencias reales."""
     socios_resumidos = []
     for socio in socios:
-        socio.total_reuniones = 0
-        socio.total_asistencias = 0
-        socio.total_ausencias = 0
+        resumen = obtener_resumen_asistencia_socio(socio)
+        socio.total_reuniones = resumen['total_reuniones']
+        socio.total_asistencias = resumen['total_asistencias']
+        socio.total_ausencias = resumen['total_ausencias']
         socio.indicador_asistencia = obtener_indicador_asistencia(socio.total_ausencias)
+        socio.puede_eliminar_seguro = not resumen_tiene_asistencias_contabilizadas(resumen)
         socios_resumidos.append(socio)
     return socios_resumidos
+
+
+def obtener_resumen_asistencia_socio(socio):
+    """Devuelve los contadores de asistencia usados por vistas y eliminacion segura."""
+    return {
+        'total_reuniones': 0,
+        'total_asistencias': 0,
+        'total_ausencias': 0,
+    }
+
+
+def resumen_tiene_asistencias_contabilizadas(resumen):
+    """Indica si el socio ya tiene historial operativo que impide eliminarlo."""
+    return any(
+        resumen[campo] > 0
+        for campo in ('total_reuniones', 'total_asistencias', 'total_ausencias')
+    )
+
+
+def puede_eliminar_socio_seguro(socio):
+    """Permite eliminar solo socios sin asistencias, reuniones ni ausencias registradas."""
+    if socio.rol != Usuario.SOCIO:
+        return False
+    return not resumen_tiene_asistencias_contabilizadas(
+        obtener_resumen_asistencia_socio(socio)
+    )
 
 
 def obtener_indicador_asistencia(total_ausencias):
@@ -306,6 +341,7 @@ def listado_socios(request):
     socios = Usuario.objects.filter(rol=Usuario.SOCIO)
     total_socios = socios.count()
     socios_activos = socios.filter(is_active=True).count()
+    socios = agregar_resumen_asistencia_socios(socios)
 
     return render(
         request,
@@ -428,3 +464,46 @@ def cambiar_estado_usuario(request, pk):
     if usuario.rol == Usuario.SOCIO:
         return redirect('usuarios:listado_socios')
     return redirect('usuarios:listado_usuarios')
+
+
+@require_POST
+@gestor_usuarios_required
+def eliminar_usuario(request, pk):
+    """Elimina usuarios internos sin permitir autoeliminacion."""
+    usuario = get_object_or_404(Usuario, pk=pk)
+
+    if usuario.pk == request.user.pk:
+        messages.error(request, 'No puedes eliminar tu propio usuario.')
+        return redirect('usuarios:listado_usuarios')
+
+    if not puede_eliminar_usuario_interno(request.user, usuario):
+        messages.error(
+            request,
+            'Solo se pueden eliminar usuarios administradores o encargados de registro.',
+        )
+        return redirect('usuarios:listado_usuarios')
+
+    nombre_usuario = usuario.nombre_completo
+    usuario.delete()
+    messages.success(request, f'Usuario {nombre_usuario} eliminado correctamente.')
+    return redirect('usuarios:listado_usuarios')
+
+
+@require_POST
+@gestor_usuarios_required
+def eliminar_socio(request, pk):
+    """Elimina socios solo cuando no tienen asistencias contabilizadas."""
+    socio = get_object_or_404(Usuario, pk=pk, rol=Usuario.SOCIO)
+
+    if not puede_eliminar_socio_seguro(socio):
+        messages.error(
+            request,
+            'Solo se pueden eliminar socios sin asistencias contabilizadas. '
+            'Si el socio ya tiene historial, debes desactivarlo.',
+        )
+        return redirect('usuarios:listado_socios')
+
+    nombre_socio = socio.nombre_completo
+    socio.delete()
+    messages.success(request, f'Socio {nombre_socio} eliminado correctamente.')
+    return redirect('usuarios:listado_socios')

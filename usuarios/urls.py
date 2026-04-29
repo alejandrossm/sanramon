@@ -14,9 +14,11 @@ urlpatterns = [
     path('socios/', views.listado_socios, name='listado_socios'),
     path('registrar_socio/', views.registro_socio, name='registro_socio'),
     path('socios/<int:pk>/editar/', views.editar_socio, name='editar_socio'),
+    path('socios/<int:pk>/eliminar/', views.eliminar_socio, name='eliminar_socio'),
     path('mi-contrasena/', views.cambiar_mi_password, name='cambiar_mi_password'),
     path('usuarios/', views.listado_usuarios, name='listado_usuarios'),
     path('registrar_usuario/', views.registro_usuario, name='registro_usuario'),
     path('usuarios/<int:pk>/editar/', views.editar_usuario, name='editar_usuario'),
     path('usuarios/<int:pk>/estado/', views.cambiar_estado_usuario, name='cambiar_estado_usuario'),
+    path('usuarios/<int:pk>/eliminar/', views.eliminar_usuario, name='eliminar_usuario'),
 ]

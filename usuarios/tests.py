@@ -1,4 +1,5 @@
 from io import StringIO
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -159,6 +160,21 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'encargado@example.com')
         self.assertNotContains(response, 'socio@example.com')
 
+    def test_listado_usuarios_muestra_eliminacion_bloqueada_por_activador(self):
+        """Muestra la columna de eliminacion bloqueada hasta activarla."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_usuarios'))
+
+        self.assertContains(response, 'data-enable-delete-column')
+        self.assertContains(response, 'Activar eliminacion')
+        self.assertContains(response, 'Eliminacion activada')
+        self.assertContains(response, reverse('usuarios:eliminar_usuario', args=[self.encargado_user.pk]))
+        self.assertContains(response, 'data-delete-user-button')
+        self.assertContains(response, 'data-delete-allowed="true"')
+        self.assertContains(response, 'disabled')
+        self.assertContains(response, 'No puedes eliminar tu propio usuario.')
+        self.assertNotContains(response, reverse('usuarios:eliminar_usuario', args=[self.admin_user.pk]))
+
     def test_administrador_accede_a_listado_socios_separado(self):
         """Lista socios en una vista administrativa separada de usuarios."""
         self.client.login(username='admin', password='ClaveSegura123')
@@ -168,6 +184,8 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'socio@example.com')
         self.assertContains(response, reverse('usuarios:editar_socio', args=[self.socio_user.pk]))
         self.assertContains(response, 'data-confirm-title="Desactivar socio"')
+        self.assertContains(response, reverse('usuarios:eliminar_socio', args=[self.socio_user.pk]))
+        self.assertContains(response, 'data-confirm-title="Eliminar socio"')
         self.assertNotContains(response, 'admin@example.com')
         self.assertNotContains(response, 'encargado@example.com')
 
@@ -628,6 +646,56 @@ class UsuariosModuloTests(TestCase):
         self.encargado_user.refresh_from_db()
         self.assertFalse(self.encargado_user.is_active)
 
+    def test_administrador_elimina_usuario_interno(self):
+        """Permite eliminar administradores o encargados distintos del actor."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        encargado_pk = self.encargado_user.pk
+        response = self.client.post(
+            reverse('usuarios:eliminar_usuario', args=[encargado_pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_usuarios'))
+        self.assertFalse(self.User.objects.filter(pk=encargado_pk).exists())
+        self.assertContains(response, 'Usuario Encargado Registro eliminado correctamente.')
+
+    def test_administrador_no_puede_eliminarse_a_si_mismo(self):
+        """Evita que un administrador elimine su propia cuenta."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:eliminar_usuario', args=[self.admin_user.pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_usuarios'))
+        self.assertTrue(self.User.objects.filter(pk=self.admin_user.pk).exists())
+        self.assertContains(response, 'No puedes eliminar tu propio usuario.')
+
+    def test_eliminar_usuario_no_borra_socios(self):
+        """Reserva la eliminacion de socios para su flujo especifico."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:eliminar_usuario', args=[self.socio_user.pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_usuarios'))
+        self.assertTrue(self.User.objects.filter(pk=self.socio_user.pk).exists())
+        self.assertContains(
+            response,
+            'Solo se pueden eliminar usuarios administradores o encargados de registro.',
+        )
+
+    def test_encargado_no_puede_eliminar_usuarios_internos(self):
+        """Impide que un encargado use la eliminacion de usuarios internos."""
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:eliminar_usuario', args=[self.admin_user.pk]),
+        )
+
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+        self.assertTrue(self.User.objects.filter(pk=self.admin_user.pk).exists())
+
     def test_administrador_cambia_estado_de_socio_desde_listado_socios(self):
         """Redirige al listado de socios al activar o desactivar un socio."""
         self.client.login(username='admin', password='ClaveSegura123')
@@ -637,6 +705,77 @@ class UsuariosModuloTests(TestCase):
         self.assertRedirects(response, reverse('usuarios:listado_socios'))
         self.socio_user.refresh_from_db()
         self.assertFalse(self.socio_user.is_active)
+
+    def test_administrador_elimina_socio_sin_asistencias_contabilizadas(self):
+        """Permite eliminar socios que todavia no tienen historial operativo."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        socio_pk = self.socio_user.pk
+        response = self.client.post(
+            reverse('usuarios:eliminar_socio', args=[socio_pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_socios'))
+        self.assertFalse(self.User.objects.filter(pk=socio_pk).exists())
+        self.assertContains(response, 'Socio Socio Prueba eliminado correctamente.')
+
+    def test_administrador_no_elimina_socio_con_asistencias_contabilizadas(self):
+        """Bloquea la eliminacion cuando el socio tiene historial operativo."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        resumen = {
+            'total_reuniones': 1,
+            'total_asistencias': 1,
+            'total_ausencias': 0,
+        }
+
+        with patch('usuarios.views.obtener_resumen_asistencia_socio', return_value=resumen):
+            response = self.client.post(
+                reverse('usuarios:eliminar_socio', args=[self.socio_user.pk]),
+                follow=True,
+            )
+
+        self.assertRedirects(response, reverse('usuarios:listado_socios'))
+        self.assertTrue(self.User.objects.filter(pk=self.socio_user.pk).exists())
+        self.assertContains(response, 'Solo se pueden eliminar socios sin asistencias contabilizadas.')
+
+    def test_listado_socios_bloquea_boton_eliminar_con_asistencias(self):
+        """Muestra eliminacion deshabilitada si el socio ya tiene asistencias."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        resumen = {
+            'total_reuniones': 1,
+            'total_asistencias': 0,
+            'total_ausencias': 1,
+        }
+
+        with patch('usuarios.views.obtener_resumen_asistencia_socio', return_value=resumen):
+            response = self.client.get(reverse('usuarios:listado_socios'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, reverse('usuarios:eliminar_socio', args=[self.socio_user.pk]))
+        self.assertContains(
+            response,
+            'Tiene asistencias contabilizadas; solo se puede desactivar.',
+        )
+
+    def test_no_se_eliminan_encargados_desde_flujo_de_socios(self):
+        """Reserva a los encargados para activacion o desactivacion."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:eliminar_socio', args=[self.encargado_user.pk]),
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(self.User.objects.filter(pk=self.encargado_user.pk).exists())
+
+    def test_encargado_no_puede_eliminar_socios(self):
+        """Impide que encargados usen la eliminacion segura de socios."""
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:eliminar_socio', args=[self.socio_user.pk]),
+        )
+
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+        self.assertTrue(self.User.objects.filter(pk=self.socio_user.pk).exists())
 
     def test_usuario_inactivo_no_puede_iniciar_sesion(self):
         """Rechaza autenticacion de usuarios desactivados."""

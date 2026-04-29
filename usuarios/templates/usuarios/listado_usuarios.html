@@ -13,7 +13,20 @@
             <p class="text-muted mb-0">Gestion de usuarios permitidos. Las cuentas administradoras no se pueden modificar.</p>
         {% endif %}
     </div>
-    <a href="{% url 'usuarios:registro_usuario' %}" class="btn btn-primary">Registrar usuario</a>
+    <div class="d-flex flex-wrap gap-2">
+        {% if puede_administrar_privilegios %}
+            <button
+                type="button"
+                class="btn btn-outline-danger"
+                data-enable-delete-column
+                data-enable-delete-title="Eliminacion activada"
+                data-enable-delete-text="La columna de eliminacion quedo habilitada. No puedes eliminar tu propio usuario."
+            >
+                Activar eliminacion
+            </button>
+        {% endif %}
+        <a href="{% url 'usuarios:registro_usuario' %}" class="btn btn-primary">Registrar usuario</a>
+    </div>
 </div>
 
 <div class="table-responsive app-table">
@@ -27,6 +40,9 @@
                 <th>Rol</th>
                 <th>Estado</th>
                 <th class="text-end">Acciones</th>
+                {% if puede_administrar_privilegios %}
+                    <th class="text-end">Eliminar</th>
+                {% endif %}
             </tr>
         </thead>
         <tbody>
@@ -63,10 +79,46 @@
                             </form>
                         </div>
                     </td>
+                    {% if puede_administrar_privilegios %}
+                        <td class="text-end">
+                            {% if usuario.pk == user.pk %}
+                                <button
+                                    type="button"
+                                    class="btn btn-outline-danger btn-sm"
+                                    title="No puedes eliminar tu propio usuario."
+                                    disabled
+                                >
+                                    Eliminar
+                                </button>
+                            {% else %}
+                                <form
+                                    method="post"
+                                    action="{% url 'usuarios:eliminar_usuario' usuario.pk %}"
+                                    data-confirm-submit
+                                    data-confirm-title="Eliminar usuario"
+                                    data-confirm-text="Esta accion eliminara definitivamente el usuario interno seleccionado."
+                                    data-confirm-button="Eliminar"
+                                    data-confirm-color="#b42318"
+                                    data-confirm-icon="error"
+                                >
+                                    {% csrf_token %}
+                                    <button
+                                        type="submit"
+                                        class="btn btn-outline-danger btn-sm"
+                                        data-delete-user-button
+                                        data-delete-allowed="true"
+                                        disabled
+                                    >
+                                        Eliminar
+                                    </button>
+                                </form>
+                            {% endif %}
+                        </td>
+                    {% endif %}
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="7" class="text-center text-muted py-4">No hay usuarios registrados.</td>
+                    <td colspan="{% if puede_administrar_privilegios %}8{% else %}7{% endif %}" class="text-center text-muted py-4">No hay usuarios registrados.</td>
                 </tr>
             {% endfor %}
         </tbody>

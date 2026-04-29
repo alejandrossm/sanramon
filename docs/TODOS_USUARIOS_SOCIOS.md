@@ -20,4 +20,4 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
 
 ## Pendientes por definir
 
-- [ ] Modo seguro de eliminacion. Al retomar el proyecto, preguntar como debe funcionar antes de implementarlo.
+- [x] Modo seguro de eliminacion: solo se pueden eliminar socios sin asistencias contabilizadas; los encargados de registro solo se activan o desactivan.

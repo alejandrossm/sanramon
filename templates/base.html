@@ -186,6 +186,40 @@
                 });
             }
 
+            const enableDeleteButtons = () => {
+                document
+                    .querySelectorAll('[data-delete-user-button][data-delete-allowed="true"]')
+                    .forEach((button) => {
+                        button.disabled = false;
+                    });
+            };
+
+            document.querySelectorAll('[data-enable-delete-column]').forEach((button) => {
+                button.addEventListener('click', () => {
+                    const activateDeletion = () => {
+                        enableDeleteButtons();
+                        button.disabled = true;
+                        button.textContent = 'Eliminacion activada';
+                    };
+
+                    if (!window.Swal) {
+                        window.alert(button.dataset.enableDeleteText || 'Eliminacion activada.');
+                        activateDeletion();
+                        return;
+                    }
+
+                    Swal.fire({
+                        icon: 'warning',
+                        title: button.dataset.enableDeleteTitle || 'Eliminacion activada',
+                        text: button.dataset.enableDeleteText || 'La eliminacion quedo habilitada.',
+                        confirmButtonText: 'Aceptar',
+                        confirmButtonColor: '#b42318',
+                    }).then(() => {
+                        activateDeletion();
+                    });
+                });
+            });
+
             const cleanRut = (value) => value
                 .toUpperCase()
                 .replace(/[^0-9K]/g, '')
