@@ -1,6 +1,16 @@
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import AbstractUser, UserManager
+from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import models
+
+
+class UsuarioManager(UserManager):
+    """Manager que alinea superusuarios con el rol administrativo interno."""
+
+    def create_superuser(self, username, email=None, password=None, **extra_fields):
+        """Evita superusuarios con el rol por defecto de socio."""
+        extra_fields.setdefault('rol', self.model.ADMINISTRADOR)
+        return super().create_superuser(username, email, password, **extra_fields)
 
 
 def normalizar_rut(rut):
@@ -44,6 +54,8 @@ class Usuario(AbstractUser):
     email = models.EmailField(unique=True, verbose_name='Correo electronico')
     rol = models.CharField(max_length=20, choices=ROLES, default=SOCIO)
 
+    objects = UsuarioManager()
+
     REQUIRED_FIELDS = ['email', 'first_name', 'last_name', 'rut']
 
     class Meta:
@@ -52,14 +64,46 @@ class Usuario(AbstractUser):
         ordering = ['last_name', 'first_name', 'username']
         verbose_name = 'usuario'
         verbose_name_plural = 'usuarios'
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    ~models.Q(rol='SOCIO')
+                    | (models.Q(is_staff=False) & models.Q(is_superuser=False))
+                ),
+                name='usuario_socio_sin_privilegios_admin',
+            ),
+        ]
 
     @property
     def nombre_completo(self):
         """Devuelve el nombre completo o el username cuando no hay nombres cargados."""
         return self.get_full_name() or self.username
 
+    def clean(self):
+        """Valida invariantes de rol que no deben depender solo de formularios."""
+        super().clean()
+        self.email = (self.email or '').strip().lower()
+        self.rut = normalizar_rut(self.rut)
+
+        errores = {}
+        if self.rol == self.SOCIO and (self.is_staff or self.is_superuser):
+            errores['rol'] = 'Un socio no puede tener permisos administrativos.'
+
+        if self.pk:
+            rol_original = (
+                type(self).objects.filter(pk=self.pk).values_list('rol', flat=True).first()
+            )
+            if rol_original == self.SOCIO and self.rol != self.SOCIO:
+                errores['rol'] = 'Un socio no puede cambiar a un rol interno.'
+            elif rol_original != self.SOCIO and self.rol == self.SOCIO:
+                errores['rol'] = 'Usa el formulario de registro de socios.'
+
+        if errores:
+            raise ValidationError(errores)
+
     def save(self, *args, **kwargs):
         """Normaliza email y RUT antes de persistir el usuario."""
         self.email = (self.email or '').strip().lower()
         self.rut = normalizar_rut(self.rut)
+        self.full_clean()
         super().save(*args, **kwargs)

@@ -1,12 +1,15 @@
 from io import StringIO
 from unittest.mock import patch
 
+from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
 from django.contrib.staticfiles import finders
+from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from .admin import UsuarioAdmin
 from .views import obtener_indicador_asistencia
 
 
@@ -275,6 +278,7 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, 'name="is_active"')
         self.assertNotContains(response, 'Usuario activo')
+        self.assertNotContains(response, 'value="SOCIO"')
 
     def test_administrador_crea_usuario(self):
         """Permite al administrador crear un usuario operativo."""
@@ -569,6 +573,62 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(self.socio_user.username, 'socio.admin@example.com')
         self.assertEqual(self.socio_user.rut, '22222222-2')
         self.assertEqual(self.socio_user.rol, self.User.SOCIO)
+
+    def test_modelo_impide_promover_socio_a_rol_interno(self):
+        """Protege la integridad aunque se intente cambiar el rol fuera de vistas."""
+        self.socio_user.rol = self.User.ADMINISTRADOR
+
+        with self.assertRaises(ValidationError):
+            self.socio_user.save()
+
+        self.socio_user.refresh_from_db()
+        self.assertEqual(self.socio_user.rol, self.User.SOCIO)
+
+    def test_modelo_impide_privilegios_django_en_socio(self):
+        """Evita que un socio sea staff o superusuario por canales alternativos."""
+        self.socio_user.is_staff = True
+
+        with self.assertRaises(ValidationError):
+            self.socio_user.save()
+
+        self.socio_user.refresh_from_db()
+        self.assertFalse(self.socio_user.is_staff)
+        self.assertFalse(self.socio_user.is_superuser)
+
+    def test_modelo_impide_convertir_usuario_interno_en_socio(self):
+        """Reserva el alta de socios para su flujo especifico."""
+        self.encargado_user.rol = self.User.SOCIO
+
+        with self.assertRaises(ValidationError):
+            self.encargado_user.save()
+
+        self.encargado_user.refresh_from_db()
+        self.assertEqual(self.encargado_user.rol, self.User.ENCARGADO_REGISTRO)
+
+    def test_admin_deja_campos_sensibles_de_socio_solo_lectura(self):
+        """Cierra el bypass del admin Django para cuentas de socio existentes."""
+        usuario_admin = UsuarioAdmin(self.User, AdminSite())
+
+        readonly_fields = usuario_admin.get_readonly_fields(None, obj=self.socio_user)
+
+        self.assertIn('rol', readonly_fields)
+        self.assertIn('is_staff', readonly_fields)
+        self.assertIn('is_superuser', readonly_fields)
+
+    def test_create_superuser_usa_rol_administrador_por_defecto(self):
+        """Evita crear superusuarios con el rol por defecto de socio."""
+        usuario = self.User.objects.create_superuser(
+            username='supervisor',
+            email='supervisor@example.com',
+            password='ClaveSegura123',
+            first_name='Super',
+            last_name='Usuario',
+            rut='12.345.678-5',
+        )
+
+        self.assertEqual(usuario.rol, self.User.ADMINISTRADOR)
+        self.assertTrue(usuario.is_staff)
+        self.assertTrue(usuario.is_superuser)
 
     def test_edicion_socio_valida_confirmacion_de_correo(self):
         """Exige confirmacion cuando se edita el correo del socio."""

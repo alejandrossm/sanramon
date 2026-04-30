@@ -52,6 +52,12 @@ Se usara un modelo de usuario personalizado basado en `AbstractUser`. Como el pr
 - `SOCIO`: puede iniciar sesion y queda preparado para consultas futuras.
 - Superusuario Django: mantiene acceso al admin tradicional.
 
+## Integridad de socios
+
+- Un socio mantiene siempre el rol `SOCIO`; no puede ser promovido a `ADMINISTRADOR` ni a `ENCARGADO_REGISTRO`.
+- Las cuentas con rol `SOCIO` no pueden recibir privilegios `is_staff` ni `is_superuser`.
+- La regla se valida en el modelo y se refuerza en formularios, vistas y admin de Django para evitar bypasses por canales alternativos.
+
 ## Pasos de implementacion
 
 1. Crear app `usuarios`.

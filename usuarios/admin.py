@@ -28,3 +28,10 @@ class UsuarioAdmin(UserAdmin):
     add_fieldsets = UserAdmin.add_fieldsets + (
         ('Datos del sistema', {'fields': ('email', 'first_name', 'last_name', 'rut', 'rol')}),
     )
+
+    def get_readonly_fields(self, request, obj=None):
+        """Bloquea cambios de rol y privilegios para cuentas de socio."""
+        readonly_fields = list(super().get_readonly_fields(request, obj))
+        if obj and obj.rol == Usuario.SOCIO:
+            readonly_fields.extend(('rol', 'is_staff', 'is_superuser'))
+        return tuple(readonly_fields)
