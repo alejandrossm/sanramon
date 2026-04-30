@@ -411,6 +411,8 @@ class UsuarioUpdateForm(forms.ModelForm):
     def clean_rol(self):
         """Impide que actores no administradores asignen roles internos."""
         rol = self.cleaned_data['rol']
+        if rol == Usuario.SOCIO:
+            raise forms.ValidationError('Usa el formulario de registro de socios.')
         if not self._actor_es_administrador() and rol != Usuario.SOCIO:
             raise forms.ValidationError('Solo puedes asignar rol socio.')
         return rol
@@ -439,12 +441,15 @@ class UsuarioUpdateForm(forms.ModelForm):
 
     def _limitar_roles_por_actor(self):
         """Limita a rol socio para actores sin privilegios."""
-        if not self._actor_es_administrador():
-            self.fields['rol'].choices = [
-                choice
-                for choice in self.fields['rol'].choices
-                if choice[0] == Usuario.SOCIO
-            ]
+        if self._actor_es_administrador():
+            roles_permitidos = (Usuario.ADMINISTRADOR, Usuario.ENCARGADO_REGISTRO)
+        else:
+            roles_permitidos = (Usuario.SOCIO,)
+        self.fields['rol'].choices = [
+            choice
+            for choice in self.fields['rol'].choices
+            if choice[0] in roles_permitidos
+        ]
 
 
 class CambioPasswordForm(PasswordChangeForm):

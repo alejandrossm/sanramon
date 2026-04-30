@@ -46,7 +46,10 @@ class Command(BaseCommand):
 
         for datos in self.usuarios:
             username = datos['username']
-            usuario, creado = User.objects.get_or_create(username=username)
+            usuario = User.objects.filter(username=username).first()
+            creado = usuario is None
+            if creado:
+                usuario = User(username=username)
             for campo, valor in datos.items():
                 setattr(usuario, campo, valor)
             usuario.is_active = True
