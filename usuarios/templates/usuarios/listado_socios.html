@@ -4,13 +4,21 @@
 
 {% block content %}
 <div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-center page-heading">
-    <div>
-        <p class="text-uppercase text-primary fw-semibold small mb-1">Administracion</p>
-        <h1 class="h3 mb-1">Socios</h1>
-        <p class="text-muted mb-0">Gestion administrativa de socios registrados.</p>
+    <div class="page-title-row">
+        <span class="page-icon">
+            {% include "includes/icon.html" with name="id-card" %}
+        </span>
+        <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Administracion</p>
+            <h1 class="h3 mb-1">Socios</h1>
+            <p class="text-muted mb-0">Gestion administrativa de socios registrados.</p>
+        </div>
     </div>
     <div class="d-flex flex-wrap gap-2">
-        <a href="{% url 'usuarios:registro_socio' %}" class="btn btn-primary">Registrar socio</a>
+        <a href="{% url 'usuarios:registro_socio' %}" class="btn btn-primary">
+            {% include "includes/icon.html" with name="user-plus" %}
+            <span>Registrar socio</span>
+        </a>
         <span class="badge text-bg-success align-self-center">Activos: {{ socios_activos }}</span>
         <span class="badge text-bg-secondary align-self-center">Inactivos: {{ socios_inactivos }}</span>
     </div>
@@ -42,7 +50,10 @@
                     </td>
                     <td class="text-end">
                         <div class="d-inline-flex gap-2">
-                            <a href="{% url 'usuarios:editar_socio' socio.pk %}" class="btn btn-outline-primary btn-sm">Editar</a>
+                            <a href="{% url 'usuarios:editar_socio' socio.pk %}" class="btn btn-outline-primary btn-sm">
+                                {% include "includes/icon.html" with name="pencil" %}
+                                <span>Editar</span>
+                            </a>
                             <form
                                 method="post"
                                 action="{% url 'usuarios:cambiar_estado_usuario' socio.pk %}"
@@ -54,6 +65,7 @@
                             >
                                 {% csrf_token %}
                                 <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                    {% include "includes/icon.html" with name="power" %}
                                     {% if socio.is_active %}Desactivar{% else %}Activar{% endif %}
                                 </button>
                             </form>
@@ -69,7 +81,10 @@
                                     data-confirm-icon="error"
                                 >
                                     {% csrf_token %}
-                                    <button type="submit" class="btn btn-outline-danger btn-sm">Eliminar</button>
+                                    <button type="submit" class="btn btn-outline-danger btn-sm">
+                                        {% include "includes/icon.html" with name="trash-2" %}
+                                        <span>Eliminar</span>
+                                    </button>
                                 </form>
                             {% else %}
                                 <button
@@ -78,7 +93,8 @@
                                     title="Tiene asistencias contabilizadas; solo se puede desactivar."
                                     disabled
                                 >
-                                    Eliminar
+                                    {% include "includes/icon.html" with name="trash-2" %}
+                                    <span>Eliminar</span>
                                 </button>
                             {% endif %}
                         </div>

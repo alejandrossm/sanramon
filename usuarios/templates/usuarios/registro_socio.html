@@ -5,13 +5,23 @@
 
 {% block content %}
 <div class="page-heading">
-    <p class="text-uppercase text-primary fw-semibold small mb-1">Asistencia</p>
-    <h1 class="h3 mb-1">Registrar socio</h1>
-    <p class="text-muted mb-0">Crea una cuenta de socio para futuras consultas por RUT y correo registrado.</p>
+    <div class="page-title-row">
+        <span class="page-icon">
+            {% include "includes/icon.html" with name="user-plus" %}
+        </span>
+        <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Asistencia</p>
+            <h1 class="h3 mb-1">Registrar socio</h1>
+            <p class="text-muted mb-0">Crea una cuenta de socio para futuras consultas por RUT y correo registrado.</p>
+        </div>
+    </div>
 </div>
 
 <section class="form-panel registro-usuario-panel">
     {% crispy form %}
-    <a href="{% url 'usuarios:listado_socios' %}" class="btn btn-link ps-0 mt-2">Volver al listado</a>
+    <a href="{% url 'usuarios:listado_socios' %}" class="btn btn-link ps-0 mt-2">
+        {% include "includes/icon.html" with name="arrow-left" %}
+        <span>Volver al listado</span>
+    </a>
 </section>
 {% endblock %}

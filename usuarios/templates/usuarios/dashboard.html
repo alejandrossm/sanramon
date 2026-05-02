@@ -4,38 +4,73 @@
 {% block content %}
 <section class="dashboard-data">
     <div class="dashboard-heading">
-        <div>
-            <p class="text-uppercase text-primary fw-semibold small mb-1">Resumen operativo</p>
-            <h2 class="h3 mb-1">Usuarios registrados</h2>
-            <p class="text-muted mb-0">Estado actual de cuentas del sistema.</p>
+        <div class="page-title-row">
+            <span class="page-icon">
+                {% include "includes/icon.html" with name="chart-bar" %}
+            </span>
+            <div>
+                <p class="text-uppercase text-primary fw-semibold small mb-1">Resumen operativo</p>
+                <h2 class="h3 mb-1">Usuarios registrados</h2>
+                <p class="text-muted mb-0">Estado actual de cuentas del sistema.</p>
+            </div>
         </div>
         <div class="d-flex flex-wrap gap-2">
             {% if puede_gestionar_usuarios %}
-                <a href="{% url 'usuarios:listado_usuarios' %}" class="btn btn-primary">Gestionar usuarios</a>
+                <a href="{% url 'usuarios:listado_usuarios' %}" class="btn btn-primary">
+                    {% include "includes/icon.html" with name="users" %}
+                    <span>Gestionar usuarios</span>
+                </a>
             {% elif puede_registrar_usuarios %}
-                <a href="{% url 'usuarios:registro_usuario' %}" class="btn btn-primary">Registrar usuario</a>
+                <a href="{% url 'usuarios:registro_usuario' %}" class="btn btn-primary">
+                    {% include "includes/icon.html" with name="user-plus" %}
+                    <span>Registrar usuario</span>
+                </a>
             {% endif %}
             {% if puede_registrar_socios %}
-                <a href="{% url 'usuarios:listado_socios' %}" class="btn btn-primary">Gestionar socios</a>
-                <a href="{% url 'usuarios:registro_socio' %}" class="btn btn-outline-primary">Registrar socio</a>
+                <a href="{% url 'usuarios:listado_socios' %}" class="btn btn-primary">
+                    {% include "includes/icon.html" with name="id-card" %}
+                    <span>Gestionar socios</span>
+                </a>
+                <a href="{% url 'usuarios:registro_socio' %}" class="btn btn-outline-primary">
+                    {% include "includes/icon.html" with name="user-plus" %}
+                    <span>Registrar socio</span>
+                </a>
             {% endif %}
             {% if puede_acceder_asistencia %}
-                <a href="{% url 'usuarios:listado_socios_asistencia' %}" class="btn btn-outline-primary">Asistencia</a>
+                <a href="{% url 'usuarios:listado_socios_asistencia' %}" class="btn btn-outline-primary">
+                    {% include "includes/icon.html" with name="clipboard-check" %}
+                    <span>Asistencia</span>
+                </a>
             {% endif %}
         </div>
     </div>
 
     <div class="dashboard-metrics" aria-label="Metricas de usuarios">
         <article class="dashboard-metric">
-            <span>Total</span>
+            <div class="dashboard-metric-head">
+                <span>Total</span>
+                <span class="metric-icon">
+                    {% include "includes/icon.html" with name="users" %}
+                </span>
+            </div>
             <strong>{{ total_usuarios }}</strong>
         </article>
         <article class="dashboard-metric">
-            <span>Activos</span>
+            <div class="dashboard-metric-head">
+                <span>Activos</span>
+                <span class="metric-icon">
+                    {% include "includes/icon.html" with name="check-circle" %}
+                </span>
+            </div>
             <strong>{{ usuarios_activos }}</strong>
         </article>
         <article class="dashboard-metric">
-            <span>Inactivos</span>
+            <div class="dashboard-metric-head">
+                <span>Inactivos</span>
+                <span class="metric-icon">
+                    {% include "includes/icon.html" with name="x-circle" %}
+                </span>
+            </div>
             <strong>{{ usuarios_inactivos }}</strong>
         </article>
     </div>
@@ -62,16 +97,31 @@
 
     <div class="dashboard-breakdown" aria-label="Distribucion por rol">
         <article class="dashboard-breakdown-item">
-            <span>Administradores</span>
-            <strong>{{ usuarios_admin }}</strong>
+            <div class="dashboard-breakdown-copy">
+                <span>Administradores</span>
+                <strong>{{ usuarios_admin }}</strong>
+            </div>
+            <span class="dashboard-breakdown-icon">
+                {% include "includes/icon.html" with name="shield-check" %}
+            </span>
         </article>
         <article class="dashboard-breakdown-item">
-            <span>Encargados</span>
-            <strong>{{ usuarios_encargados }}</strong>
+            <div class="dashboard-breakdown-copy">
+                <span>Encargados</span>
+                <strong>{{ usuarios_encargados }}</strong>
+            </div>
+            <span class="dashboard-breakdown-icon">
+                {% include "includes/icon.html" with name="clipboard-check" %}
+            </span>
         </article>
         <article class="dashboard-breakdown-item">
-            <span>Socios</span>
-            <strong>{{ usuarios_socios }}</strong>
+            <div class="dashboard-breakdown-copy">
+                <span>Socios</span>
+                <strong>{{ usuarios_socios }}</strong>
+            </div>
+            <span class="dashboard-breakdown-icon">
+                {% include "includes/icon.html" with name="id-card" %}
+            </span>
         </article>
     </div>
 </section>

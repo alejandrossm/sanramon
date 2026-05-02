@@ -4,14 +4,19 @@
 
 {% block content %}
 <div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-center page-heading">
-    <div>
-        <p class="text-uppercase text-primary fw-semibold small mb-1">Administracion</p>
-        <h1 class="h3 mb-1">Usuarios</h1>
-        {% if puede_administrar_privilegios %}
-            <p class="text-muted mb-0">Gestion inicial de cuentas y roles del sistema.</p>
-        {% else %}
-            <p class="text-muted mb-0">Gestion de usuarios permitidos. Las cuentas administradoras no se pueden modificar.</p>
-        {% endif %}
+    <div class="page-title-row">
+        <span class="page-icon">
+            {% include "includes/icon.html" with name="users" %}
+        </span>
+        <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Administracion</p>
+            <h1 class="h3 mb-1">Usuarios</h1>
+            {% if puede_administrar_privilegios %}
+                <p class="text-muted mb-0">Gestion inicial de cuentas y roles del sistema.</p>
+            {% else %}
+                <p class="text-muted mb-0">Gestion de usuarios permitidos. Las cuentas administradoras no se pueden modificar.</p>
+            {% endif %}
+        </div>
     </div>
     <div class="d-flex flex-wrap gap-2">
         {% if puede_administrar_privilegios %}
@@ -26,10 +31,14 @@
                 data-disable-delete-label="Desactivar eliminacion"
                 aria-pressed="false"
             >
-                Activar eliminacion
+                {% include "includes/icon.html" with name="trash-2" %}
+                <span data-delete-toggle-label>Activar eliminacion</span>
             </button>
         {% endif %}
-        <a href="{% url 'usuarios:registro_usuario' %}" class="btn btn-primary">Registrar usuario</a>
+        <a href="{% url 'usuarios:registro_usuario' %}" class="btn btn-primary">
+            {% include "includes/icon.html" with name="user-plus" %}
+            <span>Registrar usuario</span>
+        </a>
     </div>
 </div>
 
@@ -66,7 +75,10 @@
                     </td>
                     <td class="text-end">
                         <div class="d-inline-flex gap-2">
-                            <a href="{% url 'usuarios:editar_usuario' usuario.pk %}" class="btn btn-outline-primary btn-sm">Editar</a>
+                            <a href="{% url 'usuarios:editar_usuario' usuario.pk %}" class="btn btn-outline-primary btn-sm">
+                                {% include "includes/icon.html" with name="pencil" %}
+                                <span>Editar</span>
+                            </a>
                             <form
                                 method="post"
                                 action="{% url 'usuarios:cambiar_estado_usuario' usuario.pk %}"
@@ -78,6 +90,7 @@
                             >
                                 {% csrf_token %}
                                 <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                    {% include "includes/icon.html" with name="power" %}
                                     {% if usuario.is_active %}Desactivar{% else %}Activar{% endif %}
                                 </button>
                             </form>
@@ -92,7 +105,8 @@
                                     title="No puedes eliminar tu propio usuario."
                                     disabled
                                 >
-                                    Eliminar
+                                    {% include "includes/icon.html" with name="trash-2" %}
+                                    <span>Eliminar</span>
                                 </button>
                             {% else %}
                                 <form
@@ -113,7 +127,8 @@
                                         data-delete-allowed="true"
                                         disabled
                                     >
-                                        Eliminar
+                                        {% include "includes/icon.html" with name="trash-2" %}
+                                        <span>Eliminar</span>
                                     </button>
                                 </form>
                             {% endif %}

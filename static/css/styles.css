@@ -16,6 +16,10 @@
     --color-sidebar-deep: #0c2f3d;
     --color-sidebar-text: #eaf4f2;
     --color-sidebar-muted: #a8c1bc;
+    --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Roboto", "Helvetica Neue", Arial, sans-serif;
+    --font-display: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Roboto", "Helvetica Neue", Arial, sans-serif;
+    --shadow-panel: 0 14px 36px rgba(36, 49, 58, 0.09);
+    --shadow-panel-soft: 0 8px 24px rgba(36, 49, 58, 0.07);
     --app-bg: var(--color-bg);
     --app-border: var(--color-border);
     --bs-body-color: var(--color-text);
@@ -36,6 +40,11 @@ body {
     min-height: 100vh;
     background: var(--app-bg);
     color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: 0.95rem;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
 }
 
 a {
@@ -46,11 +55,44 @@ a:hover {
     color: var(--color-primary-hover);
 }
 
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.navbar-brand,
+.sidebar-title {
+    font-family: var(--font-display);
+    font-weight: 750;
+    letter-spacing: 0;
+    line-height: 1.18;
+}
+
+.app-icon-sprite {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+}
+
+.app-icon {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
+    flex: 0 0 auto;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
 .app-shell {
     display: grid;
     grid-template-columns: 268px minmax(0, 1fr);
     min-height: 100vh;
-    background: linear-gradient(180deg, #eef2f3 0%, var(--color-bg) 100%);
+    background: linear-gradient(180deg, var(--color-logo-sand-light) 0%, var(--color-bg) 48%, var(--color-surface) 100%);
 }
 
 .app-sidebar {
@@ -89,6 +131,7 @@ a:hover {
     margin: 0;
     color: var(--color-sidebar-muted);
     font-size: 0.75rem;
+    font-weight: 700;
     letter-spacing: 0;
     text-transform: uppercase;
 }
@@ -141,7 +184,7 @@ a:hover {
 
 .sidebar-link {
     display: grid;
-    grid-template-columns: 18px minmax(0, 1fr);
+    grid-template-columns: 20px minmax(0, 1fr);
     gap: 0.75rem;
     align-items: center;
     min-height: 42px;
@@ -151,6 +194,7 @@ a:hover {
     border: 1px solid transparent;
     border-radius: 8px;
     background: transparent;
+    font-weight: 650;
 }
 
 .sidebar-link:hover,
@@ -161,11 +205,15 @@ a:hover {
 }
 
 .sidebar-icon {
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--color-logo-sand);
-    box-shadow: 0 0 0 4px rgba(217, 192, 170, 0.12);
+    width: 1.05rem;
+    height: 1.05rem;
+    color: var(--color-logo-sand);
+    stroke-width: 2.15;
+}
+
+.sidebar-link:hover .sidebar-icon,
+.sidebar-link:focus .sidebar-icon {
+    color: #fff8ef;
 }
 
 .sidebar-button {
@@ -185,7 +233,7 @@ a:hover {
 .app-content {
     width: min(100%, 1180px);
     margin: 0 auto;
-    padding: 1.5rem;
+    padding: 1.75rem;
     flex: 1;
 }
 
@@ -237,6 +285,37 @@ a:hover {
     margin-bottom: 1.5rem;
 }
 
+.page-title-row {
+    display: flex;
+    gap: 0.85rem;
+    align-items: center;
+    min-width: 0;
+}
+
+.page-title-row > div {
+    min-width: 0;
+}
+
+.page-icon {
+    display: inline-grid;
+    place-items: center;
+    color: var(--color-primary);
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+}
+
+.page-icon {
+    width: 2.55rem;
+    height: 2.55rem;
+}
+
+.page-icon .app-icon {
+    width: 1.15rem;
+    height: 1.15rem;
+    stroke-width: 2.25;
+}
+
 .page-heading h1,
 .auth-panel h1,
 .status-panel h2,
@@ -266,13 +345,14 @@ a:hover {
     background: var(--color-surface);
     border: 1px solid var(--app-border);
     border-radius: 8px;
-    box-shadow: 0 8px 28px rgba(36, 49, 58, 0.07);
+    box-shadow: var(--shadow-panel-soft);
 }
 
 .auth-panel {
     width: min(100%, 440px);
     padding: 2rem;
     border-top: 4px solid var(--color-logo-sand);
+    box-shadow: var(--shadow-panel);
 }
 
 .form-panel,
@@ -282,6 +362,10 @@ a:hover {
 
 .status-panel {
     border-left: 4px solid var(--color-logo-sand);
+}
+
+.status-panel h2 .app-icon {
+    color: var(--color-secondary);
 }
 
 .app-card {
@@ -296,6 +380,7 @@ a:hover {
     background: var(--color-logo-sand-light);
     color: var(--color-text);
     font-size: 0.875rem;
+    font-weight: 750;
     white-space: nowrap;
 }
 
@@ -304,8 +389,32 @@ a:hover {
     color: var(--color-text);
 }
 
+.table tbody tr {
+    border-color: var(--color-border);
+}
+
 .table-hover tbody tr:hover {
     --bs-table-hover-bg: rgba(217, 192, 170, 0.18);
+}
+
+.btn {
+    display: inline-flex;
+    gap: 0.45rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    font-weight: 700;
+    letter-spacing: 0;
+}
+
+.btn-sm {
+    gap: 0.35rem;
+    min-height: 2rem;
+}
+
+.btn .app-icon {
+    width: 0.95rem;
+    height: 0.95rem;
 }
 
 .btn-primary {
@@ -367,17 +476,22 @@ a:hover {
 
 .btn-link {
     color: var(--color-primary);
+    font-weight: 700;
+    text-decoration: none;
 }
 
 .btn-link:hover {
     color: var(--color-primary-hover);
+    text-decoration: underline;
 }
 
 .form-control,
 .form-select {
     background-color: #fff;
     border-color: var(--color-border);
+    border-radius: 8px;
     color: var(--color-text);
+    min-height: 2.65rem;
 }
 
 .form-control:focus,
@@ -406,6 +520,15 @@ a:hover {
 .form-check-input:checked {
     background-color: var(--color-primary);
     border-color: var(--color-primary);
+}
+
+.badge {
+    display: inline-flex;
+    gap: 0.35rem;
+    align-items: center;
+    border-radius: 999px;
+    font-weight: 700;
+    letter-spacing: 0;
 }
 
 .badge.text-bg-success {
@@ -451,7 +574,7 @@ a:hover {
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: 8px;
-    box-shadow: 0 8px 28px rgba(36, 49, 58, 0.07);
+    box-shadow: var(--shadow-panel-soft);
 }
 
 .dashboard-actions-panel {
@@ -483,6 +606,19 @@ a:hover {
 
 .dashboard-brand p {
     color: var(--color-primary);
+}
+
+.dashboard-action-main {
+    display: inline-flex;
+    gap: 0.55rem;
+    align-items: center;
+    min-width: 0;
+}
+
+.dashboard-action-main .app-icon {
+    width: 1.05rem;
+    height: 1.05rem;
+    color: var(--color-secondary);
 }
 
 .dashboard-user {
@@ -518,6 +654,7 @@ a:hover {
     border: 1px solid var(--color-border);
     border-radius: 8px;
     background: #fff;
+    font-weight: 700;
 }
 
 .dashboard-action-link:hover,
@@ -556,7 +693,35 @@ a:hover {
 }
 
 .dashboard-metric {
+    display: grid;
+    gap: 0.85rem;
     border-top: 4px solid var(--color-logo-sand);
+}
+
+.dashboard-metric-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: center;
+}
+
+.metric-icon {
+    display: inline-grid;
+    place-items: center;
+    width: 2.35rem;
+    height: 2.35rem;
+    color: var(--color-secondary);
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+}
+
+.metric-icon .app-icon,
+.dashboard-breakdown-icon .app-icon {
+    display: block;
+    width: 1.35rem;
+    height: 1.35rem;
+    stroke-width: 2.2;
 }
 
 .dashboard-metric span,
@@ -564,13 +729,19 @@ a:hover {
     display: block;
     color: var(--color-text-muted);
     font-size: 0.875rem;
+    font-weight: 650;
+}
+
+.dashboard-metric .metric-icon {
+    display: inline-grid;
+    place-items: center;
+    color: var(--color-secondary);
 }
 
 .dashboard-metric strong {
     display: block;
-    margin-top: 0.25rem;
     color: var(--color-text);
-    font-size: 2rem;
+    font-size: 2.25rem;
     line-height: 1;
 }
 
@@ -596,6 +767,11 @@ a:hover {
     border-radius: 8px;
     font-size: 1.5rem;
     font-weight: 700;
+}
+
+.dashboard-chart-total .app-icon {
+    width: 1.1rem;
+    height: 1.1rem;
 }
 
 .dashboard-bar-chart {
@@ -634,6 +810,27 @@ a:hover {
     justify-content: space-between;
     gap: 1rem;
     align-items: center;
+}
+
+.dashboard-breakdown-copy {
+    min-width: 0;
+}
+
+.dashboard-breakdown-icon {
+    display: inline-grid;
+    place-items: center;
+    width: 2.2rem;
+    height: 2.2rem;
+    color: var(--color-secondary);
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+}
+
+.dashboard-breakdown-item .dashboard-breakdown-icon {
+    display: inline-grid;
+    place-items: center;
+    color: var(--color-secondary);
 }
 
 .dashboard-breakdown-item strong {
