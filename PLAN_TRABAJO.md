@@ -50,7 +50,7 @@ Se usara un modelo de usuario personalizado basado en `AbstractUser`. Como el pr
 - `ADMINISTRADOR`: puede registrar, listar, editar, activar y desactivar usuarios.
 - `ENCARGADO_REGISTRO`: puede iniciar sesion y ver un dashboard operativo futuro.
 - `SOCIO`: puede iniciar sesion y queda preparado para consultas futuras.
-- Superusuario Django: mantiene acceso al admin tradicional.
+- Superusuario Django: mantiene acceso exclusivo al admin tradicional.
 
 ## Integridad de socios
 

@@ -630,6 +630,34 @@ class UsuariosModuloTests(TestCase):
         self.assertTrue(usuario.is_staff)
         self.assertTrue(usuario.is_superuser)
 
+    def test_admin_django_rechaza_staff_no_superusuario(self):
+        """Restringe el panel /admin/ exclusivamente a superusuarios."""
+        self.admin_user.is_staff = True
+        self.admin_user.save(update_fields=['is_staff'])
+        self.client.force_login(self.admin_user)
+
+        response = self.client.get(reverse('admin:index'))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse('admin:login'), response['Location'])
+        self.assertIn('next=', response['Location'])
+
+    def test_admin_django_permite_superusuario(self):
+        """Mantiene disponible el admin tradicional para superusuarios activos."""
+        superusuario = self.User.objects.create_superuser(
+            username='super_admin',
+            email='super.admin@example.com',
+            password='ClaveSegura123',
+            first_name='Super',
+            last_name='Admin',
+            rut='98.765.432-1',
+        )
+        self.client.force_login(superusuario)
+
+        response = self.client.get(reverse('admin:index'))
+
+        self.assertEqual(response.status_code, 200)
+
     def test_edicion_socio_valida_confirmacion_de_correo(self):
         """Exige confirmacion cuando se edita el correo del socio."""
         self.client.login(username='admin', password='ClaveSegura123')
