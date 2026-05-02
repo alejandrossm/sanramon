@@ -112,18 +112,22 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Total de usuarios registrados')
         self.assertContains(response, '<strong>3</strong>', html=True)
 
-    def test_layout_usa_bootstrap_y_sweetalert_locales(self):
+    def test_layout_usa_bootstrap_sweetalert_e_iconos_locales(self):
         """Carga dependencias visuales desde static local sin CDN."""
         self.client.login(username='admin', password='ClaveSegura123')
         response = self.client.get(reverse('usuarios:dashboard'))
 
         self.assertNotContains(response, 'cdn.jsdelivr.net')
         self.assertContains(response, 'vendor/bootstrap/bootstrap.min.css')
+        self.assertContains(response, 'vendor/bootstrap-icons/bootstrap-icons.min.css')
         self.assertContains(response, 'vendor/bootstrap/bootstrap.bundle.min.js')
         self.assertContains(response, 'vendor/sweetalert2/sweetalert2.all.min.js')
 
         rutas_estaticas = [
             'vendor/bootstrap/bootstrap.min.css',
+            'vendor/bootstrap-icons/bootstrap-icons.min.css',
+            'vendor/bootstrap-icons/fonts/bootstrap-icons.woff',
+            'vendor/bootstrap-icons/fonts/bootstrap-icons.woff2',
             'vendor/bootstrap/bootstrap.bundle.min.js',
             'vendor/sweetalert2/sweetalert2.all.min.js',
         ]

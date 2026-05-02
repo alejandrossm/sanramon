@@ -6,10 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Sistema San Ramon{% endblock %}</title>
     <link href="{% static 'vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet">
-    <link href="{% static 'css/styles.css' %}?v=modern-icons-1" rel="stylesheet">
+    <link href="{% static 'vendor/bootstrap-icons/bootstrap-icons.min.css' %}" rel="stylesheet">
+    <link href="{% static 'css/styles.css' %}?v=modern-icons-3" rel="stylesheet">
 </head>
 <body>
-    {% include "includes/icon_sprite.html" %}
     <div class="app-shell">
         <aside class="app-sidebar" aria-label="Panel de acciones">
             <div class="sidebar-brand">
@@ -74,7 +74,7 @@
 
                     <p class="sidebar-section-title">Cuenta</p>
                     <a class="sidebar-link" href="{% url 'usuarios:cambiar_mi_password' %}">
-                        {% include "includes/icon.html" with name="key-round" classes="sidebar-icon" %}
+                        {% include "includes/icon.html" with name="key" classes="sidebar-icon" %}
                         <span>Mi contraseña</span>
                     </a>
                 </nav>

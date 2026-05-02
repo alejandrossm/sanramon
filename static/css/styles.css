@@ -69,30 +69,28 @@ h6,
     line-height: 1.18;
 }
 
-.app-icon-sprite {
-    position: absolute;
-    width: 0;
-    height: 0;
-    overflow: hidden;
+.app-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1em;
+    height: 1em;
+    flex: 0 0 auto;
+    font-size: 1rem;
+    line-height: 1;
 }
 
-.app-icon {
-    display: inline-block;
-    width: 1rem;
-    height: 1rem;
-    flex: 0 0 auto;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
+.app-icon::before {
+    display: block;
+    line-height: 1;
+    vertical-align: 0;
 }
 
 .app-shell {
     display: grid;
     grid-template-columns: 268px minmax(0, 1fr);
     min-height: 100vh;
-    background: linear-gradient(180deg, var(--color-logo-sand-light) 0%, var(--color-bg) 48%, var(--color-surface) 100%);
+    background: var(--color-surface);
 }
 
 .app-sidebar {
@@ -207,13 +205,13 @@ h6,
 .sidebar-icon {
     width: 1.05rem;
     height: 1.05rem;
-    color: var(--color-logo-sand);
-    stroke-width: 2.15;
+    color: var(--color-sidebar-text);
+    font-size: 1.05rem;
 }
 
 .sidebar-link:hover .sidebar-icon,
 .sidebar-link:focus .sidebar-icon {
-    color: #fff8ef;
+    color: #fff;
 }
 
 .sidebar-button {
@@ -228,6 +226,7 @@ h6,
     flex-direction: column;
     min-width: 0;
     min-height: 100vh;
+    background: var(--color-surface);
 }
 
 .app-content {
@@ -311,9 +310,7 @@ h6,
 }
 
 .page-icon .app-icon {
-    width: 1.15rem;
-    height: 1.15rem;
-    stroke-width: 2.25;
+    font-size: 1.2rem;
 }
 
 .page-heading h1,
@@ -413,8 +410,7 @@ h6,
 }
 
 .btn .app-icon {
-    width: 0.95rem;
-    height: 0.95rem;
+    font-size: 0.95rem;
 }
 
 .btn-primary {
@@ -616,8 +612,7 @@ h6,
 }
 
 .dashboard-action-main .app-icon {
-    width: 1.05rem;
-    height: 1.05rem;
+    font-size: 1.05rem;
     color: var(--color-secondary);
 }
 
@@ -701,21 +696,37 @@ h6,
     min-height: 2.35rem;
     padding: 0.4rem 0.55rem;
     color: var(--color-text-muted);
-    font-weight: 750;
+    font-weight: 600;
     text-decoration: none;
     border-radius: 8px;
+    background: transparent;
+    opacity: 0.78;
+    transition:
+        color 0.38s ease,
+        opacity 0.38s ease,
+        font-weight 0.38s ease;
 }
 
 .dashboard-route-link:hover,
 .dashboard-route-link:focus {
     color: var(--color-primary);
-    background: var(--color-logo-sand-light);
+    font-weight: 800;
+    opacity: 1;
+    background: transparent;
 }
 
 .dashboard-route-link .app-icon {
-    width: 1rem;
-    height: 1rem;
-    color: var(--color-secondary);
+    font-size: 1rem;
+    color: var(--color-text-muted);
+    transition:
+        color 0.38s ease,
+        transform 0.38s ease;
+}
+
+.dashboard-route-link:hover .app-icon,
+.dashboard-route-link:focus .app-icon {
+    color: var(--color-primary);
+    transform: translateY(-1px) scale(1.08);
 }
 
 .dashboard-metrics,
@@ -756,10 +767,7 @@ h6,
 
 .metric-icon .app-icon,
 .dashboard-breakdown-icon .app-icon {
-    display: block;
-    width: 1.35rem;
-    height: 1.35rem;
-    stroke-width: 2.2;
+    font-size: 1.35rem;
 }
 
 .dashboard-metric span,
@@ -808,8 +816,7 @@ h6,
 }
 
 .dashboard-chart-total .app-icon {
-    width: 1.1rem;
-    height: 1.1rem;
+    font-size: 1.1rem;
 }
 
 .dashboard-bar-chart {
