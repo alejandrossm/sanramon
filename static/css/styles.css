@@ -332,7 +332,7 @@ h6,
     min-width: 0;
 }
 
-.page-title-row > div {
+.page-title-row>div {
     min-width: 0;
 }
 
@@ -883,7 +883,7 @@ h6,
     align-items: flex-end;
     justify-content: center;
     min-height: 190px;
-    padding: 0.65rem;
+    padding: 1rem 0.65rem 0.65rem;
     background: var(--color-logo-sand-light);
     border: 1px solid var(--color-border);
     border-radius: 8px;
@@ -891,8 +891,10 @@ h6,
 
 .dashboard-vertical-bar {
     width: min(100%, 3.35rem);
+    min-height: 6px;
     background: var(--color-secondary);
     border-radius: 8px 8px 4px 4px;
+    transition: height 0.4s ease;
 }
 
 .dashboard-vertical-bar-item.is-total .dashboard-vertical-bar {
@@ -915,13 +917,14 @@ h6,
     color: var(--color-primary);
     font-size: 1.45rem;
     line-height: 1;
+    margin-top: 0.25rem;
 }
 
 .dashboard-vertical-bar-item span {
     color: var(--color-text-muted);
     font-size: 0.82rem;
     font-weight: 750;
-    line-height: 1.25;
+    line-height: 1.3;
 }
 
 .dashboard-breakdown-item {

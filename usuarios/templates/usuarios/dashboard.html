@@ -88,20 +88,8 @@
             </div>
         </div>
 
-        <div
-            class="dashboard-vertical-chart"
-            role="img"
-            aria-label="Estado de asistencia de socios: {{ estado_asistencia_socios_total }} socios totales"
-        >
-            {% for item in estado_asistencia_socios_items %}
-                <div class="dashboard-vertical-bar-item {{ item.class }}">
-                    <div class="dashboard-vertical-bar-shell" aria-hidden="true">
-                        <div class="dashboard-vertical-bar" style="height: {{ item.percentage }}%;"></div>
-                    </div>
-                    <strong>{{ item.total }}</strong>
-                    <span>{{ item.label }}</span>
-                </div>
-            {% endfor %}
+        <div style="position: relative; height: 300px;">
+            <canvas id="asistenciaChart"></canvas>
         </div>
 
         <div class="visually-hidden">
@@ -110,6 +98,91 @@
             {% endfor %}
         </div>
     </article>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const ctx = document.getElementById('asistenciaChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: [
+                        {% for item in estado_asistencia_socios_items %}'{{ item.label }}'{% if not forloop.last %}, {% endif %}{% endfor %}
+                    ],
+                    datasets: [{
+                        label: 'Cantidad de socios',
+                        data: [
+                            {% for item in estado_asistencia_socios_items %}{{ item.total }}{% if not forloop.last %}, {% endif %}{% endfor %}
+                        ],
+                        backgroundColor: [
+                            '#2f5d50',
+                            '#2e7d5b',
+                            '#c9964a',
+                            '#b42318'
+                        ],
+                        borderRadius: 8,
+                        borderSkipped: false,
+                        hoverBackgroundColor: [
+                            '#24483e',
+                            '#23614a',
+                            '#b5873e',
+                            '#9c1f15'
+                        ]
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            padding: 12,
+                            backgroundColor: 'rgba(36, 49, 58, 0.8)',
+                            titleColor: '#fff',
+                            bodyColor: '#fff',
+                            borderColor: 'rgba(255, 252, 248, 0.2)',
+                            borderWidth: 1,
+                            titleFont: {
+                                weight: 'bold',
+                                size: 13
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(227, 215, 202, 0.3)',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                color: '#5d6b74',
+                                font: {
+                                    size: 12,
+                                    weight: '600'
+                                }
+                            }
+                        },
+                        y: {
+                            grid: {
+                                display: false,
+                                drawBorder: false
+                            },
+                            ticks: {
+                                color: '#24313a',
+                                font: {
+                                    size: 13,
+                                    weight: '700'
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        });
+    </script>
 
     <div class="dashboard-breakdown" aria-label="Distribucion por rol">
         <article class="dashboard-breakdown-item">
