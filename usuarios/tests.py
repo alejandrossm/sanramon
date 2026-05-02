@@ -139,6 +139,43 @@ class UsuariosModuloTests(TestCase):
         self.assertNotContains(response, 'Registrar socio')
         self.assertNotContains(response, 'Listado socios')
 
+    def test_nav_dashboard_admin_muestra_accesos_autorizados(self):
+        """Mantiene accesos del dashboard alineados a permisos administrativos."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:dashboard'))
+
+        self.assertContains(response, 'aria-label="Accesos del dashboard"')
+        self.assertContains(response, 'Gestionar usuarios')
+        self.assertContains(response, 'Gestionar socios')
+        self.assertContains(response, 'Registrar socio')
+        self.assertContains(response, 'Asistencia')
+
+    def test_nav_dashboard_encargado_solo_muestra_asistencia(self):
+        """Evita exponer gestion administrativa al encargado de registro."""
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:dashboard'))
+
+        self.assertContains(response, 'aria-label="Accesos del dashboard"')
+        self.assertContains(response, 'Asistencia')
+        self.assertNotContains(response, 'Gestionar usuarios')
+        self.assertNotContains(response, 'Registrar usuario')
+        self.assertNotContains(response, 'Gestionar socios')
+        self.assertNotContains(response, 'Registrar socio')
+
+    def test_sidebar_socio_solo_muestra_secciones_permitidas(self):
+        """Limita el sidebar de socio a asistencias propias y cuenta."""
+        self.client.login(username='socio', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:mis_asistencias'))
+
+        self.assertContains(response, 'Mis asistencias')
+        self.assertContains(response, 'Mi contrase')
+        self.assertNotContains(response, 'Dashboard')
+        self.assertNotContains(response, 'Listado usuarios')
+        self.assertNotContains(response, 'Registrar usuario')
+        self.assertNotContains(response, 'Listado socios')
+        self.assertNotContains(response, 'Registrar socio')
+        self.assertNotContains(response, 'Listado asistencia')
+
     def test_menu_lateral_admin_agrupa_usuarios_y_socios(self):
         """Agrupa acciones administrativas de usuarios y socios en el sidebar."""
         self.client.login(username='admin', password='ClaveSegura123')
