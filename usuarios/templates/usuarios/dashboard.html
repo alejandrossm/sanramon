@@ -80,19 +80,34 @@
         <div class="dashboard-chart-header">
             <div>
                 <p class="text-uppercase text-primary fw-semibold small mb-1">Gráfico</p>
-                <h3 class="h5 mb-0">Total de usuarios registrados</h3>
+                <h3 class="h5 mb-0">Estado de asistencia de socios</h3>
             </div>
-            <span class="dashboard-chart-total">{{ total_usuarios }}</span>
+            <div class="dashboard-chart-summary">
+                <span>Socios totales</span>
+                <strong>{{ estado_asistencia_socios_total }}</strong>
+            </div>
         </div>
 
-        <div class="dashboard-bar-chart" role="img" aria-label="Total de usuarios registrados: {{ total_usuarios }}">
-            <div class="dashboard-bar-row">
-                <span class="dashboard-bar-label">Usuarios</span>
-                <div class="dashboard-bar-track">
-                    <div class="dashboard-bar-fill" style="width: {{ usuarios_barra_porcentaje }}%;"></div>
+        <div
+            class="dashboard-vertical-chart"
+            role="img"
+            aria-label="Estado de asistencia de socios: {{ estado_asistencia_socios_total }} socios totales"
+        >
+            {% for item in estado_asistencia_socios_items %}
+                <div class="dashboard-vertical-bar-item {{ item.class }}">
+                    <div class="dashboard-vertical-bar-shell" aria-hidden="true">
+                        <div class="dashboard-vertical-bar" style="height: {{ item.percentage }}%;"></div>
+                    </div>
+                    <strong>{{ item.total }}</strong>
+                    <span>{{ item.label }}</span>
                 </div>
-                <strong class="dashboard-bar-value">{{ total_usuarios }}</strong>
-            </div>
+            {% endfor %}
+        </div>
+
+        <div class="visually-hidden">
+            {% for item in estado_asistencia_socios_items %}
+                <span>{{ item.label }}: {{ item.total }}</span>
+            {% endfor %}
         </div>
     </article>
 

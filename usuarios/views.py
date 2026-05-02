@@ -88,6 +88,45 @@ def redireccion_sin_permiso(user):
     return redirect('usuarios:dashboard')
 
 
+def obtener_resumen_estado_asistencia_socios():
+    """Resume socios por estado de ausencias para el grafico del dashboard."""
+    socios = Usuario.objects.filter(rol=Usuario.SOCIO)
+    total_socios = socios.count()
+    sin_falta = 0
+    en_riesgo = 0
+    bloqueados = 0
+
+    for socio in socios:
+        resumen = obtener_resumen_asistencia_socio(socio)
+        total_ausencias = resumen['total_ausencias']
+        if total_ausencias >= 2:
+            bloqueados += 1
+        elif total_ausencias == 1:
+            en_riesgo += 1
+        else:
+            sin_falta += 1
+
+    barras = [
+        {'label': 'Socios totales', 'total': total_socios, 'class': 'is-total'},
+        {'label': 'Sin falta', 'total': sin_falta, 'class': 'is-clear'},
+        {'label': 'En riesgo', 'total': en_riesgo, 'class': 'is-risk'},
+        {
+            'label': 'Bloqueados por inasistencia',
+            'total': bloqueados,
+            'class': 'is-blocked',
+        },
+    ]
+    maximo = max((barra['total'] for barra in barras), default=0)
+
+    for barra in barras:
+        barra['percentage'] = round((barra['total'] / maximo) * 100) if maximo else 0
+
+    return {
+        'items': barras,
+        'total': total_socios,
+    }
+
+
 def gestor_usuarios_required(view_func):
     """Protege vistas de gestion completa para administradores."""
 
@@ -189,6 +228,7 @@ def dashboard(request):
     if es_socio(request.user):
         return redirect('usuarios:mis_asistencias')
 
+    estado_asistencia_socios = obtener_resumen_estado_asistencia_socios()
     usuarios = Usuario.objects.all()
     total_usuarios = usuarios.count()
     usuarios_activos = usuarios.filter(is_active=True).count()
@@ -209,7 +249,8 @@ def dashboard(request):
             'usuarios_admin': usuarios.filter(rol=Usuario.ADMINISTRADOR).count(),
             'usuarios_encargados': usuarios.filter(rol=Usuario.ENCARGADO_REGISTRO).count(),
             'usuarios_socios': usuarios.filter(rol=Usuario.SOCIO).count(),
-            'usuarios_barra_porcentaje': 100 if total_usuarios else 0,
+            'estado_asistencia_socios_items': estado_asistencia_socios['items'],
+            'estado_asistencia_socios_total': estado_asistencia_socios['total'],
         },
     )
 

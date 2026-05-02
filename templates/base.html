@@ -7,20 +7,35 @@
     <title>{% block title %}Sistema San Ramon{% endblock %}</title>
     <link href="{% static 'vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet">
     <link href="{% static 'vendor/bootstrap-icons/bootstrap-icons.min.css' %}" rel="stylesheet">
-    <link href="{% static 'css/styles.css' %}?v=modern-icons-3" rel="stylesheet">
+    <link href="{% static 'css/styles.css' %}?v=dashboard-bars-1" rel="stylesheet">
 </head>
 <body>
     <div class="app-shell">
-        <aside class="app-sidebar" aria-label="Panel de acciones">
-            <div class="sidebar-brand">
-                <img src="{% static 'images/logo.png' %}" alt="San Ramon" class="sidebar-logo">
-                <div>
-                    <p class="sidebar-kicker">Valle San Ramon</p>
-                    <h1 class="sidebar-title">Sistema de asistencia</h1>
+        <aside class="app-sidebar" aria-label="Panel de acciones" data-sidebar>
+            <div class="sidebar-topbar">
+                <div class="sidebar-brand">
+                    <img src="{% static 'images/logo.png' %}" alt="San Ramon" class="sidebar-logo">
+                    <div>
+                        <p class="sidebar-kicker">Valle San Ramon</p>
+                        <h1 class="sidebar-title">Sistema de asistencia</h1>
+                    </div>
                 </div>
+
+                <button
+                    type="button"
+                    class="sidebar-menu-toggle"
+                    aria-controls="sidebar-panel"
+                    aria-expanded="false"
+                    data-sidebar-toggle
+                >
+                    {% include "includes/icon.html" with name="menu" classes="sidebar-menu-open-icon" %}
+                    {% include "includes/icon.html" with name="close" classes="sidebar-menu-close-icon" %}
+                    <span class="visually-hidden" data-sidebar-toggle-label>Abrir menu</span>
+                </button>
             </div>
 
-            {% if user.is_authenticated %}
+            <div class="sidebar-panel" id="sidebar-panel" data-sidebar-panel>
+                {% if user.is_authenticated %}
                 <div class="sidebar-user">
                     <span>Sesion activa</span>
                     <strong>{{ user.nombre_completo }}</strong>
@@ -86,13 +101,14 @@
                         <span>Cerrar sesion</span>
                     </button>
                 </form>
-            {% else %}
+                {% else %}
                 <div class="sidebar-user">
                     <span>Acceso</span>
                     <strong>Inicia sesion</strong>
                     <small>Gestion interna</small>
                 </div>
-            {% endif %}
+                {% endif %}
+            </div>
         </aside>
 
         <div class="app-main">
@@ -127,6 +143,43 @@
     <script src="{% static 'vendor/sweetalert2/sweetalert2.all.min.js' %}"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+            const sidebar = document.querySelector('[data-sidebar]');
+            const sidebarToggle = document.querySelector('[data-sidebar-toggle]');
+            const sidebarPanel = document.querySelector('[data-sidebar-panel]');
+            const sidebarToggleLabel = document.querySelector('[data-sidebar-toggle-label]');
+            const mobileSidebarQuery = window.matchMedia('(max-width: 991.98px)');
+
+            const setSidebarOpen = (isOpen) => {
+                if (!sidebar || !sidebarToggle) {
+                    return;
+                }
+
+                sidebar.dataset.sidebarOpen = isOpen ? 'true' : 'false';
+                sidebarToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+                if (sidebarToggleLabel) {
+                    sidebarToggleLabel.textContent = isOpen ? 'Cerrar menu' : 'Abrir menu';
+                }
+            };
+
+            if (sidebar && sidebarToggle && sidebarPanel) {
+                setSidebarOpen(false);
+                sidebarToggle.addEventListener('click', () => {
+                    setSidebarOpen(sidebar.dataset.sidebarOpen !== 'true');
+                });
+
+                sidebarPanel.querySelectorAll('a').forEach((link) => {
+                    link.addEventListener('click', () => {
+                        if (mobileSidebarQuery.matches) {
+                            setSidebarOpen(false);
+                        }
+                    });
+                });
+
+                mobileSidebarQuery.addEventListener('change', () => {
+                    setSidebarOpen(false);
+                });
+            }
+
             if (window.Swal) {
                 const iconByLevel = {
                     success: 'success',

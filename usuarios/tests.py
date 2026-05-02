@@ -10,7 +10,10 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from .admin import UsuarioAdmin
-from .views import obtener_indicador_asistencia
+from .views import (
+    obtener_indicador_asistencia,
+    obtener_resumen_estado_asistencia_socios,
+)
 
 
 @override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
@@ -104,12 +107,19 @@ class UsuariosModuloTests(TestCase):
         response = self.client.get(url)
         self.assertRedirects(response, f"{reverse('usuarios:login')}?next={url}")
 
-    def test_dashboard_muestra_logo_y_total_de_usuarios(self):
-        """Renderiza el panel moderno con logo y total de usuarios."""
+    def test_dashboard_muestra_logo_metricas_y_grafico_de_asistencia_socios(self):
+        """Renderiza metricas y grafico de estado de asistencia de socios."""
         self.client.login(username='admin', password='ClaveSegura123')
         response = self.client.get(reverse('usuarios:dashboard'))
         self.assertContains(response, 'images/logo.png')
-        self.assertContains(response, 'Total de usuarios registrados')
+        self.assertContains(response, 'Estado de asistencia de socios')
+        self.assertContains(response, 'Socios totales')
+        self.assertContains(response, 'Sin falta')
+        self.assertContains(response, 'En riesgo')
+        self.assertContains(response, 'Bloqueados por inasistencia')
+        self.assertContains(response, 'dashboard-vertical-chart')
+        self.assertNotContains(response, 'dashboard-line-chart')
+        self.assertNotContains(response, 'dashboard-bar-chart')
         self.assertContains(response, '<strong>3</strong>', html=True)
 
     def test_layout_usa_bootstrap_sweetalert_e_iconos_locales(self):
@@ -122,6 +132,8 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'vendor/bootstrap-icons/bootstrap-icons.min.css')
         self.assertContains(response, 'vendor/bootstrap/bootstrap.bundle.min.js')
         self.assertContains(response, 'vendor/sweetalert2/sweetalert2.all.min.js')
+        self.assertContains(response, 'data-sidebar-toggle')
+        self.assertContains(response, 'aria-controls="sidebar-panel"')
 
         rutas_estaticas = [
             'vendor/bootstrap/bootstrap.min.css',
@@ -212,6 +224,50 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(obtener_indicador_asistencia(0)['badge_class'], 'text-bg-success')
         self.assertEqual(obtener_indicador_asistencia(1)['badge_class'], 'text-bg-warning')
         self.assertEqual(obtener_indicador_asistencia(2)['badge_class'], 'text-bg-danger')
+
+    def test_resumen_estado_asistencia_socios_agrupa_por_ausencias(self):
+        """Agrupa socios sin faltas, en riesgo y bloqueados por ausencias."""
+        socio_riesgo = self.User.objects.create_user(
+            username='riesgo',
+            email='riesgo@example.com',
+            password='ClaveSegura123',
+            first_name='Socio',
+            last_name='Riesgo',
+            rut='55.555.555-5',
+            rol=self.User.SOCIO,
+        )
+        socio_bloqueado = self.User.objects.create_user(
+            username='bloqueado',
+            email='bloqueado@example.com',
+            password='ClaveSegura123',
+            first_name='Socio',
+            last_name='Bloqueado',
+            rut='66.666.666-6',
+            rol=self.User.SOCIO,
+        )
+
+        ausencias_por_pk = {
+            self.socio_user.pk: 0,
+            socio_riesgo.pk: 1,
+            socio_bloqueado.pk: 2,
+        }
+
+        def resumen_mock(socio):
+            return {
+                'total_reuniones': 2,
+                'total_asistencias': 2 - ausencias_por_pk[socio.pk],
+                'total_ausencias': ausencias_por_pk[socio.pk],
+            }
+
+        with patch('usuarios.views.obtener_resumen_asistencia_socio', resumen_mock):
+            resumen = obtener_resumen_estado_asistencia_socios()
+
+        totales = {item['label']: item['total'] for item in resumen['items']}
+        self.assertEqual(resumen['total'], 3)
+        self.assertEqual(totales['Socios totales'], 3)
+        self.assertEqual(totales['Sin falta'], 1)
+        self.assertEqual(totales['En riesgo'], 1)
+        self.assertEqual(totales['Bloqueados por inasistencia'], 1)
 
     def test_listado_usuarios_incluye_confirmacion_para_cambiar_estado(self):
         """Agrega confirmacion visual al cambio de estado de usuarios."""
