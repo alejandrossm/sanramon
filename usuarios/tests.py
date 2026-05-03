@@ -117,7 +117,8 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Sin falta')
         self.assertContains(response, 'En riesgo')
         self.assertContains(response, 'Bloqueados por inasistencia')
-        self.assertContains(response, 'dashboard-vertical-chart')
+        self.assertContains(response, 'asistenciaChart')
+        self.assertContains(response, '<canvas id="asistenciaChart"></canvas>', html=True)
         self.assertNotContains(response, 'dashboard-line-chart')
         self.assertNotContains(response, 'dashboard-bar-chart')
         self.assertContains(response, '<strong>3</strong>', html=True)
@@ -132,6 +133,7 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'vendor/bootstrap-icons/bootstrap-icons.min.css')
         self.assertContains(response, 'vendor/bootstrap/bootstrap.bundle.min.js')
         self.assertContains(response, 'vendor/sweetalert2/sweetalert2.all.min.js')
+        self.assertContains(response, 'vendor/chart.js/chart.min.js')
         self.assertContains(response, 'data-sidebar-toggle')
         self.assertContains(response, 'aria-controls="sidebar-panel"')
 
@@ -142,6 +144,7 @@ class UsuariosModuloTests(TestCase):
             'vendor/bootstrap-icons/fonts/bootstrap-icons.woff2',
             'vendor/bootstrap/bootstrap.bundle.min.js',
             'vendor/sweetalert2/sweetalert2.all.min.js',
+            'vendor/chart.js/chart.min.js',
         ]
         for ruta in rutas_estaticas:
             with self.subTest(ruta=ruta):

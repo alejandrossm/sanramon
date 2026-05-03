@@ -16,9 +16,8 @@ Gráfico HTML/CSS con barras verticales que se veían feas:
 #### Instalación
 
 ```bash
-npm install chart.js
-# Copiar a: static/vendor/chart.js/chart.min.js
-# Eliminar: node_modules/ (no necesario en producción)
+# No requiere npm en runtime ni en produccion.
+# Chart.js queda versionado en: static/vendor/chart.js/chart.min.js
 ```
 
 #### Archivos Modificados
@@ -54,6 +53,7 @@ npm install chart.js
 - Solo sube: `static/` con archivos compilados
 - No necesita: npm, node_modules, Python tools
 - No requiere: node_modules en producción
+- `package.json` no declara dependencias npm; existe solo para evitar falsos positivos si se ejecuta `npm list`.
 
 ### Notas
 

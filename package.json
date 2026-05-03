@@ -1,5 +1,5 @@
 {
-  "dependencies": {
-    "chart.js": "^4.5.1"
-  }
+  "name": "sanramon",
+  "private": true,
+  "description": "Django app. Browser libraries are vendored under static/vendor."
 }
