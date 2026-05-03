@@ -241,34 +241,63 @@
                 });
             }
 
+            const setDeleteButtonVariant = (button, variantClasses) => {
+                button.classList.remove('btn-danger', 'btn-outline-danger', 'btn-outline-secondary', 'text-muted');
+                button.classList.add(...variantClasses);
+            };
+
             const setDeleteButtonsEnabled = (enabled) => {
                 document
                     .querySelectorAll('[data-delete-user-button][data-delete-allowed="true"]')
                     .forEach((button) => {
                         button.disabled = !enabled;
+                        setDeleteButtonVariant(
+                            button,
+                            enabled ? ['btn-danger'] : ['btn-outline-secondary', 'text-muted']
+                        );
+                    });
+
+                document
+                    .querySelectorAll('[data-delete-unavailable-button]')
+                    .forEach((button) => {
+                        button.disabled = true;
+                        setDeleteButtonVariant(
+                            button,
+                            enabled ? ['btn-outline-danger'] : ['btn-outline-secondary', 'text-muted']
+                        );
                     });
             };
 
-            document.querySelectorAll('[data-enable-delete-column]').forEach((button) => {
+            document.querySelectorAll('[data-enable-delete-column]').forEach((toggle) => {
+                const isCheckboxSwitch = toggle.matches('input[type="checkbox"]');
+                const labelContainer = toggle.closest('.form-check') || toggle;
+                const label = labelContainer.querySelector('[data-delete-toggle-label]');
+
                 const setToggleState = (enabled) => {
-                    button.dataset.deleteEnabled = enabled ? 'true' : 'false';
-                    button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
-                    const label = button.querySelector('[data-delete-toggle-label]');
+                    toggle.dataset.deleteEnabled = enabled ? 'true' : 'false';
+                    if (isCheckboxSwitch) {
+                        toggle.checked = enabled;
+                        toggle.setAttribute('aria-checked', enabled ? 'true' : 'false');
+                    } else {
+                        toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+                    }
                     const text = enabled
-                        ? button.dataset.disableDeleteLabel || 'Desactivar eliminacion'
-                        : button.dataset.enableDeleteLabel || 'Activar eliminacion';
+                        ? toggle.dataset.disableDeleteLabel || 'Desactivar eliminacion'
+                        : toggle.dataset.enableDeleteLabel || 'Activar eliminacion';
                     if (label) {
                         label.textContent = text;
                     } else {
-                        button.textContent = text;
+                        toggle.textContent = text;
                     }
                     setDeleteButtonsEnabled(enabled);
                 };
 
-                setToggleState(button.dataset.deleteEnabled === 'true');
+                setToggleState(toggle.dataset.deleteEnabled === 'true');
 
-                button.addEventListener('click', () => {
-                    if (button.dataset.deleteEnabled === 'true') {
+                const handleToggle = () => {
+                    const shouldEnable = isCheckboxSwitch ? toggle.checked : toggle.dataset.deleteEnabled !== 'true';
+
+                    if (!shouldEnable) {
                         setToggleState(false);
                         return;
                     }
@@ -277,22 +306,23 @@
                         setToggleState(true);
                     };
 
+                    activateDeletion();
+
                     if (!window.Swal) {
-                        window.alert(button.dataset.enableDeleteText || 'Eliminacion activada.');
-                        activateDeletion();
+                        window.alert(toggle.dataset.enableDeleteText || 'Eliminacion activada.');
                         return;
                     }
 
                     Swal.fire({
                         icon: 'warning',
-                        title: button.dataset.enableDeleteTitle || 'Eliminacion activada',
-                        text: button.dataset.enableDeleteText || 'La eliminacion quedo habilitada.',
+                        title: toggle.dataset.enableDeleteTitle || 'Eliminacion activada',
+                        text: toggle.dataset.enableDeleteText || 'La eliminacion quedo habilitada.',
                         confirmButtonText: 'Aceptar',
                         confirmButtonColor: '#b42318',
-                    }).then(() => {
-                        activateDeletion();
                     });
-                });
+                };
+
+                toggle.addEventListener(isCheckboxSwitch ? 'change' : 'click', handleToggle);
             });
 
             const cleanRut = (value) => value

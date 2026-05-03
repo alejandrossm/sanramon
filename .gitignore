@@ -7,8 +7,6 @@ __pycache__/
 venv/
 env/
 
-db.sqlite3
-
 staticfiles/
 media/
 
@@ -16,3 +14,15 @@ media/
 node_modules/
 package-lock.json
 npm-debug.log
+
+# Datos y artefactos locales de prueba
+db.sqlite3
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-shm
+*.sqlite3-wal
+runserver*.log
+.coverage
+coverage.xml
+htmlcov/
+test-results/

@@ -16,40 +16,110 @@
             {% endif %}
         </div>
     </div>
-    <div class="d-flex flex-wrap gap-2">
-        {% if puede_administrar_privilegios %}
-            <button
-                type="button"
-                class="btn btn-outline-danger"
-                data-enable-delete-column
-                data-delete-enabled="false"
-                data-enable-delete-label="Activar eliminacion"
-                data-enable-delete-title="Eliminacion activada"
-                data-enable-delete-text="La columna de eliminacion quedo habilitada. No puedes eliminar tu propio usuario."
-                data-disable-delete-label="Desactivar eliminacion"
-                aria-pressed="false"
-            >
-                {% include "includes/icon.html" with name="trash-2" %}
-                <span data-delete-toggle-label>Activar eliminacion</span>
-            </button>
-        {% endif %}
+    <div class="d-flex flex-wrap gap-3 align-items-center align-self-start align-self-md-center justify-content-md-end">
         <a href="{% url 'usuarios:registro_usuario' %}" class="btn btn-primary">
             {% include "includes/icon.html" with name="user-plus" %}
             <span>Registrar usuario</span>
         </a>
+        {% if puede_administrar_privilegios %}
+            <div class="form-check form-switch d-flex align-items-center gap-2 ps-0 mb-0">
+                <label class="form-check-label text-danger fw-semibold" for="activar-eliminacion-usuarios" data-delete-toggle-label>
+                    Activar eliminacion
+                </label>
+                <input
+                    class="form-check-input float-none ms-0"
+                    type="checkbox"
+                    role="switch"
+                    id="activar-eliminacion-usuarios"
+                    data-enable-delete-column
+                    data-delete-enabled="false"
+                    data-enable-delete-label="Activar eliminacion"
+                    data-enable-delete-title="Eliminacion activada"
+                    data-enable-delete-text="La columna de eliminacion quedo habilitada. No puedes eliminar tu propio usuario."
+                    data-disable-delete-label="Desactivar eliminacion"
+                    aria-checked="false"
+                >
+            </div>
+        {% endif %}
     </div>
 </div>
+
+<form method="get" class="row g-2 align-items-end mb-3" aria-label="Filtros de usuarios">
+    {% if orden_actual %}
+        <input type="hidden" name="orden" value="{{ orden_actual }}">
+        <input type="hidden" name="direccion" value="{{ direccion_actual }}">
+    {% endif %}
+    <div class="col-12 col-md-3">
+        <label for="filtro-rut" class="form-label">RUT</label>
+        <input
+            type="search"
+            class="form-control"
+            id="filtro-rut"
+            name="rut"
+            value="{{ filtros.rut }}"
+            placeholder="Buscar por RUT"
+        >
+    </div>
+    <div class="col-12 col-md-3">
+        <label for="filtro-nombre" class="form-label">Nombre</label>
+        <input
+            type="search"
+            class="form-control"
+            id="filtro-nombre"
+            name="nombre"
+            value="{{ filtros.nombre }}"
+            placeholder="Buscar por nombre"
+        >
+    </div>
+    <div class="col-12 col-md-3">
+        <label for="filtro-apellido" class="form-label">Apellido</label>
+        <input
+            type="search"
+            class="form-control"
+            id="filtro-apellido"
+            name="apellido"
+            value="{{ filtros.apellido }}"
+            placeholder="Buscar por apellido"
+        >
+    </div>
+    <div class="col-12 col-md-3 d-flex flex-wrap gap-2">
+        <button type="submit" class="btn btn-outline-primary">
+            {% include "includes/icon.html" with name="search" %}
+            <span>Filtrar</span>
+        </button>
+        {% if filtros_activos %}
+            <a href="{% url 'usuarios:listado_usuarios' %}" class="btn btn-outline-secondary">
+                {% include "includes/icon.html" with name="x-circle" %}
+                <span>Limpiar</span>
+            </a>
+        {% endif %}
+    </div>
+</form>
 
 <div class="table-responsive rounded overflow-hidden shadow-sm border bg-white">
     <table class="table table-hover align-middle mb-0">
         <thead>
             <tr>
-                <th>Usuario</th>
-                <th>Nombre</th>
-                <th>RUT</th>
-                <th>Email</th>
-                <th>Rol</th>
-                <th>Estado</th>
+                {% for columna in columnas_ordenables %}
+                    <th>
+                        <div class="d-flex align-items-center gap-1">
+                            <span>{{ columna.label|upper }}</span>
+                            <a
+                                href="?{% if columna.asc_active %}{{ columna.desc_query }}{% else %}{{ columna.asc_query }}{% endif %}"
+                                class="{% if columna.asc_active or columna.desc_active %}link-primary{% else %}link-secondary{% endif %} text-decoration-none"
+                                title="{% if columna.asc_active %}Ordenar {{ columna.label }} descendente{% else %}Ordenar {{ columna.label }} ascendente{% endif %}"
+                                aria-label="{% if columna.asc_active %}Ordenar {{ columna.label }} descendente{% else %}Ordenar {{ columna.label }} ascendente{% endif %}"
+                                {% if columna.asc_active or columna.desc_active %}aria-current="true"{% endif %}
+                            >
+                                {% if columna.desc_active %}
+                                    {% include "includes/icon.html" with name="arrow-down" %}
+                                {% else %}
+                                    {% include "includes/icon.html" with name="arrow-up" %}
+                                {% endif %}
+                            </a>
+                        </div>
+                    </th>
+                {% endfor %}
                 <th class="text-end">Acciones</th>
                 {% if puede_administrar_privilegios %}
                     <th class="text-end">Eliminar</th>
@@ -60,7 +130,8 @@
             {% for usuario in usuarios %}
                 <tr>
                     <td class="fw-semibold">{{ usuario.username }}</td>
-                    <td>{{ usuario.nombre_completo }}</td>
+                    <td>{{ usuario.first_name }}</td>
+                    <td>{{ usuario.last_name }}</td>
                     <td>{{ usuario.rut }}</td>
                     <td>{{ usuario.email }}</td>
                     <td>{{ usuario.get_rol_display }}</td>
@@ -73,9 +144,13 @@
                     </td>
                     <td class="text-end">
                         <div class="d-inline-flex gap-2">
-                            <a href="{% url 'usuarios:editar_usuario' usuario.pk %}" class="btn btn-outline-primary btn-sm">
+                            <a
+                                href="{% url 'usuarios:editar_usuario' usuario.pk %}"
+                                class="btn btn-outline-primary btn-sm"
+                                title="Editar usuario"
+                                aria-label="Editar usuario"
+                            >
                                 {% include "includes/icon.html" with name="pencil" %}
-                                <span>Editar</span>
                             </a>
                             <form
                                 method="post"
@@ -87,9 +162,13 @@
                                 data-confirm-color="{% if usuario.is_active %}#b42318{% else %}#2f5d50{% endif %}"
                             >
                                 {% csrf_token %}
-                                <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                <button
+                                    type="submit"
+                                    class="btn {% if usuario.is_active %}btn-success{% else %}btn-outline-secondary{% endif %} btn-sm"
+                                    title="{% if usuario.is_active %}Desactivar usuario{% else %}Activar usuario{% endif %}"
+                                    aria-label="{% if usuario.is_active %}Desactivar usuario{% else %}Activar usuario{% endif %}"
+                                >
                                     {% include "includes/icon.html" with name="power" %}
-                                    {% if usuario.is_active %}Desactivar{% else %}Activar{% endif %}
                                 </button>
                             </form>
                         </div>
@@ -97,15 +176,17 @@
                     {% if puede_administrar_privilegios %}
                         <td class="text-end">
                             {% if usuario.pk == user.pk %}
-                                <button
-                                    type="button"
-                                    class="btn btn-outline-danger btn-sm"
-                                    title="No puedes eliminar tu propio usuario."
-                                    disabled
-                                >
-                                    {% include "includes/icon.html" with name="trash-2" %}
-                                    <span>Eliminar</span>
-                                </button>
+                                <span class="d-inline-block" title="No puedes eliminar tu propio usuario.">
+                                    <button
+                                        type="button"
+                                        class="btn btn-outline-secondary text-muted btn-sm"
+                                        data-delete-unavailable-button
+                                        aria-label="No puedes eliminar tu propio usuario."
+                                        disabled
+                                    >
+                                        {% include "includes/icon.html" with name="trash-2" %}
+                                    </button>
+                                </span>
                             {% else %}
                                 <form
                                     method="post"
@@ -118,16 +199,18 @@
                                     data-confirm-icon="error"
                                 >
                                     {% csrf_token %}
-                                    <button
-                                        type="submit"
-                                        class="btn btn-outline-danger btn-sm"
-                                        data-delete-user-button
-                                        data-delete-allowed="true"
-                                        disabled
-                                    >
-                                        {% include "includes/icon.html" with name="trash-2" %}
-                                        <span>Eliminar</span>
-                                    </button>
+                                    <span class="d-inline-block" title="Eliminar usuario">
+                                        <button
+                                            type="submit"
+                                            class="btn btn-outline-secondary text-muted btn-sm"
+                                            data-delete-user-button
+                                            data-delete-allowed="true"
+                                            aria-label="Eliminar usuario"
+                                            disabled
+                                        >
+                                            {% include "includes/icon.html" with name="trash-2" %}
+                                        </button>
+                                    </span>
                                 </form>
                             {% endif %}
                         </td>
@@ -135,10 +218,48 @@
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="{% if puede_administrar_privilegios %}8{% else %}7{% endif %}" class="text-center text-muted py-4">No hay usuarios registrados.</td>
+                    <td colspan="{% if puede_administrar_privilegios %}9{% else %}8{% endif %}" class="text-center text-muted py-4">No hay usuarios registrados.</td>
                 </tr>
             {% endfor %}
         </tbody>
     </table>
 </div>
+
+{% if page_obj.has_other_pages %}
+    <nav class="mt-3" aria-label="Paginacion de usuarios">
+        <ul class="pagination justify-content-center mb-0">
+            <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}">
+                {% if page_obj.has_previous %}
+                    <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={{ page_obj.previous_page_number }}" aria-label="Pagina anterior">Anterior</a>
+                {% else %}
+                    <span class="page-link" aria-disabled="true">Anterior</span>
+                {% endif %}
+            </li>
+
+            {% for page_number in page_numbers %}
+                {% if page_number == pagination_ellipsis %}
+                    <li class="page-item disabled">
+                        <span class="page-link" aria-disabled="true">{{ page_number }}</span>
+                    </li>
+                {% elif page_number == page_obj.number %}
+                    <li class="page-item active" aria-current="page">
+                        <span class="page-link">{{ page_number }}</span>
+                    </li>
+                {% else %}
+                    <li class="page-item">
+                        <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={{ page_number }}">{{ page_number }}</a>
+                    </li>
+                {% endif %}
+            {% endfor %}
+
+            <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}">
+                {% if page_obj.has_next %}
+                    <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={{ page_obj.next_page_number }}" aria-label="Pagina siguiente">Siguiente</a>
+                {% else %}
+                    <span class="page-link" aria-disabled="true">Siguiente</span>
+                {% endif %}
+            </li>
+        </ul>
+    </nav>
+{% endif %}
 {% endblock %}

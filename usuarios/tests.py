@@ -293,13 +293,172 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Activar eliminacion')
         self.assertContains(response, 'Desactivar eliminacion')
         self.assertContains(response, 'Eliminacion activada')
-        self.assertContains(response, 'aria-pressed="false"')
+        self.assertContains(response, 'role="switch"')
+        self.assertContains(response, 'aria-checked="false"')
         self.assertContains(response, reverse('usuarios:eliminar_usuario', args=[self.encargado_user.pk]))
         self.assertContains(response, 'data-delete-user-button')
         self.assertContains(response, 'data-delete-allowed="true"')
         self.assertContains(response, 'disabled')
         self.assertContains(response, 'No puedes eliminar tu propio usuario.')
         self.assertNotContains(response, reverse('usuarios:eliminar_usuario', args=[self.admin_user.pk]))
+
+    def test_listado_usuarios_paginas_de_50_items(self):
+        """Pagina el listado de usuarios internos en bloques de 50 registros."""
+        for indice in range(50):
+            self.User.objects.create_user(
+                username=f'interno_{indice:02d}',
+                email=f'interno_{indice:02d}@example.com',
+                password='ClaveSegura123',
+                first_name='Usuario',
+                last_name=f'Paginado {indice:02d}',
+                rut=f'70.000.{indice:03d}-{indice % 10}',
+                rol=self.User.ENCARGADO_REGISTRO,
+            )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+
+        response = self.client.get(reverse('usuarios:listado_usuarios'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['page_obj'].paginator.per_page, 50)
+        self.assertEqual(len(response.context['usuarios']), 50)
+        self.assertContains(response, '?page=2')
+
+        response = self.client.get(f"{reverse('usuarios:listado_usuarios')}?page=2")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['usuarios']), 2)
+        self.assertContains(response, '?page=1')
+
+    def test_listado_usuarios_filtra_por_rut_nombre_y_apellido(self):
+        """Permite filtrar usuarios internos por RUT, nombre y apellido."""
+        usuario_filtrado = self.User.objects.create_user(
+            username='ana.zapata',
+            email='ana.zapata@example.com',
+            password='ClaveSegura123',
+            first_name='Ana',
+            last_name='Zapata',
+            rut='77.777.777-7',
+            rol=self.User.ENCARGADO_REGISTRO,
+        )
+        self.User.objects.create_user(
+            username='bruno.zapata',
+            email='bruno.zapata@example.com',
+            password='ClaveSegura123',
+            first_name='Bruno',
+            last_name='Zapata',
+            rut='88.888.888-8',
+            rol=self.User.ENCARGADO_REGISTRO,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:listado_usuarios'),
+            {
+                'rut': '77.777.777-7',
+                'nombre': 'Ana',
+                'apellido': 'Zapata',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Ordenar Nombre ascendente')
+        self.assertContains(response, 'Ordenar Apellido ascendente')
+        self.assertContains(response, usuario_filtrado.email)
+        self.assertContains(response, '<td>Ana</td>', html=True)
+        self.assertContains(response, '<td>Zapata</td>', html=True)
+        self.assertContains(response, 'value="77.777.777-7"')
+        self.assertContains(response, 'value="Ana"')
+        self.assertContains(response, 'value="Zapata"')
+        self.assertNotContains(response, 'bruno.zapata@example.com')
+        self.assertNotContains(response, 'admin@example.com')
+
+    def test_listado_usuarios_paginacion_conserva_filtros(self):
+        """Mantiene los filtros activos al navegar entre paginas."""
+        for indice in range(51):
+            self.User.objects.create_user(
+                username=f'filtro_{indice:02d}',
+                email=f'filtro_{indice:02d}@example.com',
+                password='ClaveSegura123',
+                first_name='Filtro',
+                last_name=f'Paginacion {indice:02d}',
+                rut=f'71.000.{indice:03d}-{indice % 10}',
+                rol=self.User.ENCARGADO_REGISTRO,
+            )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:listado_usuarios'),
+            {'nombre': 'Filtro'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['usuarios']), 50)
+        self.assertContains(response, 'nombre=Filtro&page=2')
+
+    def test_listado_usuarios_ordena_columnas_ascendente_y_descendente(self):
+        """Ordena el listado por columnas seleccionadas desde el encabezado."""
+        self.User.objects.create_user(
+            username='aaron.orden',
+            email='aaron.orden@example.com',
+            password='ClaveSegura123',
+            first_name='Aaron',
+            last_name='Orden',
+            rut='72.222.222-2',
+            rol=self.User.ENCARGADO_REGISTRO,
+        )
+        self.User.objects.create_user(
+            username='zulu.orden',
+            email='zulu.orden@example.com',
+            password='ClaveSegura123',
+            first_name='Zulu',
+            last_name='Orden',
+            rut='73.333.333-3',
+            rol=self.User.ENCARGADO_REGISTRO,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+
+        response = self.client.get(
+            reverse('usuarios:listado_usuarios'),
+            {'orden': 'nombre', 'direccion': 'asc'},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['usuarios'][0].username, 'aaron.orden')
+        self.assertContains(response, 'Ordenar Nombre descendente')
+        self.assertContains(response, 'aria-current="true"')
+
+        response = self.client.get(
+            reverse('usuarios:listado_usuarios'),
+            {'orden': 'nombre', 'direccion': 'desc'},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['usuarios'][0].username, 'zulu.orden')
+        self.assertContains(response, 'Ordenar Nombre ascendente')
+
+    def test_listado_usuarios_paginacion_conserva_orden(self):
+        """Mantiene el orden activo al navegar entre paginas."""
+        for indice in range(51):
+            self.User.objects.create_user(
+                username=f'orden_{indice:02d}',
+                email=f'orden_{indice:02d}@example.com',
+                password='ClaveSegura123',
+                first_name='Orden',
+                last_name=f'Paginacion {indice:02d}',
+                rut=f'74.000.{indice:03d}-{indice % 10}',
+                rol=self.User.ENCARGADO_REGISTRO,
+            )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:listado_usuarios'),
+            {'nombre': 'Orden', 'orden': 'apellido', 'direccion': 'desc'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['usuarios']), 50)
+        self.assertContains(
+            response,
+            'nombre=Orden&amp;orden=apellido&amp;direccion=desc&page=2',
+        )
 
     def test_administrador_accede_a_listado_socios_separado(self):
         """Lista socios en una vista administrativa separada de usuarios."""
@@ -1008,3 +1167,22 @@ class UsuariosModuloTests(TestCase):
             usuario = self.User.objects.get(username=username)
             self.assertTrue(usuario.check_password(username))
             self.assertNotEqual(usuario.password, username)
+
+    def test_comando_carga_encargados_paginacion_sin_validacion(self):
+        """Carga encargados por bulk sin ejecutar validaciones del modelo."""
+        output = StringIO()
+
+        with patch.object(self.User, 'full_clean', side_effect=AssertionError):
+            call_command('cargar_encargados_paginacion', stdout=output)
+            call_command('cargar_encargados_paginacion', stdout=output)
+
+        encargados = self.User.objects.filter(
+            username__startswith='encargado_paginacion_'
+        )
+        usuario = self.User.objects.get(username='encargado_paginacion_001')
+
+        self.assertEqual(encargados.count(), 100)
+        self.assertEqual(usuario.rol, self.User.ENCARGADO_REGISTRO)
+        self.assertFalse(usuario.has_usable_password())
+        self.assertIn('Encargados creados: 100; actualizados: 0', output.getvalue())
+        self.assertIn('Encargados creados: 0; actualizados: 100', output.getvalue())

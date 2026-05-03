@@ -4,6 +4,8 @@ from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView, LogoutView
+from django.core.paginator import Paginator
+from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.views.decorators.http import require_POST
@@ -79,6 +81,61 @@ def puede_eliminar_usuario_interno(actor, usuario):
     if not es_administrador(actor) or usuario.pk == actor.pk:
         return False
     return usuario.rol in (Usuario.ADMINISTRADOR, Usuario.ENCARGADO_REGISTRO)
+
+
+def obtener_valores_busqueda_rut(valor):
+    """Genera variantes de busqueda para RUT con o sin puntos y guion."""
+    valor = (valor or '').strip()
+    sin_puntos = valor.replace('.', '').replace(' ', '').upper()
+    solo_rut = ''.join(caracter for caracter in sin_puntos if caracter.isdigit() or caracter == 'K')
+    variantes = [valor, sin_puntos]
+    if '-' not in sin_puntos and len(solo_rut) > 1:
+        variantes.append(f'{solo_rut[:-1]}-{solo_rut[-1]}')
+    return [variante for variante in dict.fromkeys(variantes) if variante]
+
+
+COLUMNAS_ORDENABLES_USUARIOS = [
+    {'key': 'usuario', 'label': 'Usuario', 'field': 'username'},
+    {'key': 'nombre', 'label': 'Nombre', 'field': 'first_name'},
+    {'key': 'apellido', 'label': 'Apellido', 'field': 'last_name'},
+    {'key': 'rut', 'label': 'RUT', 'field': 'rut'},
+    {'key': 'email', 'label': 'Email', 'field': 'email'},
+    {'key': 'rol', 'label': 'Rol', 'field': 'rol'},
+    {'key': 'estado', 'label': 'Estado', 'field': 'is_active'},
+]
+
+
+def obtener_columnas_ordenables_usuarios(params, orden_actual, direccion_actual):
+    """Construye metadatos de ordenamiento conservando filtros activos."""
+    columnas = []
+    base_params = params.copy()
+    if 'page' in base_params:
+        del base_params['page']
+
+    for columna in COLUMNAS_ORDENABLES_USUARIOS:
+        asc_params = base_params.copy()
+        asc_params['orden'] = columna['key']
+        asc_params['direccion'] = 'asc'
+
+        desc_params = base_params.copy()
+        desc_params['orden'] = columna['key']
+        desc_params['direccion'] = 'desc'
+
+        columnas.append(
+            {
+                **columna,
+                'asc_query': asc_params.urlencode(),
+                'desc_query': desc_params.urlencode(),
+                'asc_active': (
+                    orden_actual == columna['key'] and direccion_actual == 'asc'
+                ),
+                'desc_active': (
+                    orden_actual == columna['key'] and direccion_actual == 'desc'
+                ),
+            }
+        )
+
+    return columnas
 
 
 def redireccion_sin_permiso(user):
@@ -366,11 +423,69 @@ def cambiar_mi_password(request):
 def listado_usuarios(request):
     """Lista cuentas internas sin mezclar socios."""
     usuarios = Usuario.objects.exclude(rol=Usuario.SOCIO)
+    campos_ordenables = {
+        columna['key']: columna['field']
+        for columna in COLUMNAS_ORDENABLES_USUARIOS
+    }
+    orden_actual = request.GET.get('orden', '').strip()
+    direccion_actual = request.GET.get('direccion', '').strip().lower()
+    if orden_actual not in campos_ordenables:
+        orden_actual = ''
+    if direccion_actual not in ('asc', 'desc'):
+        direccion_actual = 'asc'
+
+    filtros = {
+        'rut': request.GET.get('rut', '').strip(),
+        'nombre': request.GET.get('nombre', '').strip(),
+        'apellido': request.GET.get('apellido', '').strip(),
+    }
+
+    if filtros['rut']:
+        filtro_rut = Q()
+        for valor_rut in obtener_valores_busqueda_rut(filtros['rut']):
+            filtro_rut |= Q(rut__icontains=valor_rut)
+        usuarios = usuarios.filter(filtro_rut)
+    if filtros['nombre']:
+        usuarios = usuarios.filter(first_name__icontains=filtros['nombre'])
+    if filtros['apellido']:
+        usuarios = usuarios.filter(last_name__icontains=filtros['apellido'])
+
+    if orden_actual:
+        campo_base = campos_ordenables[orden_actual]
+        campo_orden = campo_base
+        if direccion_actual == 'desc':
+            campo_orden = f'-{campo_base}'
+        campos_secundarios = [
+            campo
+            for campo in ('last_name', 'first_name', 'username', 'pk')
+            if campo != campo_base
+        ]
+        usuarios = usuarios.order_by(campo_orden, *campos_secundarios)
+
+    paginator = Paginator(usuarios, 50)
+    page_obj = paginator.get_page(request.GET.get('page'))
+    pagination_params = request.GET.copy()
+    if 'page' in pagination_params:
+        del pagination_params['page']
+
     return render(
         request,
         'usuarios/listado_usuarios.html',
         {
-            'usuarios': usuarios,
+            'usuarios': page_obj,
+            'page_obj': page_obj,
+            'page_numbers': paginator.get_elided_page_range(page_obj.number),
+            'pagination_ellipsis': Paginator.ELLIPSIS,
+            'pagination_query': pagination_params.urlencode(),
+            'filtros': filtros,
+            'filtros_activos': any(filtros.values()),
+            'columnas_ordenables': obtener_columnas_ordenables_usuarios(
+                request.GET,
+                orden_actual,
+                direccion_actual,
+            ),
+            'orden_actual': orden_actual,
+            'direccion_actual': direccion_actual,
             'puede_administrar_privilegios': es_administrador(request.user),
         },
     )
