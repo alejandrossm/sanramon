@@ -371,6 +371,18 @@ class UsuariosModuloTests(TestCase):
         self.assertNotContains(response, 'bruno.zapata@example.com')
         self.assertNotContains(response, 'admin@example.com')
 
+    def test_listado_usuarios_tiene_lista_responsiva_para_movil(self):
+        """Renderiza una lista móvil alternativa a la tabla de escritorio."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_usuarios'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'd-none d-md-block')
+        self.assertContains(response, 'list-group shadow-sm border rounded overflow-hidden d-md-none')
+        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">RUT</dt>', html=True)
+        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">EMAIL</dt>', html=True)
+        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">ROL</dt>', html=True)
+
     def test_listado_usuarios_paginacion_conserva_filtros(self):
         """Mantiene los filtros activos al navegar entre paginas."""
         for indice in range(51):

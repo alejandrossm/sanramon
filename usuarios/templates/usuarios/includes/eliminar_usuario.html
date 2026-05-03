@@ -1,0 +1,38 @@
+{% if usuario.pk == user.pk %}
+    <span class="d-inline-block" title="No puedes eliminar tu propio usuario.">
+        <button
+            type="button"
+            class="btn btn-outline-secondary text-muted btn-sm"
+            data-delete-unavailable-button
+            aria-label="No puedes eliminar tu propio usuario."
+            disabled
+        >
+            {% include "includes/icon.html" with name="trash-2" %}
+        </button>
+    </span>
+{% else %}
+    <form
+        method="post"
+        action="{% url 'usuarios:eliminar_usuario' usuario.pk %}"
+        data-confirm-submit
+        data-confirm-title="Eliminar usuario"
+        data-confirm-text="Esta accion eliminara definitivamente el usuario interno seleccionado."
+        data-confirm-button="Eliminar"
+        data-confirm-color="#b42318"
+        data-confirm-icon="error"
+    >
+        {% csrf_token %}
+        <span class="d-inline-block" title="Eliminar usuario">
+            <button
+                type="submit"
+                class="btn btn-outline-secondary text-muted btn-sm"
+                data-delete-user-button
+                data-delete-allowed="true"
+                aria-label="Eliminar usuario"
+                disabled
+            >
+                {% include "includes/icon.html" with name="trash-2" %}
+            </button>
+        </span>
+    </form>
+{% endif %}

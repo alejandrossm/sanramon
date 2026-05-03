@@ -30,6 +30,8 @@ Archivo para registrar detalles importantes que conviene conservar entre sesione
 - `Activar eliminacion` debe ser un switch Bootstrap (`form-switch`), con texto antes del toggle.
 - Filtros bajo el header: `RUT`, `Nombre` y `Apellido`.
 - La tabla separa `Nombre` y `Apellido` en columnas distintas para mejorar usabilidad y lectura.
+- En pantallas pequeñas, no usar tabla horizontal para usuarios; mostrar una lista tipo `list-group` por usuario con datos apilados y acciones visibles.
+- Mantener la tabla tradicional solo desde breakpoint `md` hacia arriba.
 - La vista pagina usuarios internos en bloques de 50 items por pagina.
 - La paginacion debe conservar filtros y ordenamiento activos.
 - Columnas de datos en mayusculas: `USUARIO`, `NOMBRE`, `APELLIDO`, `RUT`, `EMAIL`, `ROL`, `ESTADO`.

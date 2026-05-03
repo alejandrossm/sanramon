@@ -96,7 +96,7 @@
     </div>
 </form>
 
-<div class="table-responsive rounded overflow-hidden shadow-sm border bg-white">
+<div class="table-responsive rounded overflow-hidden shadow-sm border bg-white d-none d-md-block">
     <table class="table table-hover align-middle mb-0">
         <thead>
             <tr>
@@ -143,76 +143,11 @@
                         {% endif %}
                     </td>
                     <td class="text-end">
-                        <div class="d-inline-flex gap-2">
-                            <a
-                                href="{% url 'usuarios:editar_usuario' usuario.pk %}"
-                                class="btn btn-outline-primary btn-sm"
-                                title="Editar usuario"
-                                aria-label="Editar usuario"
-                            >
-                                {% include "includes/icon.html" with name="pencil" %}
-                            </a>
-                            <form
-                                method="post"
-                                action="{% url 'usuarios:cambiar_estado_usuario' usuario.pk %}"
-                                data-confirm-submit
-                                data-confirm-title="{% if usuario.is_active %}Desactivar usuario{% else %}Activar usuario{% endif %}"
-                                data-confirm-text="{% if usuario.is_active %}El usuario no podra iniciar sesion mientras este inactivo.{% else %}El usuario volvera a poder iniciar sesion.{% endif %}"
-                                data-confirm-button="{% if usuario.is_active %}Desactivar{% else %}Activar{% endif %}"
-                                data-confirm-color="{% if usuario.is_active %}#b42318{% else %}#2f5d50{% endif %}"
-                            >
-                                {% csrf_token %}
-                                <button
-                                    type="submit"
-                                    class="btn {% if usuario.is_active %}btn-success{% else %}btn-outline-secondary{% endif %} btn-sm"
-                                    title="{% if usuario.is_active %}Desactivar usuario{% else %}Activar usuario{% endif %}"
-                                    aria-label="{% if usuario.is_active %}Desactivar usuario{% else %}Activar usuario{% endif %}"
-                                >
-                                    {% include "includes/icon.html" with name="power" %}
-                                </button>
-                            </form>
-                        </div>
+                        {% include "usuarios/includes/acciones_usuario.html" %}
                     </td>
                     {% if puede_administrar_privilegios %}
                         <td class="text-end">
-                            {% if usuario.pk == user.pk %}
-                                <span class="d-inline-block" title="No puedes eliminar tu propio usuario.">
-                                    <button
-                                        type="button"
-                                        class="btn btn-outline-secondary text-muted btn-sm"
-                                        data-delete-unavailable-button
-                                        aria-label="No puedes eliminar tu propio usuario."
-                                        disabled
-                                    >
-                                        {% include "includes/icon.html" with name="trash-2" %}
-                                    </button>
-                                </span>
-                            {% else %}
-                                <form
-                                    method="post"
-                                    action="{% url 'usuarios:eliminar_usuario' usuario.pk %}"
-                                    data-confirm-submit
-                                    data-confirm-title="Eliminar usuario"
-                                    data-confirm-text="Esta accion eliminara definitivamente el usuario interno seleccionado."
-                                    data-confirm-button="Eliminar"
-                                    data-confirm-color="#b42318"
-                                    data-confirm-icon="error"
-                                >
-                                    {% csrf_token %}
-                                    <span class="d-inline-block" title="Eliminar usuario">
-                                        <button
-                                            type="submit"
-                                            class="btn btn-outline-secondary text-muted btn-sm"
-                                            data-delete-user-button
-                                            data-delete-allowed="true"
-                                            aria-label="Eliminar usuario"
-                                            disabled
-                                        >
-                                            {% include "includes/icon.html" with name="trash-2" %}
-                                        </button>
-                                    </span>
-                                </form>
-                            {% endif %}
+                            {% include "usuarios/includes/eliminar_usuario.html" %}
                         </td>
                     {% endif %}
                 </tr>
@@ -223,6 +158,46 @@
             {% endfor %}
         </tbody>
     </table>
+</div>
+
+<div class="list-group shadow-sm border rounded overflow-hidden d-md-none">
+    {% for usuario in usuarios %}
+        <div class="list-group-item p-3">
+            <div class="d-flex justify-content-between gap-3 align-items-start">
+                <div class="flex-grow-1">
+                    <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+                        <strong>{{ usuario.first_name }} {{ usuario.last_name }}</strong>
+                        {% if usuario.is_active %}
+                            <span class="badge text-bg-success">Activo</span>
+                        {% else %}
+                            <span class="badge text-bg-secondary">Inactivo</span>
+                        {% endif %}
+                    </div>
+                    <div class="text-muted small text-break">{{ usuario.username }}</div>
+                </div>
+                <div class="flex-shrink-0">
+                    {% include "usuarios/includes/acciones_usuario.html" %}
+                </div>
+            </div>
+
+            <dl class="row g-2 small mt-3 mb-0">
+                <dt class="col-4 text-muted fw-semibold">RUT</dt>
+                <dd class="col-8 mb-0 text-break">{{ usuario.rut }}</dd>
+                <dt class="col-4 text-muted fw-semibold">EMAIL</dt>
+                <dd class="col-8 mb-0 text-break">{{ usuario.email }}</dd>
+                <dt class="col-4 text-muted fw-semibold">ROL</dt>
+                <dd class="col-8 mb-0">{{ usuario.get_rol_display }}</dd>
+            </dl>
+
+            {% if puede_administrar_privilegios %}
+                <div class="d-flex justify-content-end mt-3">
+                    {% include "usuarios/includes/eliminar_usuario.html" %}
+                </div>
+            {% endif %}
+        </div>
+    {% empty %}
+        <div class="list-group-item text-center text-muted py-4">No hay usuarios registrados.</div>
+    {% endfor %}
 </div>
 
 {% if page_obj.has_other_pages %}

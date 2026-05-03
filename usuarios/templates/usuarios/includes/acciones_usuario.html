@@ -1,0 +1,29 @@
+<div class="d-inline-flex gap-2">
+    <a
+        href="{% url 'usuarios:editar_usuario' usuario.pk %}"
+        class="btn btn-outline-primary btn-sm"
+        title="Editar usuario"
+        aria-label="Editar usuario"
+    >
+        {% include "includes/icon.html" with name="pencil" %}
+    </a>
+    <form
+        method="post"
+        action="{% url 'usuarios:cambiar_estado_usuario' usuario.pk %}"
+        data-confirm-submit
+        data-confirm-title="{% if usuario.is_active %}Desactivar usuario{% else %}Activar usuario{% endif %}"
+        data-confirm-text="{% if usuario.is_active %}El usuario no podra iniciar sesion mientras este inactivo.{% else %}El usuario volvera a poder iniciar sesion.{% endif %}"
+        data-confirm-button="{% if usuario.is_active %}Desactivar{% else %}Activar{% endif %}"
+        data-confirm-color="{% if usuario.is_active %}#b42318{% else %}#2f5d50{% endif %}"
+    >
+        {% csrf_token %}
+        <button
+            type="submit"
+            class="btn {% if usuario.is_active %}btn-success{% else %}btn-outline-secondary{% endif %} btn-sm"
+            title="{% if usuario.is_active %}Desactivar usuario{% else %}Activar usuario{% endif %}"
+            aria-label="{% if usuario.is_active %}Desactivar usuario{% else %}Activar usuario{% endif %}"
+        >
+            {% include "includes/icon.html" with name="power" %}
+        </button>
+    </form>
+</div>
