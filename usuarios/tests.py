@@ -121,7 +121,7 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, '<canvas id="asistenciaChart"></canvas>', html=True)
         self.assertNotContains(response, 'dashboard-line-chart')
         self.assertNotContains(response, 'dashboard-bar-chart')
-        self.assertContains(response, '<strong>3</strong>', html=True)
+        self.assertContains(response, '<strong class="d-block fs-1 lh-1">3</strong>', html=True)
 
     def test_layout_usa_bootstrap_sweetalert_e_iconos_locales(self):
         """Carga dependencias visuales desde static local sin CDN."""

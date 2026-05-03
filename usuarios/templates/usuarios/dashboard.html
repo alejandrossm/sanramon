@@ -2,9 +2,9 @@
 {% block title %}Dashboard | Sistema San Ramon{% endblock %}
 
 {% block content %}
-<section class="dashboard-data">
-    <div class="dashboard-heading">
-        <div class="page-title-row">
+<section class="d-grid gap-3">
+    <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 align-items-lg-center">
+        <div class="page-title-row flex-lg-shrink-0">
             <span class="page-icon">
                 {% include "includes/icon.html" with name="chart-bar" %}
             </span>
@@ -15,30 +15,30 @@
             </div>
         </div>
 
-        <nav class="dashboard-route-nav" aria-label="Accesos del dashboard">
+        <nav class="d-flex flex-wrap gap-2 justify-content-lg-end align-items-center" aria-label="Accesos del dashboard">
             {% if puede_gestionar_usuarios %}
-                <a href="{% url 'usuarios:listado_usuarios' %}" class="dashboard-route-link">
+                <a href="{% url 'usuarios:listado_usuarios' %}" class="dashboard-route-link d-inline-flex align-items-center gap-2 px-2 py-1 rounded text-decoration-none fw-semibold">
                     {% include "includes/icon.html" with name="users" %}
                     <span>Gestionar usuarios</span>
                 </a>
             {% elif puede_registrar_usuarios %}
-                <a href="{% url 'usuarios:registro_usuario' %}" class="dashboard-route-link">
+                <a href="{% url 'usuarios:registro_usuario' %}" class="dashboard-route-link d-inline-flex align-items-center gap-2 px-2 py-1 rounded text-decoration-none fw-semibold">
                     {% include "includes/icon.html" with name="user-plus" %}
                     <span>Registrar usuario</span>
                 </a>
             {% endif %}
             {% if puede_registrar_socios %}
-                <a href="{% url 'usuarios:listado_socios' %}" class="dashboard-route-link">
+                <a href="{% url 'usuarios:listado_socios' %}" class="dashboard-route-link d-inline-flex align-items-center gap-2 px-2 py-1 rounded text-decoration-none fw-semibold">
                     {% include "includes/icon.html" with name="id-card" %}
                     <span>Gestionar socios</span>
                 </a>
-                <a href="{% url 'usuarios:registro_socio' %}" class="dashboard-route-link">
+                <a href="{% url 'usuarios:registro_socio' %}" class="dashboard-route-link d-inline-flex align-items-center gap-2 px-2 py-1 rounded text-decoration-none fw-semibold">
                     {% include "includes/icon.html" with name="user-plus" %}
                     <span>Registrar socio</span>
                 </a>
             {% endif %}
             {% if puede_acceder_asistencia %}
-                <a href="{% url 'usuarios:listado_socios_asistencia' %}" class="dashboard-route-link">
+                <a href="{% url 'usuarios:listado_socios_asistencia' %}" class="dashboard-route-link d-inline-flex align-items-center gap-2 px-2 py-1 rounded text-decoration-none fw-semibold">
                     {% include "includes/icon.html" with name="clipboard-check" %}
                     <span>Asistencia</span>
                 </a>
@@ -46,49 +46,49 @@
         </nav>
     </div>
 
-    <div class="dashboard-metrics" aria-label="Metricas de usuarios">
-        <article class="dashboard-metric">
-            <div class="dashboard-metric-head">
-                <span>Total</span>
-                <span class="metric-icon">
-                    {% include "includes/icon.html" with name="users" %}
-                </span>
+    <div class="row g-3" aria-label="Metricas de usuarios">
+        <article class="col-md-4">
+            <div class="dashboard-metric h-100 p-3 d-grid gap-3">
+                <div class="d-flex justify-content-between gap-3 align-items-center">
+                    <span class="text-muted small fw-semibold">Total</span>
+                    {% include "includes/icon.html" with name="users" classes="fs-4 text-primary" %}
+                </div>
+                <strong class="d-block fs-1 lh-1">{{ total_usuarios }}</strong>
             </div>
-            <strong>{{ total_usuarios }}</strong>
         </article>
-        <article class="dashboard-metric">
-            <div class="dashboard-metric-head">
-                <span>Activos</span>
-                <span class="metric-icon">
-                    {% include "includes/icon.html" with name="check-circle" %}
-                </span>
+        <article class="col-md-4">
+            <div class="dashboard-metric h-100 p-3 d-grid gap-3">
+                <div class="d-flex justify-content-between gap-3 align-items-center">
+                    <span class="text-muted small fw-semibold">Activos</span>
+                    {% include "includes/icon.html" with name="check-circle" classes="fs-4 text-primary" %}
+                </div>
+                <strong class="d-block fs-1 lh-1">{{ usuarios_activos }}</strong>
             </div>
-            <strong>{{ usuarios_activos }}</strong>
         </article>
-        <article class="dashboard-metric">
-            <div class="dashboard-metric-head">
-                <span>Inactivos</span>
-                <span class="metric-icon">
-                    {% include "includes/icon.html" with name="x-circle" %}
-                </span>
+        <article class="col-md-4">
+            <div class="dashboard-metric h-100 p-3 d-grid gap-3">
+                <div class="d-flex justify-content-between gap-3 align-items-center">
+                    <span class="text-muted small fw-semibold">Inactivos</span>
+                    {% include "includes/icon.html" with name="x-circle" classes="fs-4 text-primary" %}
+                </div>
+                <strong class="d-block fs-1 lh-1">{{ usuarios_inactivos }}</strong>
             </div>
-            <strong>{{ usuarios_inactivos }}</strong>
         </article>
     </div>
 
-    <article class="dashboard-chart-panel">
-        <div class="dashboard-chart-header">
+    <article class="dashboard-chart-panel p-3">
+        <div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-center mb-4">
             <div>
                 <p class="text-uppercase text-primary fw-semibold small mb-1">Gráfico</p>
                 <h3 class="h5 mb-0">Estado de asistencia de socios</h3>
             </div>
-            <div class="dashboard-chart-summary">
-                <span>Socios totales</span>
-                <strong>{{ estado_asistencia_socios_total }}</strong>
+            <div class="text-md-end">
+                <span class="d-block text-muted small fw-bold">Socios totales</span>
+                <strong class="d-block text-primary fs-3 lh-1">{{ estado_asistencia_socios_total }}</strong>
             </div>
         </div>
 
-        <div style="position: relative; height: 300px;">
+        <div class="position-relative" style="height: 300px;">
             <canvas id="asistenciaChart"></canvas>
         </div>
 
@@ -184,33 +184,33 @@
         });
     </script>
 
-    <div class="dashboard-breakdown" aria-label="Distribucion por rol">
-        <article class="dashboard-breakdown-item">
-            <div class="dashboard-breakdown-copy">
-                <span>Administradores</span>
-                <strong>{{ usuarios_admin }}</strong>
+    <div class="row g-3" aria-label="Distribucion por rol">
+        <article class="col-md-4">
+            <div class="dashboard-breakdown-item h-100 p-3 d-flex justify-content-between gap-3 align-items-center">
+                <div>
+                    <span class="d-block text-muted small fw-semibold">Administradores</span>
+                    <strong class="text-primary fs-5">{{ usuarios_admin }}</strong>
+                </div>
+                {% include "includes/icon.html" with name="shield-check" classes="fs-4 text-primary" %}
             </div>
-            <span class="dashboard-breakdown-icon">
-                {% include "includes/icon.html" with name="shield-check" %}
-            </span>
         </article>
-        <article class="dashboard-breakdown-item">
-            <div class="dashboard-breakdown-copy">
-                <span>Encargados</span>
-                <strong>{{ usuarios_encargados }}</strong>
+        <article class="col-md-4">
+            <div class="dashboard-breakdown-item h-100 p-3 d-flex justify-content-between gap-3 align-items-center">
+                <div>
+                    <span class="d-block text-muted small fw-semibold">Encargados</span>
+                    <strong class="text-primary fs-5">{{ usuarios_encargados }}</strong>
+                </div>
+                {% include "includes/icon.html" with name="clipboard-check" classes="fs-4 text-primary" %}
             </div>
-            <span class="dashboard-breakdown-icon">
-                {% include "includes/icon.html" with name="clipboard-check" %}
-            </span>
         </article>
-        <article class="dashboard-breakdown-item">
-            <div class="dashboard-breakdown-copy">
-                <span>Socios</span>
-                <strong>{{ usuarios_socios }}</strong>
+        <article class="col-md-4">
+            <div class="dashboard-breakdown-item h-100 p-3 d-flex justify-content-between gap-3 align-items-center">
+                <div>
+                    <span class="d-block text-muted small fw-semibold">Socios</span>
+                    <strong class="text-primary fs-5">{{ usuarios_socios }}</strong>
+                </div>
+                {% include "includes/icon.html" with name="id-card" classes="fs-4 text-primary" %}
             </div>
-            <span class="dashboard-breakdown-icon">
-                {% include "includes/icon.html" with name="id-card" %}
-            </span>
         </article>
     </div>
 </section>
