@@ -3,11 +3,9 @@
 {% block title %}Socios | Sistema San Ramon{% endblock %}
 
 {% block content %}
-<div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-center page-heading">
-    <div class="page-title-row">
-        <span class="page-icon">
-            {% include "includes/icon.html" with name="id-card" %}
-        </span>
+<div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-center mb-4">
+    <div class="d-flex align-items-center gap-3">
+        {% include "includes/icon.html" with name="id-card" classes="fs-4 text-primary" %}
         <div>
             <p class="text-uppercase text-primary fw-semibold small mb-1">Administracion</p>
             <h1 class="h3 mb-1">Socios</h1>
@@ -24,7 +22,7 @@
     </div>
 </div>
 
-<div class="table-responsive app-table">
+<div class="table-responsive rounded overflow-hidden shadow-sm border bg-white">
     <table class="table table-hover align-middle mb-0">
         <thead>
             <tr>

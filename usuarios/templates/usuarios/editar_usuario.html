@@ -4,11 +4,9 @@
 {% block title %}Editar usuario | Sistema San Ramon{% endblock %}
 
 {% block content %}
-<div class="page-heading">
-    <div class="page-title-row">
-        <span class="page-icon">
-            {% include "includes/icon.html" with name="pencil" %}
-        </span>
+<div class="mb-4">
+    <div class="d-flex align-items-center gap-3">
+        {% include "includes/icon.html" with name="pencil" classes="fs-4 text-primary" %}
         <div>
             <p class="text-uppercase text-primary fw-semibold small mb-1">Administracion</p>
             <h1 class="h3 mb-1">Editar usuario</h1>
@@ -17,7 +15,7 @@
     </div>
 </div>
 
-<section class="form-panel edicion-usuario-panel">
+<section class="card shadow-sm border-0 p-4">
     {% crispy form %}
     <a href="{% url 'usuarios:listado_usuarios' %}" class="btn btn-link ps-0 mt-2">
         {% include "includes/icon.html" with name="arrow-left" %}

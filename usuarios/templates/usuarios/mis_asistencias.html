@@ -3,11 +3,9 @@
 {% block title %}Mis asistencias | Sistema San Ramon{% endblock %}
 
 {% block content %}
-<div class="page-heading">
-    <div class="page-title-row">
-        <span class="page-icon">
-            {% include "includes/icon.html" with name="clipboard-check" %}
-        </span>
+<div class="mb-4">
+    <div class="d-flex align-items-center gap-3">
+        {% include "includes/icon.html" with name="clipboard-check" classes="fs-4 text-primary" %}
         <div>
             <p class="text-uppercase text-primary fw-semibold small mb-1">Asistencias</p>
             <h1 class="h3 mb-1">Mis asistencias</h1>
@@ -16,9 +14,9 @@
     </div>
 </div>
 
-<section class="status-panel">
+<section class="card shadow-sm border-start border-4 border-primary p-4">
     <h2 class="h5 d-flex align-items-center gap-2">
-        {% include "includes/icon.html" with name="activity" %}
+        {% include "includes/icon.html" with name="activity" classes="text-primary" %}
         <span>No hay asistencias registradas.</span>
     </h2>
     <p class="mb-0 text-muted">Cuando exista registro de asistencia, se mostrara en esta seccion.</p>

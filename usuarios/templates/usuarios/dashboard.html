@@ -4,10 +4,8 @@
 {% block content %}
 <section class="d-grid gap-3">
     <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 align-items-lg-center">
-        <div class="page-title-row flex-lg-shrink-0">
-            <span class="page-icon">
-                {% include "includes/icon.html" with name="chart-bar" %}
-            </span>
+        <div class="d-flex align-items-center gap-3 flex-lg-shrink-0">
+            {% include "includes/icon.html" with name="chart-bar" classes="fs-4 text-primary" %}
             <div>
                 <p class="text-uppercase text-primary fw-semibold small mb-1">Resumen operativo</p>
                 <h2 class="h3 mb-1">Usuarios registrados</h2>
