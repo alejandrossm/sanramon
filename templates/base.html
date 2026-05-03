@@ -11,19 +11,19 @@
 </head>
 <body>
     <div class="app-shell">
-        <aside class="app-sidebar" aria-label="Panel de acciones" data-sidebar>
-            <div class="sidebar-topbar">
-                <div class="sidebar-brand">
+        <aside class="app-sidebar d-flex flex-column" aria-label="Panel de acciones" data-sidebar>
+            <div class="d-flex justify-content-between gap-3 align-items-center">
+                <div class="sidebar-brand d-flex align-items-center gap-3 pb-3 border-bottom flex-grow-1">
                     <img src="{% static 'images/logo.png' %}" alt="San Ramon" class="sidebar-logo">
                     <div>
-                        <p class="sidebar-kicker">Valle San Ramon</p>
-                        <h1 class="sidebar-title">Sistema de asistencia</h1>
+                        <p class="sidebar-kicker text-uppercase fw-bold mb-0">Valle San Ramon</p>
+                        <h1 class="sidebar-title mb-0">Sistema de asistencia</h1>
                     </div>
                 </div>
 
                 <button
                     type="button"
-                    class="sidebar-menu-toggle"
+                    class="sidebar-menu-toggle btn d-lg-none p-0 flex-shrink-0"
                     aria-controls="sidebar-panel"
                     aria-expanded="false"
                     data-sidebar-toggle
@@ -34,76 +34,76 @@
                 </button>
             </div>
 
-            <div class="sidebar-panel" id="sidebar-panel" data-sidebar-panel>
+            <div class="sidebar-panel d-flex flex-column flex-grow-1" id="sidebar-panel" data-sidebar-panel>
                 {% if user.is_authenticated %}
-                <div class="sidebar-user">
-                    <span>Sesion activa</span>
+                <div class="sidebar-user d-grid gap-1 rounded p-3 my-3">
+                    <span class="small">Sesion activa</span>
                     <strong>{{ user.nombre_completo }}</strong>
                     <small>{{ user.get_rol_display }}</small>
                 </div>
 
-                <nav class="sidebar-nav" aria-label="Navegacion principal">
+                <nav class="nav flex-column gap-1" aria-label="Navegacion principal">
                     {% if user.rol == 'SOCIO' and not user.is_superuser %}
-                        <p class="sidebar-section-title">Socio</p>
-                        <a class="sidebar-link" href="{% url 'usuarios:mis_asistencias' %}">
-                            {% include "includes/icon.html" with name="clipboard-check" classes="sidebar-icon" %}
+                        <p class="sidebar-section-title text-uppercase fw-bold small mb-1 mt-0 px-3">Socio</p>
+                        <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:mis_asistencias' %}">
+                            {% include "includes/icon.html" with name="clipboard-check" classes="sidebar-icon flex-shrink-0" %}
                             <span>Mis asistencias</span>
                         </a>
                     {% else %}
-                        <p class="sidebar-section-title">General</p>
-                        <a class="sidebar-link" href="{% url 'usuarios:dashboard' %}">
-                            {% include "includes/icon.html" with name="layout-dashboard" classes="sidebar-icon" %}
+                        <p class="sidebar-section-title text-uppercase fw-bold small mb-1 mt-0 px-3">General</p>
+                        <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:dashboard' %}">
+                            {% include "includes/icon.html" with name="layout-dashboard" classes="sidebar-icon flex-shrink-0" %}
                             <span>Dashboard</span>
                         </a>
                     {% endif %}
 
                     {% if user.is_superuser or user.rol == 'ADMINISTRADOR' %}
-                        <p class="sidebar-section-title">Usuarios</p>
-                        <a class="sidebar-link" href="{% url 'usuarios:listado_usuarios' %}">
-                            {% include "includes/icon.html" with name="users" classes="sidebar-icon" %}
+                        <p class="sidebar-section-title text-uppercase fw-bold small mb-1 mt-3 px-3">Usuarios</p>
+                        <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:listado_usuarios' %}">
+                            {% include "includes/icon.html" with name="users" classes="sidebar-icon flex-shrink-0" %}
                             <span>Listado usuarios</span>
                         </a>
-                        <a class="sidebar-link" href="{% url 'usuarios:registro_usuario' %}">
-                            {% include "includes/icon.html" with name="user-plus" classes="sidebar-icon" %}
+                        <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:registro_usuario' %}">
+                            {% include "includes/icon.html" with name="user-plus" classes="sidebar-icon flex-shrink-0" %}
                             <span>Registrar usuario</span>
                         </a>
                     {% endif %}
 
                     {% if user.rol != 'SOCIO' or user.is_superuser %}
-                        <p class="sidebar-section-title">Socios</p>
+                        <p class="sidebar-section-title text-uppercase fw-bold small mb-1 mt-3 px-3">Socios</p>
                         {% if user.is_superuser or user.rol == 'ADMINISTRADOR' %}
-                            <a class="sidebar-link" href="{% url 'usuarios:listado_socios' %}">
-                                {% include "includes/icon.html" with name="id-card" classes="sidebar-icon" %}
+                            <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:listado_socios' %}">
+                                {% include "includes/icon.html" with name="id-card" classes="sidebar-icon flex-shrink-0" %}
                                 <span>Listado socios</span>
                             </a>
-                            <a class="sidebar-link" href="{% url 'usuarios:registro_socio' %}">
-                                {% include "includes/icon.html" with name="user-plus" classes="sidebar-icon" %}
+                            <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:registro_socio' %}">
+                                {% include "includes/icon.html" with name="user-plus" classes="sidebar-icon flex-shrink-0" %}
                                 <span>Registrar socio</span>
                             </a>
                         {% endif %}
-                        <a class="sidebar-link" href="{% url 'usuarios:listado_socios_asistencia' %}">
-                            {% include "includes/icon.html" with name="clipboard-check" classes="sidebar-icon" %}
+                        <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:listado_socios_asistencia' %}">
+                            {% include "includes/icon.html" with name="clipboard-check" classes="sidebar-icon flex-shrink-0" %}
                             <span>Listado asistencia</span>
                         </a>
                     {% endif %}
 
-                    <p class="sidebar-section-title">Cuenta</p>
-                    <a class="sidebar-link" href="{% url 'usuarios:cambiar_mi_password' %}">
-                        {% include "includes/icon.html" with name="key" classes="sidebar-icon" %}
+                    <p class="sidebar-section-title text-uppercase fw-bold small mb-1 mt-3 px-3">Cuenta</p>
+                    <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:cambiar_mi_password' %}">
+                        {% include "includes/icon.html" with name="key" classes="sidebar-icon flex-shrink-0" %}
                         <span>Mi contraseña</span>
                     </a>
                 </nav>
 
-                <form method="post" action="{% url 'usuarios:logout' %}" class="sidebar-logout">
+                <form method="post" action="{% url 'usuarios:logout' %}" class="mt-auto pt-3">
                     {% csrf_token %}
-                    <button type="submit" class="sidebar-link sidebar-button">
-                        {% include "includes/icon.html" with name="log-out" classes="sidebar-icon" %}
+                    <button type="submit" class="sidebar-link sidebar-button d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2 w-100 text-start">
+                        {% include "includes/icon.html" with name="log-out" classes="sidebar-icon flex-shrink-0" %}
                         <span>Cerrar sesion</span>
                     </button>
                 </form>
                 {% else %}
-                <div class="sidebar-user">
-                    <span>Acceso</span>
+                <div class="sidebar-user d-grid gap-1 rounded p-3 my-3">
+                    <span class="small">Acceso</span>
                     <strong>Inicia sesion</strong>
                     <small>Gestion interna</small>
                 </div>
