@@ -394,6 +394,7 @@ h6,
 
 .form-control:focus,
 .form-select:focus {
+    background-color: #fff;
     border-color: var(--color-secondary);
     box-shadow: 0 0 0 0.2rem rgba(60, 122, 115, 0.18);
 }
