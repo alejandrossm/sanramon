@@ -222,6 +222,128 @@ class UsuariosModuloTests(TestCase):
         self.assertNotContains(response, 'admin@example.com')
         self.assertNotContains(response, 'encargado@example.com')
 
+    def test_listado_asistencia_filtra_y_separa_nombre_apellido(self):
+        """Aplica filtros operativos y muestra datos personales separados."""
+        socio_filtrado = self.User.objects.create_user(
+            username='ana.asistencia',
+            email='ana.asistencia@example.com',
+            password='ClaveSegura123',
+            first_name='Ana',
+            last_name='Asistencia',
+            rut='77.777.777-7',
+            rol=self.User.SOCIO,
+        )
+        self.User.objects.create_user(
+            username='bruno.asistencia',
+            email='bruno.asistencia@example.com',
+            password='ClaveSegura123',
+            first_name='Bruno',
+            last_name='Asistencia',
+            rut='88.888.888-8',
+            rol=self.User.SOCIO,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:listado_socios_asistencia'),
+            {
+                'rut': '77.777.777-7',
+                'nombre': 'Ana',
+                'apellido': 'Asistencia',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Ordenar RUT ascendente')
+        self.assertContains(response, 'Ordenar Nombre ascendente')
+        self.assertContains(response, 'Ordenar Apellido ascendente')
+        self.assertContains(response, socio_filtrado.email)
+        self.assertContains(response, '<td class="fw-semibold">77777777-7</td>', html=True)
+        self.assertContains(response, '<td>Ana</td>', html=True)
+        self.assertContains(response, '<td>Asistencia</td>', html=True)
+        self.assertContains(response, 'value="77.777.777-7"')
+        self.assertContains(response, 'value="Ana"')
+        self.assertContains(response, 'value="Asistencia"')
+        self.assertNotContains(response, 'bruno.asistencia@example.com')
+        self.assertNotContains(response, 'admin@example.com')
+
+    def test_listado_asistencia_tiene_lista_responsiva_para_movil(self):
+        """Replica el formato responsivo usado por los listados administrativos."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'd-none d-md-block')
+        self.assertContains(response, 'list-group shadow-sm border rounded overflow-hidden d-md-none')
+        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">NOMBRE</dt>', html=True)
+        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">APELLIDO</dt>', html=True)
+        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">REUNIONES</dt>', html=True)
+        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">ASISTENCIAS</dt>', html=True)
+        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">AUSENCIAS</dt>', html=True)
+
+    def test_listado_asistencia_paginacion_conserva_filtros(self):
+        """Mantiene filtros activos al navegar paginas del listado operativo."""
+        for indice in range(51):
+            self.User.objects.create_user(
+                username=f'asistencia_filtro_{indice:02d}',
+                email=f'asistencia_filtro_{indice:02d}@example.com',
+                password='ClaveSegura123',
+                first_name='AsistenciaFiltro',
+                last_name=f'Paginacion {indice:02d}',
+                rut=f'91.000.{indice:03d}-{indice % 10}',
+                rol=self.User.SOCIO,
+            )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:listado_socios_asistencia'),
+            {'nombre': 'AsistenciaFiltro'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['socios']), 50)
+        self.assertContains(response, 'nombre=AsistenciaFiltro&page=2')
+
+    def test_listado_asistencia_ordena_columnas_ascendente_y_descendente(self):
+        """Ordena el listado operativo por columnas de datos personales."""
+        self.User.objects.create_user(
+            username='aaron.asistencia',
+            email='aaron.asistencia@example.com',
+            password='ClaveSegura123',
+            first_name='Aaron',
+            last_name='Orden',
+            rut='92.222.222-2',
+            rol=self.User.SOCIO,
+        )
+        self.User.objects.create_user(
+            username='zulu.asistencia',
+            email='zulu.asistencia@example.com',
+            password='ClaveSegura123',
+            first_name='Zulu',
+            last_name='Orden',
+            rut='93.333.333-3',
+            rol=self.User.SOCIO,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+
+        response = self.client.get(
+            reverse('usuarios:listado_socios_asistencia'),
+            {'orden': 'nombre', 'direccion': 'asc'},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['socios'][0].username, 'aaron.asistencia')
+        self.assertContains(response, 'Ordenar Nombre descendente')
+        self.assertContains(response, 'aria-current="true"')
+
+        response = self.client.get(
+            reverse('usuarios:listado_socios_asistencia'),
+            {'orden': 'nombre', 'direccion': 'desc'},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['socios'][0].username, 'zulu.asistencia')
+        self.assertContains(response, 'Ordenar Nombre ascendente')
+
     def test_indicador_asistencia_calcula_estados_por_ausencias(self):
         """Mapea ausencias a indicadores visuales esperados."""
         self.assertEqual(obtener_indicador_asistencia(0)['badge_class'], 'text-bg-success')
@@ -485,6 +607,152 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'data-confirm-title="Eliminar socio"')
         self.assertNotContains(response, 'admin@example.com')
         self.assertNotContains(response, 'encargado@example.com')
+
+    def test_listado_socios_filtra_y_separa_nombre_apellido(self):
+        """Aplica filtros administrativos y muestra nombre y apellido separados."""
+        socio_filtrado = self.User.objects.create_user(
+            username='ana.socia',
+            email='ana.socia@example.com',
+            password='ClaveSegura123',
+            first_name='Ana',
+            last_name='Zapata',
+            rut='77.777.777-7',
+            rol=self.User.SOCIO,
+        )
+        self.User.objects.create_user(
+            username='bruno.socio',
+            email='bruno.socio@example.com',
+            password='ClaveSegura123',
+            first_name='Bruno',
+            last_name='Zapata',
+            rut='88.888.888-8',
+            rol=self.User.SOCIO,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:listado_socios'),
+            {
+                'rut': '77.777.777-7',
+                'nombre': 'Ana',
+                'apellido': 'Zapata',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Ordenar RUT ascendente')
+        self.assertContains(response, 'Ordenar Nombre ascendente')
+        self.assertContains(response, 'Ordenar Apellido ascendente')
+        self.assertContains(response, socio_filtrado.email)
+        self.assertContains(response, '<td class="fw-semibold">77777777-7</td>', html=True)
+        self.assertContains(response, '<td>Ana</td>', html=True)
+        self.assertContains(response, '<td>Zapata</td>', html=True)
+        self.assertContains(response, 'value="77.777.777-7"')
+        self.assertContains(response, 'value="Ana"')
+        self.assertContains(response, 'value="Zapata"')
+        self.assertNotContains(response, 'bruno.socio@example.com')
+        self.assertNotContains(response, 'admin@example.com')
+
+    def test_listado_socios_tiene_lista_responsiva_para_movil(self):
+        """Replica el formato responsivo del listado administrativo de usuarios."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_socios'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'd-none d-md-block')
+        self.assertContains(response, 'list-group shadow-sm border rounded overflow-hidden d-md-none')
+        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">NOMBRE</dt>', html=True)
+        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">APELLIDO</dt>', html=True)
+        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">EMAIL</dt>', html=True)
+
+    def test_listado_socios_paginacion_conserva_filtros(self):
+        """Mantiene los filtros activos al navegar paginas de socios."""
+        for indice in range(51):
+            self.User.objects.create_user(
+                username=f'socio_filtro_{indice:02d}',
+                email=f'socio_filtro_{indice:02d}@example.com',
+                password='ClaveSegura123',
+                first_name='FiltroSocio',
+                last_name=f'Paginacion {indice:02d}',
+                rut=f'81.000.{indice:03d}-{indice % 10}',
+                rol=self.User.SOCIO,
+            )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:listado_socios'),
+            {'nombre': 'FiltroSocio'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['socios']), 50)
+        self.assertContains(response, 'nombre=FiltroSocio&page=2')
+
+    def test_listado_socios_ordena_columnas_ascendente_y_descendente(self):
+        """Ordena socios por columnas seleccionadas desde el encabezado."""
+        self.User.objects.create_user(
+            username='aaron.socio',
+            email='aaron.socio@example.com',
+            password='ClaveSegura123',
+            first_name='Aaron',
+            last_name='Orden',
+            rut='82.222.222-2',
+            rol=self.User.SOCIO,
+        )
+        self.User.objects.create_user(
+            username='zulu.socio',
+            email='zulu.socio@example.com',
+            password='ClaveSegura123',
+            first_name='Zulu',
+            last_name='Orden',
+            rut='83.333.333-3',
+            rol=self.User.SOCIO,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+
+        response = self.client.get(
+            reverse('usuarios:listado_socios'),
+            {'orden': 'nombre', 'direccion': 'asc'},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['socios'][0].username, 'aaron.socio')
+        self.assertContains(response, 'Ordenar Nombre descendente')
+        self.assertContains(response, 'aria-current="true"')
+
+        response = self.client.get(
+            reverse('usuarios:listado_socios'),
+            {'orden': 'nombre', 'direccion': 'desc'},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['socios'][0].username, 'zulu.socio')
+        self.assertContains(response, 'Ordenar Nombre ascendente')
+
+    def test_listado_socios_paginacion_conserva_orden(self):
+        """Mantiene el orden activo al navegar paginas de socios."""
+        for indice in range(51):
+            self.User.objects.create_user(
+                username=f'socio_orden_{indice:02d}',
+                email=f'socio_orden_{indice:02d}@example.com',
+                password='ClaveSegura123',
+                first_name='OrdenSocio',
+                last_name=f'Paginacion {indice:02d}',
+                rut=f'84.000.{indice:03d}-{indice % 10}',
+                rol=self.User.SOCIO,
+            )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:listado_socios'),
+            {'nombre': 'OrdenSocio', 'orden': 'apellido', 'direccion': 'desc'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['socios']), 50)
+        self.assertContains(
+            response,
+            'nombre=OrdenSocio&amp;orden=apellido&amp;direccion=desc&page=2',
+        )
 
     def test_encargado_accede_a_asistencia_y_ve_solo_socios(self):
         """Permite al encargado ver el listado operativo de socios."""

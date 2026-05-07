@@ -3,7 +3,7 @@
 {% block title %}Socios | Sistema San Ramon{% endblock %}
 
 {% block content %}
-<div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-center mb-4">
+<div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-start mb-4">
     <div class="d-flex align-items-center gap-3">
         {% include "includes/icon.html" with name="id-card" classes="fs-4 text-primary" %}
         <div>
@@ -12,32 +12,102 @@
             <p class="text-muted mb-0">Gestion administrativa de socios registrados.</p>
         </div>
     </div>
-    <div class="d-flex flex-wrap gap-2">
+    <div class="d-flex flex-wrap gap-2 align-items-center align-self-start align-self-md-start justify-content-md-end">
+        <span class="badge text-bg-success">Activos: {{ socios_activos }}</span>
+        <span class="badge text-bg-secondary">Inactivos: {{ socios_inactivos }}</span>
         <a href="{% url 'usuarios:registro_socio' %}" class="btn btn-primary">
             {% include "includes/icon.html" with name="user-plus" %}
             <span>Registrar socio</span>
         </a>
-        <span class="badge text-bg-success align-self-center">Activos: {{ socios_activos }}</span>
-        <span class="badge text-bg-secondary align-self-center">Inactivos: {{ socios_inactivos }}</span>
     </div>
 </div>
 
-<div class="table-responsive rounded overflow-hidden shadow-sm border bg-white">
+<form method="get" class="row g-2 align-items-end mb-3" aria-label="Filtros de socios">
+    {% if orden_actual %}
+        <input type="hidden" name="orden" value="{{ orden_actual }}">
+        <input type="hidden" name="direccion" value="{{ direccion_actual }}">
+    {% endif %}
+    <div class="col-12 col-md-3">
+        <label for="filtro-socio-rut" class="form-label">RUT</label>
+        <input
+            type="search"
+            class="form-control"
+            id="filtro-socio-rut"
+            name="rut"
+            value="{{ filtros.rut }}"
+            placeholder="Buscar por RUT"
+        >
+    </div>
+    <div class="col-12 col-md-3">
+        <label for="filtro-socio-nombre" class="form-label">Nombre</label>
+        <input
+            type="search"
+            class="form-control"
+            id="filtro-socio-nombre"
+            name="nombre"
+            value="{{ filtros.nombre }}"
+            placeholder="Buscar por nombre"
+        >
+    </div>
+    <div class="col-12 col-md-3">
+        <label for="filtro-socio-apellido" class="form-label">Apellido</label>
+        <input
+            type="search"
+            class="form-control"
+            id="filtro-socio-apellido"
+            name="apellido"
+            value="{{ filtros.apellido }}"
+            placeholder="Buscar por apellido"
+        >
+    </div>
+    <div class="col-12 col-md-3 d-flex flex-wrap gap-2">
+        <button type="submit" class="btn btn-outline-primary">
+            {% include "includes/icon.html" with name="search" %}
+            <span>Filtrar</span>
+        </button>
+        {% if filtros_activos %}
+            <a href="{% url 'usuarios:listado_socios' %}" class="btn btn-outline-secondary">
+                {% include "includes/icon.html" with name="x-circle" %}
+                <span>Limpiar</span>
+            </a>
+        {% endif %}
+    </div>
+</form>
+
+<div class="table-responsive rounded overflow-hidden shadow-sm border bg-white d-none d-md-block">
     <table class="table table-hover align-middle mb-0">
         <thead>
             <tr>
-                <th>Socio</th>
-                <th>RUT</th>
-                <th>Email</th>
-                <th>Estado</th>
+                {% for columna in columnas_ordenables %}
+                    <th>
+                        <div class="d-flex align-items-center gap-1">
+                            <span>{{ columna.label|upper }}</span>
+                            <a
+                                href="?{% if columna.asc_active %}{{ columna.desc_query }}{% else %}{{ columna.asc_query }}{% endif %}"
+                                class="{% if columna.asc_active or columna.desc_active %}link-primary{% else %}link-secondary{% endif %} text-decoration-none"
+                                title="{% if columna.asc_active %}Ordenar {{ columna.label }} descendente{% else %}Ordenar {{ columna.label }} ascendente{% endif %}"
+                                aria-label="{% if columna.asc_active %}Ordenar {{ columna.label }} descendente{% else %}Ordenar {{ columna.label }} ascendente{% endif %}"
+                                {% if columna.asc_active or columna.desc_active %}aria-current="true"{% endif %}
+                            >
+                                {% if columna.desc_active %}
+                                    {% include "includes/icon.html" with name="arrow-down" %}
+                                {% else %}
+                                    {% include "includes/icon.html" with name="arrow-up" %}
+                                {% endif %}
+                            </a>
+                        </div>
+                    </th>
+                {% endfor %}
                 <th class="text-end">Acciones</th>
+                <th class="text-end">Eliminar</th>
             </tr>
         </thead>
         <tbody>
             {% for socio in socios %}
                 <tr>
-                    <td class="fw-semibold">{{ socio.nombre_completo }}</td>
-                    <td>{{ socio.rut }}</td>
+                    <td class="fw-semibold">{{ socio.rut }}</td>
+                    <td>{{ socio.first_name }}</td>
+                    <td>{{ socio.last_name }}</td>
                     <td>{{ socio.email }}</td>
                     <td>
                         {% if socio.is_active %}
@@ -47,63 +117,94 @@
                         {% endif %}
                     </td>
                     <td class="text-end">
-                        <div class="d-inline-flex gap-2">
-                            <a href="{% url 'usuarios:editar_socio' socio.pk %}" class="btn btn-outline-primary btn-sm">
-                                {% include "includes/icon.html" with name="pencil" %}
-                                <span>Editar</span>
-                            </a>
-                            <form
-                                method="post"
-                                action="{% url 'usuarios:cambiar_estado_usuario' socio.pk %}"
-                                data-confirm-submit
-                                data-confirm-title="{% if socio.is_active %}Desactivar socio{% else %}Activar socio{% endif %}"
-                                data-confirm-text="{% if socio.is_active %}El socio no podra iniciar sesion mientras este inactivo.{% else %}El socio volvera a poder iniciar sesion.{% endif %}"
-                                data-confirm-button="{% if socio.is_active %}Desactivar{% else %}Activar{% endif %}"
-                                data-confirm-color="{% if socio.is_active %}#b42318{% else %}#2f5d50{% endif %}"
-                            >
-                                {% csrf_token %}
-                                <button type="submit" class="btn btn-outline-secondary btn-sm">
-                                    {% include "includes/icon.html" with name="power" %}
-                                    {% if socio.is_active %}Desactivar{% else %}Activar{% endif %}
-                                </button>
-                            </form>
-                            {% if socio.puede_eliminar_seguro %}
-                                <form
-                                    method="post"
-                                    action="{% url 'usuarios:eliminar_socio' socio.pk %}"
-                                    data-confirm-submit
-                                    data-confirm-title="Eliminar socio"
-                                    data-confirm-text="Solo se eliminara si no tiene asistencias contabilizadas. Esta accion no se puede deshacer."
-                                    data-confirm-button="Eliminar"
-                                    data-confirm-color="#b42318"
-                                    data-confirm-icon="error"
-                                >
-                                    {% csrf_token %}
-                                    <button type="submit" class="btn btn-outline-danger btn-sm">
-                                        {% include "includes/icon.html" with name="trash-2" %}
-                                        <span>Eliminar</span>
-                                    </button>
-                                </form>
-                            {% else %}
-                                <button
-                                    type="button"
-                                    class="btn btn-outline-danger btn-sm"
-                                    title="Tiene asistencias contabilizadas; solo se puede desactivar."
-                                    disabled
-                                >
-                                    {% include "includes/icon.html" with name="trash-2" %}
-                                    <span>Eliminar</span>
-                                </button>
-                            {% endif %}
-                        </div>
+                        {% include "usuarios/includes/acciones_socio.html" %}
+                    </td>
+                    <td class="text-end">
+                        {% include "usuarios/includes/eliminar_socio.html" %}
                     </td>
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="5" class="text-center text-muted py-4">No hay socios registrados.</td>
+                    <td colspan="7" class="text-center text-muted py-4">No hay socios registrados.</td>
                 </tr>
             {% endfor %}
         </tbody>
     </table>
 </div>
+
+<div class="list-group shadow-sm border rounded overflow-hidden d-md-none">
+    {% for socio in socios %}
+        <div class="list-group-item p-3">
+            <div class="d-flex justify-content-between gap-3 align-items-start">
+                <div class="flex-grow-1">
+                    <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+                        <strong>{{ socio.rut }}</strong>
+                        {% if socio.is_active %}
+                            <span class="badge text-bg-success">Activo</span>
+                        {% else %}
+                            <span class="badge text-bg-secondary">Inactivo</span>
+                        {% endif %}
+                    </div>
+                    <div class="text-muted small text-break">{{ socio.first_name }} {{ socio.last_name }}</div>
+                </div>
+                <div class="flex-shrink-0">
+                    {% include "usuarios/includes/acciones_socio.html" %}
+                </div>
+            </div>
+
+            <dl class="row g-2 small mt-3 mb-0">
+                <dt class="col-4 text-muted fw-semibold">NOMBRE</dt>
+                <dd class="col-8 mb-0 text-break">{{ socio.first_name }}</dd>
+                <dt class="col-4 text-muted fw-semibold">APELLIDO</dt>
+                <dd class="col-8 mb-0 text-break">{{ socio.last_name }}</dd>
+                <dt class="col-4 text-muted fw-semibold">EMAIL</dt>
+                <dd class="col-8 mb-0 text-break">{{ socio.email }}</dd>
+            </dl>
+
+            <div class="d-flex justify-content-end mt-3">
+                {% include "usuarios/includes/eliminar_socio.html" %}
+            </div>
+        </div>
+    {% empty %}
+        <div class="list-group-item text-center text-muted py-4">No hay socios registrados.</div>
+    {% endfor %}
+</div>
+
+{% if page_obj.has_other_pages %}
+    <nav class="mt-3" aria-label="Paginacion de socios">
+        <ul class="pagination justify-content-center mb-0">
+            <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}">
+                {% if page_obj.has_previous %}
+                    <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={{ page_obj.previous_page_number }}" aria-label="Pagina anterior">Anterior</a>
+                {% else %}
+                    <span class="page-link" aria-disabled="true">Anterior</span>
+                {% endif %}
+            </li>
+
+            {% for page_number in page_numbers %}
+                {% if page_number == pagination_ellipsis %}
+                    <li class="page-item disabled">
+                        <span class="page-link" aria-disabled="true">{{ page_number }}</span>
+                    </li>
+                {% elif page_number == page_obj.number %}
+                    <li class="page-item active" aria-current="page">
+                        <span class="page-link">{{ page_number }}</span>
+                    </li>
+                {% else %}
+                    <li class="page-item">
+                        <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={{ page_number }}">{{ page_number }}</a>
+                    </li>
+                {% endif %}
+            {% endfor %}
+
+            <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}">
+                {% if page_obj.has_next %}
+                    <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={{ page_obj.next_page_number }}" aria-label="Pagina siguiente">Siguiente</a>
+                {% else %}
+                    <span class="page-link" aria-disabled="true">Siguiente</span>
+                {% endif %}
+            </li>
+        </ul>
+    </nav>
+{% endif %}
 {% endblock %}

@@ -104,15 +104,23 @@ COLUMNAS_ORDENABLES_USUARIOS = [
     {'key': 'estado', 'label': 'Estado', 'field': 'is_active'},
 ]
 
+COLUMNAS_ORDENABLES_SOCIOS = [
+    {'key': 'rut', 'label': 'RUT', 'field': 'rut'},
+    {'key': 'nombre', 'label': 'Nombre', 'field': 'first_name'},
+    {'key': 'apellido', 'label': 'Apellido', 'field': 'last_name'},
+    {'key': 'email', 'label': 'Email', 'field': 'email'},
+    {'key': 'estado', 'label': 'Estado', 'field': 'is_active'},
+]
 
-def obtener_columnas_ordenables_usuarios(params, orden_actual, direccion_actual):
+
+def obtener_columnas_ordenables(params, orden_actual, direccion_actual, columnas_base):
     """Construye metadatos de ordenamiento conservando filtros activos."""
     columnas = []
     base_params = params.copy()
     if 'page' in base_params:
         del base_params['page']
 
-    for columna in COLUMNAS_ORDENABLES_USUARIOS:
+    for columna in columnas_base:
         asc_params = base_params.copy()
         asc_params['orden'] = columna['key']
         asc_params['direccion'] = 'asc'
@@ -136,6 +144,76 @@ def obtener_columnas_ordenables_usuarios(params, orden_actual, direccion_actual)
         )
 
     return columnas
+
+
+def obtener_columnas_ordenables_usuarios(params, orden_actual, direccion_actual):
+    """Construye metadatos de ordenamiento para usuarios internos."""
+    return obtener_columnas_ordenables(
+        params,
+        orden_actual,
+        direccion_actual,
+        COLUMNAS_ORDENABLES_USUARIOS,
+    )
+
+
+def obtener_columnas_ordenables_socios(params, orden_actual, direccion_actual):
+    """Construye metadatos de ordenamiento para socios."""
+    return obtener_columnas_ordenables(
+        params,
+        orden_actual,
+        direccion_actual,
+        COLUMNAS_ORDENABLES_SOCIOS,
+    )
+
+
+def aplicar_filtros_orden_socios(request, socios, columnas_ordenables):
+    """Aplica filtros y ordenamiento comun para listados de socios."""
+    campos_ordenables = {
+        columna['key']: columna['field']
+        for columna in columnas_ordenables
+    }
+    orden_actual = request.GET.get('orden', '').strip()
+    direccion_actual = request.GET.get('direccion', '').strip().lower()
+    if orden_actual not in campos_ordenables:
+        orden_actual = ''
+    if direccion_actual not in ('asc', 'desc'):
+        direccion_actual = 'asc'
+
+    filtros = {
+        'rut': request.GET.get('rut', '').strip(),
+        'nombre': request.GET.get('nombre', '').strip(),
+        'apellido': request.GET.get('apellido', '').strip(),
+    }
+
+    if filtros['rut']:
+        filtro_rut = Q()
+        for valor_rut in obtener_valores_busqueda_rut(filtros['rut']):
+            filtro_rut |= Q(rut__icontains=valor_rut)
+        socios = socios.filter(filtro_rut)
+    if filtros['nombre']:
+        socios = socios.filter(first_name__icontains=filtros['nombre'])
+    if filtros['apellido']:
+        socios = socios.filter(last_name__icontains=filtros['apellido'])
+
+    if orden_actual:
+        campo_base = campos_ordenables[orden_actual]
+        campo_orden = campo_base
+        if direccion_actual == 'desc':
+            campo_orden = f'-{campo_base}'
+        campos_secundarios = [
+            campo
+            for campo in ('last_name', 'first_name', 'username', 'pk')
+            if campo != campo_base
+        ]
+        socios = socios.order_by(campo_orden, *campos_secundarios)
+
+    return {
+        'socios': socios,
+        'filtros': filtros,
+        'filtros_activos': any(filtros.values()),
+        'orden_actual': orden_actual,
+        'direccion_actual': direccion_actual,
+    }
 
 
 def redireccion_sin_permiso(user):
@@ -327,13 +405,37 @@ def listado_socios_asistencia(request):
     socios = Usuario.objects.filter(rol=Usuario.SOCIO)
     total_socios = socios.count()
     socios_activos = socios.filter(is_active=True).count()
-    socios = agregar_resumen_asistencia_socios(socios)
+    consulta = aplicar_filtros_orden_socios(
+        request,
+        socios,
+        COLUMNAS_ORDENABLES_SOCIOS,
+    )
+    socios = consulta['socios']
+    paginator = Paginator(socios, 50)
+    page_obj = paginator.get_page(request.GET.get('page'))
+    page_obj.object_list = agregar_resumen_asistencia_socios(page_obj.object_list)
+    pagination_params = request.GET.copy()
+    if 'page' in pagination_params:
+        del pagination_params['page']
 
     return render(
         request,
         'usuarios/listado_socios_asistencia.html',
         {
-            'socios': socios,
+            'socios': page_obj,
+            'page_obj': page_obj,
+            'page_numbers': paginator.get_elided_page_range(page_obj.number),
+            'pagination_ellipsis': Paginator.ELLIPSIS,
+            'pagination_query': pagination_params.urlencode(),
+            'filtros': consulta['filtros'],
+            'filtros_activos': consulta['filtros_activos'],
+            'columnas_ordenables': obtener_columnas_ordenables_socios(
+                request.GET,
+                consulta['orden_actual'],
+                consulta['direccion_actual'],
+            ),
+            'orden_actual': consulta['orden_actual'],
+            'direccion_actual': consulta['direccion_actual'],
             'total_socios': total_socios,
             'socios_activos': socios_activos,
             'socios_inactivos': total_socios - socios_activos,
@@ -497,13 +599,37 @@ def listado_socios(request):
     socios = Usuario.objects.filter(rol=Usuario.SOCIO)
     total_socios = socios.count()
     socios_activos = socios.filter(is_active=True).count()
-    socios = agregar_resumen_asistencia_socios(socios)
+    consulta = aplicar_filtros_orden_socios(
+        request,
+        socios,
+        COLUMNAS_ORDENABLES_SOCIOS,
+    )
+    socios = consulta['socios']
+    paginator = Paginator(socios, 50)
+    page_obj = paginator.get_page(request.GET.get('page'))
+    page_obj.object_list = agregar_resumen_asistencia_socios(page_obj.object_list)
+    pagination_params = request.GET.copy()
+    if 'page' in pagination_params:
+        del pagination_params['page']
 
     return render(
         request,
         'usuarios/listado_socios.html',
         {
-            'socios': socios,
+            'socios': page_obj,
+            'page_obj': page_obj,
+            'page_numbers': paginator.get_elided_page_range(page_obj.number),
+            'pagination_ellipsis': Paginator.ELLIPSIS,
+            'pagination_query': pagination_params.urlencode(),
+            'filtros': consulta['filtros'],
+            'filtros_activos': consulta['filtros_activos'],
+            'columnas_ordenables': obtener_columnas_ordenables_socios(
+                request.GET,
+                consulta['orden_actual'],
+                consulta['direccion_actual'],
+            ),
+            'orden_actual': consulta['orden_actual'],
+            'direccion_actual': consulta['direccion_actual'],
             'total_socios': total_socios,
             'socios_activos': socios_activos,
             'socios_inactivos': total_socios - socios_activos,

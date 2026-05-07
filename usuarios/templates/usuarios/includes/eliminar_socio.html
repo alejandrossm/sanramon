@@ -1,0 +1,32 @@
+{% if socio.puede_eliminar_seguro %}
+    <form
+        method="post"
+        action="{% url 'usuarios:eliminar_socio' socio.pk %}"
+        data-confirm-submit
+        data-confirm-title="Eliminar socio"
+        data-confirm-text="Solo se eliminara si no tiene asistencias contabilizadas. Esta accion no se puede deshacer."
+        data-confirm-button="Eliminar"
+        data-confirm-color="#b42318"
+        data-confirm-icon="error"
+    >
+        {% csrf_token %}
+        <button
+            type="submit"
+            class="btn btn-outline-danger btn-sm"
+            title="Eliminar socio"
+            aria-label="Eliminar socio"
+        >
+            {% include "includes/icon.html" with name="trash-2" %}
+        </button>
+    </form>
+{% else %}
+    <button
+        type="button"
+        class="btn btn-outline-danger btn-sm"
+        title="Tiene asistencias contabilizadas; solo se puede desactivar."
+        aria-label="Eliminar socio no disponible"
+        disabled
+    >
+        {% include "includes/icon.html" with name="trash-2" %}
+    </button>
+{% endif %}
