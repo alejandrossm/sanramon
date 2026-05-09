@@ -113,6 +113,8 @@ class UsuarioCreationForm(UserCreationForm):
             raise forms.ValidationError('No tienes permisos para registrar usuarios internos.')
         if rol == Usuario.SOCIO:
             raise forms.ValidationError('Usa el formulario de registro de socios.')
+        if rol == Usuario.SUPERADMINISTRADOR:
+            raise forms.ValidationError('El superadministrador solo se administra desde Django admin.')
         return rol
 
     def _actor_es_administrador(self):
@@ -131,7 +133,7 @@ class UsuarioCreationForm(UserCreationForm):
         self.fields['rol'].choices = [
             choice
             for choice in self.fields['rol'].choices
-            if choice[0] != Usuario.SOCIO
+            if choice[0] in (Usuario.ADMINISTRADOR, Usuario.ENCARGADO_REGISTRO)
         ]
 
 
@@ -413,6 +415,8 @@ class UsuarioUpdateForm(forms.ModelForm):
         rol = self.cleaned_data['rol']
         if rol == Usuario.SOCIO:
             raise forms.ValidationError('Usa el formulario de registro de socios.')
+        if rol == Usuario.SUPERADMINISTRADOR:
+            raise forms.ValidationError('El superadministrador solo se administra desde Django admin.')
         if not self._actor_es_administrador() and rol != Usuario.SOCIO:
             raise forms.ValidationError('Solo puedes asignar rol socio.')
         return rol

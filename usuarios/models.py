@@ -5,11 +5,11 @@ from django.db import models
 
 
 class UsuarioManager(UserManager):
-    """Manager que alinea superusuarios con el rol administrativo interno."""
+    """Manager que separa superusuarios del rol administrativo web."""
 
     def create_superuser(self, username, email=None, password=None, **extra_fields):
-        """Evita superusuarios con el rol por defecto de socio."""
-        extra_fields.setdefault('rol', self.model.ADMINISTRADOR)
+        """Crea superusuarios con el rol reservado para el admin de Django."""
+        extra_fields.setdefault('rol', self.model.SUPERADMINISTRADOR)
         return super().create_superuser(username, email, password, **extra_fields)
 
 
@@ -30,11 +30,13 @@ class Usuario(AbstractUser):
 
     ADMINISTRADOR = 'ADMINISTRADOR'
     ENCARGADO_REGISTRO = 'ENCARGADO_REGISTRO'
+    SUPERADMINISTRADOR = 'SUPERADMINISTRADOR'
     SOCIO = 'SOCIO'
 
     ROLES = [
         (ADMINISTRADOR, 'Administrador'),
         (ENCARGADO_REGISTRO, 'Encargado de registro'),
+        (SUPERADMINISTRADOR, 'Superadministrador Django'),
         (SOCIO, 'Socio'),
     ]
 
@@ -72,6 +74,34 @@ class Usuario(AbstractUser):
                 ),
                 name='usuario_socio_sin_privilegios_admin',
             ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(is_superuser=False)
+                    | models.Q(rol='SUPERADMINISTRADOR')
+                ),
+                name='usuario_superuser_rol_superadmin',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~models.Q(rol='SUPERADMINISTRADOR')
+                    | models.Q(is_superuser=True)
+                ),
+                name='usuario_rol_superadmin_requiere_superuser',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(is_staff=False)
+                    | models.Q(is_superuser=True)
+                ),
+                name='usuario_staff_requiere_superuser',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(is_superuser=False)
+                    | models.Q(is_staff=True)
+                ),
+                name='usuario_superuser_requiere_staff',
+            ),
         ]
 
     @property
@@ -88,6 +118,14 @@ class Usuario(AbstractUser):
         errores = {}
         if self.rol == self.SOCIO and (self.is_staff or self.is_superuser):
             errores['rol'] = 'Un socio no puede tener permisos administrativos.'
+        if self.is_superuser and self.rol != self.SUPERADMINISTRADOR:
+            errores['rol'] = 'Un superadministrador de Django debe usar el rol reservado.'
+        if self.rol == self.SUPERADMINISTRADOR and not self.is_superuser:
+            errores['rol'] = 'El rol superadministrador solo puede usarse con superusuarios.'
+        if self.is_staff and not self.is_superuser:
+            errores['is_staff'] = 'Solo los superadministradores pueden tener acceso staff.'
+        if self.is_superuser and not self.is_staff:
+            errores['is_staff'] = 'Un superadministrador debe tener acceso staff.'
 
         if self.pk:
             rol_original = (

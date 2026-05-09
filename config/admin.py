@@ -6,4 +6,4 @@ class SuperuserOnlyAdminSite(AdminSite):
 
     def has_permission(self, request):
         """Permite entrar al admin solo a superusuarios activos."""
-        return request.user.is_active and request.user.is_superuser
+        return request.user.is_active and request.user.is_staff and request.user.is_superuser

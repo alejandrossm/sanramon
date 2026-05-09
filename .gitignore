@@ -26,3 +26,4 @@ runserver*.log
 coverage.xml
 htmlcov/
 test-results/
+clave.txt

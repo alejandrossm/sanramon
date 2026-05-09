@@ -18,10 +18,17 @@ Archivo para registrar detalles importantes que conviene conservar entre sesione
 - Los botones de estado deben comunicar visualmente el estado actual: encendido para activos y apagado para inactivos.
 - En columnas de eliminacion controladas por switch, mostrar los iconos muted cuando la eliminacion este desactivada; al activarla, usar danger para los eliminables y outline para los no eliminables.
 - La carpeta `usuarios/management/` contiene comandos auxiliares de desarrollo/pruebas y no es necesaria para el funcionamiento normal en produccion.
+- El rol `ADMINISTRADOR` corresponde solo al sistema web. Las cuentas que entran al admin de Django deben ser `is_staff=True`, `is_superuser=True` y usar el rol reservado `SUPERADMINISTRADOR`; no se listan ni se gestionan desde el listado web de usuarios.
+- Las lecciones aprendidas reutilizables quedan documentadas en `docs/LECCIONES_APRENDIDAS.md`.
 
 ## Pendientes
 
-- 
+- En una proxima version, ajustar en el listado de usuarios el boton de desactivacion del usuario autenticado: hoy puede verse como activo, pero debe mostrarse con estilo deshabilitado porque la propia cuenta no se puede desactivar.
+- Seguridad pendiente: endurecer HTTPS/cookies en produccion, activar `Force HTTPS` en PythonAnywhere, agregar proteccion anti fuerza bruta en login, bloquear comandos demo en produccion y evitar colisiones globales entre `username` y `email`.
+
+## Despliegue PythonAnywhere
+
+- Si el admin de Django carga sin estilos, ejecutar `python manage.py collectstatic --noinput`, mapear `/static/` a `/home/alejandrossm/sanramon/staticfiles`, presionar `Reload` y verificar `https://alejandrossm.pythonanywhere.com/static/admin/css/base.css`.
 
 ## Vista usuarios
 
@@ -41,6 +48,7 @@ Archivo para registrar detalles importantes que conviene conservar entre sesione
 - Botones de solo icono deben incluir `title` y `aria-label`.
 - Boton de estado: activo se ve encendido (`btn-success`) e inactivo apagado (`btn-outline-secondary`).
 - Botones de eliminar: cuando eliminacion esta desactivada, se ven muted; al activar el switch, los eliminables pasan a danger y los no eliminables permanecen outline.
+- Los superadministradores de Django no deben aparecer en el listado de usuarios ni en las metricas del dashboard del sistema web.
 
 ## Notas cronologicas
 

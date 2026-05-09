@@ -405,6 +405,32 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'encargado@example.com')
         self.assertNotContains(response, 'socio@example.com')
 
+    def test_listado_usuarios_oculta_superadministradores(self):
+        """Mantiene las cuentas del admin Django fuera de la gestion web."""
+        superusuario = self.User.objects.create_superuser(
+            username='super_oculto',
+            email='super.oculto@example.com',
+            password='ClaveSegura123',
+            first_name='Super',
+            last_name='Oculto',
+            rut='12.000.000-1',
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_usuarios'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'super_oculto')
+        self.assertNotContains(response, 'super.oculto@example.com')
+        self.assertTrue(all(not usuario.is_superuser for usuario in response.context['usuarios']))
+
+        self.client.force_login(superusuario)
+        response = self.client.get(reverse('usuarios:listado_usuarios'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'super_oculto')
+        self.assertNotContains(response, 'super.oculto@example.com')
+
     def test_listado_usuarios_muestra_eliminacion_bloqueada_por_activador(self):
         """Muestra la columna de eliminacion bloqueada hasta activarla."""
         self.client.login(username='admin', password='ClaveSegura123')
@@ -818,6 +844,7 @@ class UsuariosModuloTests(TestCase):
         self.assertNotContains(response, 'name="is_active"')
         self.assertNotContains(response, 'Usuario activo')
         self.assertNotContains(response, 'value="SOCIO"')
+        self.assertNotContains(response, 'value="SUPERADMINISTRADOR"')
 
     def test_administrador_crea_usuario(self):
         """Permite al administrador crear un usuario operativo."""
@@ -852,6 +879,7 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'ADMINISTRADOR')
         self.assertContains(response, 'ENCARGADO_REGISTRO')
         self.assertNotContains(response, 'value="SOCIO"')
+        self.assertNotContains(response, 'value="SUPERADMINISTRADOR"')
 
     def test_administrador_no_crea_socio_desde_registro_interno(self):
         """Impide crear socios desde el formulario con username y password."""
@@ -1154,8 +1182,8 @@ class UsuariosModuloTests(TestCase):
         self.assertIn('is_staff', readonly_fields)
         self.assertIn('is_superuser', readonly_fields)
 
-    def test_create_superuser_usa_rol_administrador_por_defecto(self):
-        """Evita crear superusuarios con el rol por defecto de socio."""
+    def test_create_superuser_usa_rol_superadministrador_por_defecto(self):
+        """Separa superusuarios de los administradores del sistema web."""
         usuario = self.User.objects.create_superuser(
             username='supervisor',
             email='supervisor@example.com',
@@ -1165,14 +1193,47 @@ class UsuariosModuloTests(TestCase):
             rut='12.345.678-5',
         )
 
-        self.assertEqual(usuario.rol, self.User.ADMINISTRADOR)
+        self.assertEqual(usuario.rol, self.User.SUPERADMINISTRADOR)
         self.assertTrue(usuario.is_staff)
         self.assertTrue(usuario.is_superuser)
 
-    def test_admin_django_rechaza_staff_no_superusuario(self):
-        """Restringe el panel /admin/ exclusivamente a superusuarios."""
+    def test_modelo_impide_rol_superadministrador_sin_superuser(self):
+        """Reserva el rol especializado solo para cuentas superuser."""
+        usuario = self.User(
+            username='super_rol_manual',
+            email='super.rol.manual@example.com',
+            first_name='Super',
+            last_name='Manual',
+            rut='14.444.444-4',
+            rol=self.User.SUPERADMINISTRADOR,
+            is_staff=False,
+            is_superuser=False,
+        )
+        usuario.set_password('ClaveSegura123')
+
+        with self.assertRaises(ValidationError):
+            usuario.save()
+
+    def test_modelo_impide_superuser_con_rol_administrador_web(self):
+        """Evita mezclar privilegios de Django admin con roles web."""
         self.admin_user.is_staff = True
-        self.admin_user.save(update_fields=['is_staff'])
+        self.admin_user.is_superuser = True
+
+        with self.assertRaises(ValidationError):
+            self.admin_user.save()
+
+        self.admin_user.refresh_from_db()
+        self.assertEqual(self.admin_user.rol, self.User.ADMINISTRADOR)
+        self.assertFalse(self.admin_user.is_superuser)
+
+    def test_admin_django_rechaza_staff_no_superusuario(self):
+        """Reserva la marca staff y el panel admin para superusuarios."""
+        self.admin_user.is_staff = True
+
+        with self.assertRaises(ValidationError):
+            self.admin_user.save(update_fields=['is_staff'])
+
+        self.admin_user.refresh_from_db()
         self.client.force_login(self.admin_user)
 
         response = self.client.get(reverse('admin:index'))
@@ -1196,6 +1257,47 @@ class UsuariosModuloTests(TestCase):
         response = self.client.get(reverse('admin:index'))
 
         self.assertEqual(response.status_code, 200)
+
+    def test_administrador_web_no_modifica_superadministrador(self):
+        """Impide administrar superusuarios de Django desde vistas web."""
+        superusuario = self.User.objects.create_superuser(
+            username='super_protegido',
+            email='super.protegido@example.com',
+            password='ClaveSegura123',
+            first_name='Super',
+            last_name='Protegido',
+            rut='15.555.555-5',
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:editar_usuario', args=[superusuario.pk]),
+            {
+                'username': 'super_editado',
+                'email': 'super.editado@example.com',
+                'first_name': 'Super',
+                'last_name': 'Editado',
+                'rut': '15.555.555-5',
+                'rol': self.User.ADMINISTRADOR,
+            },
+        )
+        self.assertRedirects(response, reverse('usuarios:listado_usuarios'))
+        superusuario.refresh_from_db()
+        self.assertEqual(superusuario.username, 'super_protegido')
+        self.assertEqual(superusuario.rol, self.User.SUPERADMINISTRADOR)
+
+        response = self.client.post(
+            reverse('usuarios:cambiar_estado_usuario', args=[superusuario.pk]),
+        )
+        self.assertRedirects(response, reverse('usuarios:listado_usuarios'))
+        superusuario.refresh_from_db()
+        self.assertTrue(superusuario.is_active)
+
+        response = self.client.post(
+            reverse('usuarios:eliminar_usuario', args=[superusuario.pk]),
+        )
+        self.assertRedirects(response, reverse('usuarios:listado_usuarios'))
+        self.assertTrue(self.User.objects.filter(pk=superusuario.pk).exists())
 
     def test_edicion_socio_valida_confirmacion_de_correo(self):
         """Exige confirmacion cuando se edita el correo del socio."""

@@ -73,12 +73,12 @@ def puede_acceder_asistencia(user):
 
 def puede_modificar_usuario(actor, usuario):
     """Valida si el actor puede editar o cambiar estado del usuario objetivo."""
-    return es_administrador(actor)
+    return es_administrador(actor) and not usuario.is_superuser
 
 
 def puede_eliminar_usuario_interno(actor, usuario):
     """Valida eliminacion de administradores y encargados desde gestion interna."""
-    if not es_administrador(actor) or usuario.pk == actor.pk:
+    if not es_administrador(actor) or usuario.pk == actor.pk or usuario.is_superuser:
         return False
     return usuario.rol in (Usuario.ADMINISTRADOR, Usuario.ENCARGADO_REGISTRO)
 
@@ -364,7 +364,7 @@ def dashboard(request):
         return redirect('usuarios:mis_asistencias')
 
     estado_asistencia_socios = obtener_resumen_estado_asistencia_socios()
-    usuarios = Usuario.objects.all()
+    usuarios = Usuario.objects.filter(is_superuser=False)
     total_usuarios = usuarios.count()
     usuarios_activos = usuarios.filter(is_active=True).count()
     usuarios_inactivos = total_usuarios - usuarios_activos
@@ -524,7 +524,7 @@ def cambiar_mi_password(request):
 @gestor_usuarios_required
 def listado_usuarios(request):
     """Lista cuentas internas sin mezclar socios."""
-    usuarios = Usuario.objects.exclude(rol=Usuario.SOCIO)
+    usuarios = Usuario.objects.exclude(rol=Usuario.SOCIO).filter(is_superuser=False)
     campos_ordenables = {
         columna['key']: columna['field']
         for columna in COLUMNAS_ORDENABLES_USUARIOS

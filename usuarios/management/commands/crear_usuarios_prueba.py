@@ -15,7 +15,7 @@ class Command(BaseCommand):
             'last_name': 'Demo',
             'rut': '91.111.111-1',
             'rol': 'ADMINISTRADOR',
-            'is_staff': True,
+            'is_staff': False,
             'is_superuser': False,
         },
         {
