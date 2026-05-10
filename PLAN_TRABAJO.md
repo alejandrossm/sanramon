@@ -117,6 +117,14 @@ Se usara un modelo de usuario personalizado basado en `AbstractUser`. Como el pr
 - Exportaciones.
 - Auditoria completa.
 
+## Decisiones pendientes con cliente
+
+- Recuperacion de contrasena por correo: revisar con el cliente si se implementa y definir el proveedor de envio.
+- Alternativas a evaluar:
+  - Gmail: opcion simple y gratuita para bajo volumen, usando una cuenta dedicada del sistema y contrasena de aplicacion.
+  - Mailgun: opcion mas orientada a correos transaccionales, con plan gratuito de bajo volumen y mejor trazabilidad para produccion.
+- Definicion recomendada antes de implementar: confirmar proveedor, correo remitente, dominio si aplica, limites de envio aceptables y si el flujo aplica solo a usuarios internos activos o tambien a socios.
+
 ## Criterio de termino
 
 El sprint termina cuando el sistema permite iniciar sesion, cerrar sesion, mostrar dashboard por rol y administrar usuarios desde vistas propias para administradores, dejando el proyecto listo para el siguiente modulo.
