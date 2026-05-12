@@ -36,6 +36,8 @@ class UsuarioAdmin(UserAdmin):
     def get_readonly_fields(self, request, obj=None):
         """Bloquea cambios de rol y privilegios para cuentas de socio."""
         readonly_fields = list(super().get_readonly_fields(request, obj))
+        if obj:
+            readonly_fields.append('username')
         if obj and obj.rol == Usuario.SOCIO:
             readonly_fields.extend(('rol', 'is_staff', 'is_superuser'))
         return tuple(readonly_fields)

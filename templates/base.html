@@ -43,7 +43,7 @@
                 </div>
 
                 <nav class="nav flex-column gap-1" aria-label="Navegación principal">
-                    {% if user.rol == 'SOCIO' and not user.is_superuser %}
+                    {% if nav_usuario_es_socio %}
                         <p class="sidebar-section-title text-uppercase fw-bold small mb-1 mt-0 px-3">Socio</p>
                         <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:mis_asistencias' %}">
                             {% include "includes/icon.html" with name="clipboard-check" classes="sidebar-icon flex-shrink-0" %}
@@ -57,34 +57,42 @@
                         </a>
                     {% endif %}
 
-                    {% if user.is_superuser or user.rol == 'ADMINISTRADOR' %}
+                    {% if nav_puede_gestionar_usuarios or nav_puede_registrar_usuarios %}
                         <p class="sidebar-section-title text-uppercase fw-bold small mb-1 mt-3 px-3">Usuarios</p>
-                        <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:listado_usuarios' %}">
-                            {% include "includes/icon.html" with name="users" classes="sidebar-icon flex-shrink-0" %}
-                            <span>Listado usuarios</span>
-                        </a>
-                        <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:registro_usuario' %}">
-                            {% include "includes/icon.html" with name="user-plus" classes="sidebar-icon flex-shrink-0" %}
-                            <span>Registrar usuario</span>
-                        </a>
+                        {% if nav_puede_gestionar_usuarios %}
+                            <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:listado_usuarios' %}">
+                                {% include "includes/icon.html" with name="users" classes="sidebar-icon flex-shrink-0" %}
+                                <span>Listado usuarios</span>
+                            </a>
+                        {% endif %}
+                        {% if nav_puede_registrar_usuarios %}
+                            <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:registro_usuario' %}">
+                                {% include "includes/icon.html" with name="user-plus" classes="sidebar-icon flex-shrink-0" %}
+                                <span>Registrar usuario</span>
+                            </a>
+                        {% endif %}
                     {% endif %}
 
-                    {% if user.rol != 'SOCIO' or user.is_superuser %}
+                    {% if nav_puede_gestionar_usuarios or nav_puede_registrar_socios or nav_puede_acceder_asistencia %}
                         <p class="sidebar-section-title text-uppercase fw-bold small mb-1 mt-3 px-3">Socios</p>
-                        {% if user.is_superuser or user.rol == 'ADMINISTRADOR' %}
+                        {% if nav_puede_gestionar_usuarios %}
                             <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:listado_socios' %}">
                                 {% include "includes/icon.html" with name="id-card" classes="sidebar-icon flex-shrink-0" %}
                                 <span>Listado socios</span>
                             </a>
+                        {% endif %}
+                        {% if nav_puede_registrar_socios %}
                             <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:registro_socio' %}">
                                 {% include "includes/icon.html" with name="user-plus" classes="sidebar-icon flex-shrink-0" %}
                                 <span>Registrar socio</span>
                             </a>
                         {% endif %}
-                        <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:listado_socios_asistencia' %}">
-                            {% include "includes/icon.html" with name="clipboard-check" classes="sidebar-icon flex-shrink-0" %}
-                            <span>Listado asistencia</span>
-                        </a>
+                        {% if nav_puede_acceder_asistencia %}
+                            <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:listado_socios_asistencia' %}">
+                                {% include "includes/icon.html" with name="clipboard-check" classes="sidebar-icon flex-shrink-0" %}
+                                <span>Listado asistencia</span>
+                            </a>
+                        {% endif %}
                     {% endif %}
 
                     <p class="sidebar-section-title text-uppercase fw-bold small mb-1 mt-3 px-3">Cuenta</p>

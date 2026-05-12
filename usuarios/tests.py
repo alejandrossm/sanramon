@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.contrib.staticfiles import finders
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
@@ -10,9 +11,24 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from .admin import UsuarioAdmin
+from .forms import UsuarioCreationForm, UsuarioUpdateForm
+from .permisos import (
+    GRUPO_ADMINISTRADOR,
+    GRUPO_ENCARGADO_REGISTRO,
+    GRUPO_SOCIO,
+    PERM_ACCEDER_ASISTENCIA,
+    PERM_ADMINISTRAR_PRIVILEGIOS,
+    PERM_GESTIONAR_USUARIOS,
+    ROLES_INTERNOS_GESTIONABLES,
+)
 from .views import (
+    ROLES_FILTRABLES_USUARIOS,
     obtener_indicador_asistencia,
     obtener_resumen_estado_asistencia_socios,
+    puede_acceder_asistencia,
+    puede_gestionar_usuarios,
+    puede_registrar_socios,
+    puede_registrar_usuarios,
 )
 
 
@@ -52,6 +68,96 @@ class UsuariosModuloTests(TestCase):
             rut='44.444.444-4',
             telefono_movil='+56944444444',
             rol=self.User.ENCARGADO_REGISTRO,
+        )
+
+    def test_permisos_base_estan_asignados_a_grupos_operativos(self):
+        """Crea grupos equivalentes a roles sin acoplar permisos al codigo."""
+        grupo_admin = Group.objects.get(name=GRUPO_ADMINISTRADOR)
+        grupo_encargado = Group.objects.get(name=GRUPO_ENCARGADO_REGISTRO)
+        grupo_socio = Group.objects.get(name=GRUPO_SOCIO)
+
+        self.assertTrue(
+            grupo_admin.permissions.filter(
+                codename=PERM_GESTIONAR_USUARIOS,
+            ).exists()
+        )
+        self.assertTrue(
+            grupo_admin.permissions.filter(
+                codename=PERM_ADMINISTRAR_PRIVILEGIOS,
+            ).exists()
+        )
+        self.assertTrue(
+            grupo_encargado.permissions.filter(
+                codename=PERM_ACCEDER_ASISTENCIA,
+            ).exists()
+        )
+        self.assertFalse(
+            grupo_encargado.permissions.filter(
+                codename=PERM_GESTIONAR_USUARIOS,
+            ).exists()
+        )
+        self.assertEqual(grupo_socio.permissions.count(), 0)
+
+    def test_usuario_sincroniza_grupo_operativo_segun_rol(self):
+        """Mantiene grupos Django alineados con el rol operativo vigente."""
+        self.assertTrue(
+            self.admin_user.groups.filter(name=GRUPO_ADMINISTRADOR).exists()
+        )
+        self.assertTrue(
+            self.encargado_user.groups.filter(name=GRUPO_ENCARGADO_REGISTRO).exists()
+        )
+        self.assertTrue(
+            self.socio_user.groups.filter(name=GRUPO_SOCIO).exists()
+        )
+
+        self.encargado_user.rol = self.User.ADMINISTRADOR
+        self.encargado_user.save(update_fields=['rol'])
+
+        self.assertTrue(
+            self.encargado_user.groups.filter(name=GRUPO_ADMINISTRADOR).exists()
+        )
+        self.assertFalse(
+            self.encargado_user.groups.filter(name=GRUPO_ENCARGADO_REGISTRO).exists()
+        )
+
+    def test_permisos_operativos_respetan_roles_vigentes(self):
+        """Mantiene las reglas actuales sobre la capa de permisos Django."""
+        self.assertTrue(puede_gestionar_usuarios(self.admin_user))
+        self.assertTrue(puede_registrar_usuarios(self.admin_user))
+        self.assertTrue(puede_registrar_socios(self.admin_user))
+        self.assertTrue(puede_acceder_asistencia(self.admin_user))
+
+        self.assertFalse(puede_gestionar_usuarios(self.encargado_user))
+        self.assertFalse(puede_registrar_usuarios(self.encargado_user))
+        self.assertFalse(puede_registrar_socios(self.encargado_user))
+        self.assertTrue(puede_acceder_asistencia(self.encargado_user))
+
+        self.assertFalse(puede_gestionar_usuarios(self.socio_user))
+        self.assertFalse(puede_registrar_usuarios(self.socio_user))
+        self.assertFalse(puede_registrar_socios(self.socio_user))
+        self.assertFalse(puede_acceder_asistencia(self.socio_user))
+
+    def test_roles_internos_gestionables_alimentan_formularios_y_filtros(self):
+        """Centraliza roles internos usados por formularios y filtros."""
+        roles_esperados = {
+            self.User.ADMINISTRADOR,
+            self.User.ENCARGADO_REGISTRO,
+        }
+        self.assertEqual(set(ROLES_INTERNOS_GESTIONABLES), roles_esperados)
+        form_creacion = UsuarioCreationForm(actor=self.admin_user)
+        form_edicion = UsuarioUpdateForm(instance=self.encargado_user, actor=self.admin_user)
+
+        self.assertEqual(
+            {valor for valor, _label in form_creacion.fields['rol'].choices},
+            roles_esperados,
+        )
+        self.assertEqual(
+            {valor for valor, _label in form_edicion.fields['rol'].choices},
+            roles_esperados,
+        )
+        self.assertEqual(
+            {valor for valor, _label in ROLES_FILTRABLES_USUARIOS},
+            roles_esperados,
         )
 
     def test_login_permite_correo_electronico(self):
@@ -963,6 +1069,11 @@ class UsuariosModuloTests(TestCase):
         self.client.login(username='admin', password='ClaveSegura123')
         response = self.client.get(reverse('usuarios:editar_usuario', args=[self.encargado_user.pk]))
         self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['form'].fields['username'].disabled)
+        self.assertContains(
+            response,
+            'El nombre de usuario no puede modificarse para conservar trazabilidad.',
+        )
         self.assertNotContains(response, 'name="is_active"')
         self.assertNotContains(response, 'Usuario activo')
         self.assertNotContains(response, 'value="SOCIO"')
@@ -1271,6 +1382,26 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(self.encargado_user.rut, '44444444-4')
         self.assertEqual(self.encargado_user.telefono_movil, '+56955555555')
         self.assertEqual(self.encargado_user.rol, self.User.ADMINISTRADOR)
+        self.assertEqual(self.encargado_user.username, 'encargado')
+
+    def test_edicion_usuario_ignora_cambio_de_username(self):
+        """Conserva el nombre de usuario aunque el POST intente modificarlo."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:editar_usuario', args=[self.encargado_user.pk]),
+            {
+                'username': 'encargado_editado',
+                'email': 'encargado@example.com',
+                'first_name': 'Encargado',
+                'last_name': 'Registro',
+                'rut': '44.444.444-4',
+                'telefono_movil': '+56944444444',
+                'rol': self.User.ENCARGADO_REGISTRO,
+            },
+        )
+        self.assertRedirects(response, reverse('usuarios:listado_usuarios'))
+        self.encargado_user.refresh_from_db()
+        self.assertEqual(self.encargado_user.username, 'encargado')
 
     def test_editar_usuario_redirige_socios_a_formulario_especifico(self):
         """Evita editar socios desde el formulario de usuarios internos."""
@@ -1279,7 +1410,7 @@ class UsuariosModuloTests(TestCase):
         self.assertRedirects(response, reverse('usuarios:editar_socio', args=[self.socio_user.pk]))
 
     def test_administrador_edita_socio_sin_cambiar_perfil(self):
-        """Mantiene a los socios con rol socio y username basado en correo."""
+        """Mantiene a los socios con rol y username inmutables."""
         self.client.login(username='admin', password='ClaveSegura123')
         response = self.client.post(
             reverse('usuarios:editar_socio', args=[self.socio_user.pk]),
@@ -1295,7 +1426,7 @@ class UsuariosModuloTests(TestCase):
         self.assertRedirects(response, reverse('usuarios:listado_socios'))
         self.socio_user.refresh_from_db()
         self.assertEqual(self.socio_user.email, 'socio.admin@example.com')
-        self.assertEqual(self.socio_user.username, 'socio.admin@example.com')
+        self.assertEqual(self.socio_user.username, 'socio')
         self.assertEqual(self.socio_user.rut, '22222222-2')
         self.assertEqual(self.socio_user.telefono_movil, '+56977777777')
         self.assertEqual(self.socio_user.rol, self.User.SOCIO)
@@ -1331,15 +1462,34 @@ class UsuariosModuloTests(TestCase):
         self.encargado_user.refresh_from_db()
         self.assertEqual(self.encargado_user.rol, self.User.ENCARGADO_REGISTRO)
 
+    def test_modelo_impide_modificar_username(self):
+        """Protege trazabilidad de logs aunque se intente cambiar fuera de vistas."""
+        self.encargado_user.username = 'encargado_editado'
+
+        with self.assertRaises(ValidationError):
+            self.encargado_user.save()
+
+        self.encargado_user.refresh_from_db()
+        self.assertEqual(self.encargado_user.username, 'encargado')
+
     def test_admin_deja_campos_sensibles_de_socio_solo_lectura(self):
         """Cierra el bypass del admin Django para cuentas de socio existentes."""
         usuario_admin = UsuarioAdmin(self.User, AdminSite())
 
         readonly_fields = usuario_admin.get_readonly_fields(None, obj=self.socio_user)
 
+        self.assertIn('username', readonly_fields)
         self.assertIn('rol', readonly_fields)
         self.assertIn('is_staff', readonly_fields)
         self.assertIn('is_superuser', readonly_fields)
+
+    def test_admin_deja_username_solo_lectura_en_usuarios_existentes(self):
+        """Evita renombrar cuentas internas desde el admin Django."""
+        usuario_admin = UsuarioAdmin(self.User, AdminSite())
+
+        readonly_fields = usuario_admin.get_readonly_fields(None, obj=self.encargado_user)
+
+        self.assertIn('username', readonly_fields)
 
     def test_create_superuser_usa_rol_superadministrador_por_defecto(self):
         """Separa superusuarios de los administradores del sistema web."""
@@ -1594,7 +1744,7 @@ class UsuariosModuloTests(TestCase):
         self.assertTrue(self.User.objects.filter(pk=self.socio_user.pk).exists())
         self.assertContains(
             response,
-            'Solo se pueden eliminar usuarios administradores o encargados de registro.',
+            'Solo se pueden eliminar usuarios internos.',
         )
 
     def test_encargado_no_puede_eliminar_usuarios_internos(self):

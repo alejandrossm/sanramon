@@ -19,68 +19,77 @@ from .forms import (
     UsuarioUpdateForm,
 )
 from .models import Usuario
+from .permisos import (
+    PERM_ACCEDER_ASISTENCIA,
+    PERM_ADMINISTRAR_PRIVILEGIOS,
+    PERM_EDITAR_SOCIOS,
+    PERM_ELIMINAR_SOCIOS,
+    PERM_ELIMINAR_USUARIOS,
+    PERM_GESTIONAR_USUARIOS,
+    PERM_REGISTRAR_SOCIOS,
+    PERM_REGISTRAR_USUARIOS,
+    ROLES_INTERNOS_GESTIONABLES,
+    filtrar_choices_por_roles,
+    rol_es_interno_gestionable,
+    usuario_es_socio,
+    usuario_tiene_permiso,
+)
 
 
 def es_administrador(user):
     """Determina si el usuario tiene privilegios administrativos completos."""
-    return user.is_authenticated and (
-        user.is_superuser or getattr(user, 'rol', None) == Usuario.ADMINISTRADOR
-    )
-
-
-def es_encargado_registro(user):
-    """Determina si el usuario tiene rol operativo de encargado de registro."""
-    return (
-        user.is_authenticated
-        and getattr(user, 'rol', None) == Usuario.ENCARGADO_REGISTRO
-        and not user.is_superuser
-    )
+    return usuario_tiene_permiso(user, PERM_ADMINISTRAR_PRIVILEGIOS)
 
 
 def es_socio(user):
     """Determina si el usuario debe quedar limitado al portal de socio."""
-    return (
-        user.is_authenticated
-        and getattr(user, 'rol', None) == Usuario.SOCIO
-        and not es_administrador(user)
-    )
+    return usuario_es_socio(user)
 
 
 def puede_gestionar_usuarios(user):
     """Indica si el usuario puede administrar usuarios sin restricciones."""
-    return es_administrador(user)
+    return usuario_tiene_permiso(user, PERM_GESTIONAR_USUARIOS)
 
 
 def puede_registrar_usuarios(user):
     """Indica si el usuario puede registrar cuentas internas."""
-    return es_administrador(user)
+    return usuario_tiene_permiso(user, PERM_REGISTRAR_USUARIOS)
 
 
 def puede_registrar_socios(user):
     """Indica si el usuario puede registrar cuentas de socio."""
-    return es_administrador(user)
+    return usuario_tiene_permiso(user, PERM_REGISTRAR_SOCIOS)
 
 
 def puede_editar_socios(user):
     """Indica si el usuario puede actualizar datos operativos de socios."""
-    return es_administrador(user)
+    return usuario_tiene_permiso(user, PERM_EDITAR_SOCIOS)
 
 
 def puede_acceder_asistencia(user):
     """Indica si el usuario puede entrar al modulo operativo de asistencia."""
-    return es_administrador(user) or es_encargado_registro(user)
+    return usuario_tiene_permiso(user, PERM_ACCEDER_ASISTENCIA)
 
 
 def puede_modificar_usuario(actor, usuario):
     """Valida si el actor puede editar o cambiar estado del usuario objetivo."""
-    return es_administrador(actor) and not usuario.is_superuser
+    return puede_gestionar_usuarios(actor) and not usuario.is_superuser
+
+
+def puede_eliminar_socios(user):
+    """Indica si el usuario puede eliminar socios."""
+    return usuario_tiene_permiso(user, PERM_ELIMINAR_SOCIOS)
 
 
 def puede_eliminar_usuario_interno(actor, usuario):
-    """Valida eliminación de administradores y encargados desde gestión interna."""
-    if not es_administrador(actor) or usuario.pk == actor.pk or usuario.is_superuser:
+    """Valida eliminacion de usuarios internos desde gestion propia."""
+    if (
+        not usuario_tiene_permiso(actor, PERM_ELIMINAR_USUARIOS)
+        or usuario.pk == actor.pk
+        or usuario.is_superuser
+    ):
         return False
-    return usuario.rol in (Usuario.ADMINISTRADOR, Usuario.ENCARGADO_REGISTRO)
+    return rol_es_interno_gestionable(usuario.rol)
 
 
 def obtener_valores_busqueda_rut(valor):
@@ -115,11 +124,10 @@ COLUMNAS_ORDENABLES_SOCIOS = [
 ]
 
 
-ROLES_FILTRABLES_USUARIOS = [
-    choice
-    for choice in Usuario.ROLES
-    if choice[0] in (Usuario.ADMINISTRADOR, Usuario.ENCARGADO_REGISTRO)
-]
+ROLES_FILTRABLES_USUARIOS = filtrar_choices_por_roles(
+    Usuario.ROLES,
+    ROLES_INTERNOS_GESTIONABLES,
+)
 
 ESTADOS_FILTRABLES = [
     ('activo', 'Activo'),
@@ -318,6 +326,21 @@ def registro_usuarios_required(view_func):
     return wrapper
 
 
+def eliminacion_usuarios_required(view_func):
+    """Protege la eliminacion de usuarios internos mediante permiso explicito."""
+
+    @wraps(view_func)
+    @login_required
+    def wrapper(request, *args, **kwargs):
+        """Ejecuta la eliminacion o redirige si no esta autorizada."""
+        if usuario_tiene_permiso(request.user, PERM_ELIMINAR_USUARIOS):
+            return view_func(request, *args, **kwargs)
+        messages.error(request, 'No tienes permisos para eliminar usuarios.')
+        return redireccion_sin_permiso(request.user)
+
+    return wrapper
+
+
 def registro_socios_required(view_func):
     """Protege el registro de socios solo para administradores."""
 
@@ -348,8 +371,23 @@ def edicion_socios_required(view_func):
     return wrapper
 
 
+def eliminacion_socios_required(view_func):
+    """Protege la eliminacion de socios mediante permiso explicito."""
+
+    @wraps(view_func)
+    @login_required
+    def wrapper(request, *args, **kwargs):
+        """Ejecuta la eliminacion o redirige si no esta autorizada."""
+        if puede_eliminar_socios(request.user):
+            return view_func(request, *args, **kwargs)
+        messages.error(request, 'No tienes permisos para eliminar socios.')
+        return redireccion_sin_permiso(request.user)
+
+    return wrapper
+
+
 def asistencia_required(view_func):
-    """Protege vistas operativas de asistencia para administradores y encargados."""
+    """Protege vistas operativas de asistencia por permiso explicito."""
 
     @wraps(view_func)
     @login_required
@@ -806,7 +844,7 @@ def cambiar_estado_usuario(request, pk):
 
 
 @require_POST
-@gestor_usuarios_required
+@eliminacion_usuarios_required
 def eliminar_usuario(request, pk):
     """Elimina usuarios internos sin permitir autoeliminación."""
     usuario = get_object_or_404(Usuario, pk=pk)
@@ -818,7 +856,7 @@ def eliminar_usuario(request, pk):
     if not puede_eliminar_usuario_interno(request.user, usuario):
         messages.error(
             request,
-            'Solo se pueden eliminar usuarios administradores o encargados de registro.',
+            'Solo se pueden eliminar usuarios internos.',
         )
         return redirect('usuarios:listado_usuarios')
 
@@ -829,7 +867,7 @@ def eliminar_usuario(request, pk):
 
 
 @require_POST
-@gestor_usuarios_required
+@eliminacion_socios_required
 def eliminar_socio(request, pk):
     """Elimina socios solo cuando no tienen asistencias contabilizadas."""
     socio = get_object_or_404(Usuario, pk=pk, rol=Usuario.SOCIO)

@@ -3,6 +3,16 @@ from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import models
 
+from .permisos import (
+    GRUPO_POR_ROL,
+    GRUPOS_OPERATIVOS,
+    PERMISOS_USUARIO,
+    ROL_ADMINISTRADOR,
+    ROL_ENCARGADO_REGISTRO,
+    ROL_SOCIO,
+    ROL_SUPERADMINISTRADOR,
+)
+
 
 class UsuarioManager(UserManager):
     """Manager que separa superusuarios del rol administrativo web."""
@@ -50,10 +60,10 @@ def normalizar_telefono_movil(telefono):
 class Usuario(AbstractUser):
     """Usuario principal del sistema con RUT, correo único y rol operativo."""
 
-    ADMINISTRADOR = 'ADMINISTRADOR'
-    ENCARGADO_REGISTRO = 'ENCARGADO_REGISTRO'
-    SUPERADMINISTRADOR = 'SUPERADMINISTRADOR'
-    SOCIO = 'SOCIO'
+    ADMINISTRADOR = ROL_ADMINISTRADOR
+    ENCARGADO_REGISTRO = ROL_ENCARGADO_REGISTRO
+    SUPERADMINISTRADOR = ROL_SUPERADMINISTRADOR
+    SOCIO = ROL_SOCIO
 
     ROLES = [
         (ADMINISTRADOR, 'Administrador'),
@@ -99,6 +109,7 @@ class Usuario(AbstractUser):
         ordering = ['last_name', 'first_name', 'username']
         verbose_name = 'usuario'
         verbose_name_plural = 'usuarios'
+        permissions = PERMISOS_USUARIO
         constraints = [
             models.CheckConstraint(
                 condition=(
@@ -166,9 +177,16 @@ class Usuario(AbstractUser):
             errores['is_staff'] = 'Un superadministrador debe tener acceso staff.'
 
         if self.pk:
-            rol_original = (
-                type(self).objects.filter(pk=self.pk).values_list('rol', flat=True).first()
+            usuario_original = (
+                type(self).objects
+                .filter(pk=self.pk)
+                .values('rol', 'username')
+                .first()
             )
+            rol_original = usuario_original['rol'] if usuario_original else None
+            username_original = usuario_original['username'] if usuario_original else None
+            if username_original and self.username != username_original:
+                errores['username'] = 'El nombre de usuario no puede modificarse.'
             if rol_original == self.SOCIO and self.rol != self.SOCIO:
                 errores['rol'] = 'Un socio no puede cambiar a un rol interno.'
             elif rol_original != self.SOCIO and self.rol == self.SOCIO:
@@ -184,3 +202,28 @@ class Usuario(AbstractUser):
         self.telefono_movil = normalizar_telefono_movil(self.telefono_movil)
         self.full_clean()
         super().save(*args, **kwargs)
+        self.sincronizar_grupo_operativo()
+
+    def sincronizar_grupo_operativo(self):
+        """Mantiene el grupo Django equivalente al rol operativo actual."""
+        if not self.pk:
+            return
+
+        from django.contrib.auth.models import Group
+
+        grupos = list(Group.objects.filter(name__in=GRUPOS_OPERATIVOS))
+        if not grupos:
+            return
+
+        grupo_destino = GRUPO_POR_ROL.get(self.rol)
+        grupos_por_nombre = {grupo.name: grupo for grupo in grupos}
+        grupos_a_remover = [
+            grupo
+            for grupo in grupos
+            if grupo.name != grupo_destino
+        ]
+        if grupos_a_remover:
+            self.groups.remove(*grupos_a_remover)
+
+        if grupo_destino and grupo_destino in grupos_por_nombre:
+            self.groups.add(grupos_por_nombre[grupo_destino])

@@ -14,6 +14,15 @@ from .models import (
     normalizar_rut,
     normalizar_telefono_movil,
 )
+from .permisos import (
+    PERM_ADMINISTRAR_PRIVILEGIOS,
+    ROLES_INTERNOS_GESTIONABLES,
+    ROL_SOCIO,
+    filtrar_choices_por_roles,
+    rol_es_socio,
+    rol_es_superadministrador,
+    usuario_tiene_permiso,
+)
 
 
 def marcar_campo_rut(field):
@@ -165,30 +174,22 @@ class UsuarioCreationForm(TelefonoMovilFormMixin, UserCreationForm):
         rol = self.cleaned_data['rol']
         if not self._actor_es_administrador():
             raise forms.ValidationError('No tienes permisos para registrar usuarios internos.')
-        if rol == Usuario.SOCIO:
+        if rol_es_socio(rol):
             raise forms.ValidationError('Usa el formulario de registro de socios.')
-        if rol == Usuario.SUPERADMINISTRADOR:
+        if rol_es_superadministrador(rol):
             raise forms.ValidationError('El superadministrador solo se administra desde Django admin.')
         return rol
 
     def _actor_es_administrador(self):
         """Indica si el actor puede administrar privilegios de alto nivel."""
-        return bool(
-            self.actor
-            and self.actor.is_authenticated
-            and (
-                self.actor.is_superuser
-                or getattr(self.actor, 'rol', None) == Usuario.ADMINISTRADOR
-            )
-        )
+        return usuario_tiene_permiso(self.actor, PERM_ADMINISTRAR_PRIVILEGIOS)
 
     def _limitar_roles_por_actor(self):
         """Limita el alta interna a roles administrativos y operativos."""
-        self.fields['rol'].choices = [
-            choice
-            for choice in self.fields['rol'].choices
-            if choice[0] in (Usuario.ADMINISTRADOR, Usuario.ENCARGADO_REGISTRO)
-        ]
+        self.fields['rol'].choices = filtrar_choices_por_roles(
+            self.fields['rol'].choices,
+            ROLES_INTERNOS_GESTIONABLES,
+        )
 
 
 class SocioCreationForm(TelefonoMovilFormMixin, forms.ModelForm):
@@ -359,10 +360,9 @@ class SocioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
         return normalizar_rut(self.cleaned_data['rut'])
 
     def save(self, commit=True):
-        """Actualiza el socio conservando siempre su rol de socio."""
+        """Actualiza el socio conservando siempre su rol y username."""
         socio = super().save(commit=False)
         socio.rol = Usuario.SOCIO
-        socio.username = socio.email
         if commit:
             socio.save()
             self.save_m2m()
@@ -409,6 +409,10 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
         """Recibe el usuario actor y construye el layout de edición."""
         self.actor = kwargs.pop('actor', None)
         super().__init__(*args, **kwargs)
+        self.fields['username'].disabled = True
+        self.fields['username'].help_text = (
+            'El nombre de usuario no puede modificarse para conservar trazabilidad.'
+        )
         self.fields['rut'].disabled = True
         marcar_campo_rut(self.fields['rut'])
         self.configurar_telefono_movil()
@@ -440,6 +444,12 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
             ),
             Submit('submit', 'Actualizar usuario', css_class='btn btn-primary'),
         )
+
+    def clean_username(self):
+        """Mantiene el username original aunque el POST intente modificarlo."""
+        if self.instance.pk:
+            return self.instance.username
+        return self.cleaned_data['username']
 
     def clean_email(self):
         """Valida unicidad del correo excluyendo el usuario editado."""
@@ -481,11 +491,11 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
     def clean_rol(self):
         """Impide que actores no administradores asignen roles internos."""
         rol = self.cleaned_data['rol']
-        if rol == Usuario.SOCIO:
+        if rol_es_socio(rol):
             raise forms.ValidationError('Usa el formulario de registro de socios.')
-        if rol == Usuario.SUPERADMINISTRADOR:
+        if rol_es_superadministrador(rol):
             raise forms.ValidationError('El superadministrador solo se administra desde Django admin.')
-        if not self._actor_es_administrador() and rol != Usuario.SOCIO:
+        if not self._actor_es_administrador() and not rol_es_socio(rol):
             raise forms.ValidationError('Solo puedes asignar rol socio.')
         return rol
 
@@ -502,26 +512,18 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
 
     def _actor_es_administrador(self):
         """Indica si el actor puede editar privilegios administrativos."""
-        return bool(
-            self.actor
-            and self.actor.is_authenticated
-            and (
-                self.actor.is_superuser
-                or getattr(self.actor, 'rol', None) == Usuario.ADMINISTRADOR
-            )
-        )
+        return usuario_tiene_permiso(self.actor, PERM_ADMINISTRAR_PRIVILEGIOS)
 
     def _limitar_roles_por_actor(self):
         """Limita a rol socio para actores sin privilegios."""
         if self._actor_es_administrador():
-            roles_permitidos = (Usuario.ADMINISTRADOR, Usuario.ENCARGADO_REGISTRO)
+            roles_permitidos = ROLES_INTERNOS_GESTIONABLES
         else:
-            roles_permitidos = (Usuario.SOCIO,)
-        self.fields['rol'].choices = [
-            choice
-            for choice in self.fields['rol'].choices
-            if choice[0] in roles_permitidos
-        ]
+            roles_permitidos = (ROL_SOCIO,)
+        self.fields['rol'].choices = filtrar_choices_por_roles(
+            self.fields['rol'].choices,
+            roles_permitidos,
+        )
 
 
 class CambioPasswordForm(PasswordChangeForm):

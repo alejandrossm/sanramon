@@ -125,6 +125,15 @@ Se usara un modelo de usuario personalizado basado en `AbstractUser`. Como el pr
   - Mailgun: opcion mas orientada a correos transaccionales, con plan gratuito de bajo volumen y mejor trazabilidad para produccion.
 - Definicion recomendada antes de implementar: confirmar proveedor, correo remitente, dominio si aplica, limites de envio aceptables y si el flujo aplica solo a usuarios internos activos o tambien a socios.
 
+## Pendientes de despliegue y seguridad
+
+- Configurar `DEBUG=False` para el entorno de produccion.
+- Reemplazar `SECRET_KEY` por una clave larga, aleatoria y gestionada por variable de entorno.
+- Definir si el sitio operara solo por HTTPS y, si corresponde, activar `SECURE_SSL_REDIRECT` o configurar la redireccion en el proxy/load balancer.
+- Activar `SESSION_COOKIE_SECURE=True` cuando el sitio use HTTPS.
+- Activar `CSRF_COOKIE_SECURE=True` cuando el sitio use HTTPS.
+- Evaluar y configurar `SECURE_HSTS_SECONDS` solo cuando HTTPS este validado en todo el dominio.
+
 ## Criterio de termino
 
 El sprint termina cuando el sistema permite iniciar sesion, cerrar sesion, mostrar dashboard por rol y administrar usuarios desde vistas propias para administradores, dejando el proyecto listo para el siguiente modulo.
