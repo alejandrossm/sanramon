@@ -1069,11 +1069,15 @@ class UsuariosModuloTests(TestCase):
         self.client.login(username='admin', password='ClaveSegura123')
         response = self.client.get(reverse('usuarios:editar_usuario', args=[self.encargado_user.pk]))
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.context['form'].fields['username'].disabled)
+        self.assertNotIn('username', response.context['form'].fields)
+        self.assertNotContains(response, 'name="username"')
         self.assertContains(
             response,
-            'El nombre de usuario no puede modificarse para conservar trazabilidad.',
+            '<strong class="fs-5 text-body">encargado</strong>',
+            html=True,
         )
+        self.assertNotContains(response, '<p class="h4 mb-0">encargado</p>', html=True)
+        self.assertNotContains(response, 'conservar trazabilidad')
         self.assertNotContains(response, 'name="is_active"')
         self.assertNotContains(response, 'Usuario activo')
         self.assertNotContains(response, 'value="SOCIO"')
@@ -1366,7 +1370,6 @@ class UsuariosModuloTests(TestCase):
         response = self.client.post(
             reverse('usuarios:editar_usuario', args=[self.encargado_user.pk]),
             {
-                'username': 'encargado',
                 'email': 'ENCARGADO.ACTUALIZADO@EXAMPLE.COM',
                 'first_name': 'Encargado',
                 'last_name': 'Actualizado',
@@ -1384,8 +1387,8 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(self.encargado_user.rol, self.User.ADMINISTRADOR)
         self.assertEqual(self.encargado_user.username, 'encargado')
 
-    def test_edicion_usuario_ignora_cambio_de_username(self):
-        """Conserva el nombre de usuario aunque el POST intente modificarlo."""
+    def test_edicion_usuario_rechaza_cambio_de_username_manipulado(self):
+        """Rechaza el POST manipulado antes de mostrar exito."""
         self.client.login(username='admin', password='ClaveSegura123')
         response = self.client.post(
             reverse('usuarios:editar_usuario', args=[self.encargado_user.pk]),
@@ -1399,7 +1402,9 @@ class UsuariosModuloTests(TestCase):
                 'rol': self.User.ENCARGADO_REGISTRO,
             },
         )
-        self.assertRedirects(response, reverse('usuarios:listado_usuarios'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'El nombre de usuario no puede modificarse.')
+        self.assertNotContains(response, 'Usuario actualizado correctamente.')
         self.encargado_user.refresh_from_db()
         self.assertEqual(self.encargado_user.username, 'encargado')
 
@@ -1633,7 +1638,6 @@ class UsuariosModuloTests(TestCase):
         response = self.client.post(
             reverse('usuarios:editar_usuario', args=[self.encargado_user.pk]),
             {
-                'username': 'encargado',
                 'email': 'encargado@example.com',
                 'first_name': 'Encargado',
                 'last_name': 'Registro',
@@ -1656,7 +1660,6 @@ class UsuariosModuloTests(TestCase):
         response = self.client.post(
             reverse('usuarios:editar_usuario', args=[self.encargado_user.pk]),
             {
-                'username': 'encargado',
                 'email': 'encargado@example.com',
                 'first_name': 'Encargado',
                 'last_name': 'Registro',

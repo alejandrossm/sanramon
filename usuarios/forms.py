@@ -389,7 +389,6 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
 
         model = Usuario
         fields = (
-            'username',
             'first_name',
             'last_name',
             'rut',
@@ -398,7 +397,6 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
             'rol',
         )
         labels = {
-            'username': 'Usuario',
             'first_name': 'Nombre',
             'last_name': 'Apellido',
             'email': 'Correo electrónico',
@@ -409,10 +407,6 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
         """Recibe el usuario actor y construye el layout de edición."""
         self.actor = kwargs.pop('actor', None)
         super().__init__(*args, **kwargs)
-        self.fields['username'].disabled = True
-        self.fields['username'].help_text = (
-            'El nombre de usuario no puede modificarse para conservar trazabilidad.'
-        )
         self.fields['rut'].disabled = True
         marcar_campo_rut(self.fields['rut'])
         self.configurar_telefono_movil()
@@ -424,10 +418,6 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
         self.helper.form_method = 'post'
         self.helper.layout = Layout(
             Row(
-                Column('username', css_class='col-md-6'),
-                Column('email', css_class='col-md-6'),
-            ),
-            Row(
                 Column('first_name', css_class='col-md-6'),
                 Column('last_name', css_class='col-md-6'),
             ),
@@ -436,6 +426,7 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
                 Column('telefono_movil', css_class='col-md-6'),
             ),
             Row(
+                Column('email', css_class='col-md-6'),
                 Column('rol', css_class='col-md-6'),
             ),
             Row(
@@ -444,12 +435,6 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
             ),
             Submit('submit', 'Actualizar usuario', css_class='btn btn-primary'),
         )
-
-    def clean_username(self):
-        """Mantiene el username original aunque el POST intente modificarlo."""
-        if self.instance.pk:
-            return self.instance.username
-        return self.cleaned_data['username']
 
     def clean_email(self):
         """Valida unicidad del correo excluyendo el usuario editado."""
@@ -477,6 +462,9 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
     def clean(self):
         """Valida coincidencia y seguridad del password cuando se informa."""
         cleaned_data = super().clean()
+        if self.instance.pk and self.add_prefix('username') in self.data:
+            raise forms.ValidationError('El nombre de usuario no puede modificarse.')
+
         password1 = cleaned_data.get('password1')
         password2 = cleaned_data.get('password2')
 
