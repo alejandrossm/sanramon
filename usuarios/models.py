@@ -25,8 +25,30 @@ def normalizar_rut(rut):
     return f'{valor[:-1]}-{valor[-1]}'
 
 
+TELEFONO_MOVIL_PREFIJO_CHILE = '+56'
+TELEFONO_MOVIL_REGEX_CHILE = r'^\+56\d{9}$'
+TELEFONO_MOVIL_MENSAJE_CHILE = (
+    'Ingrese un teléfono móvil chileno con formato +56 seguido de 9 dígitos.'
+)
+
+
+def normalizar_telefono_movil(telefono):
+    """Normaliza el teléfono móvil chileno al formato +56 y 9 dígitos."""
+    valor = (telefono or '').strip()
+    if not valor:
+        return ''
+
+    separadores = {' ', '\t', '\r', '\n', '-', '(', ')'}
+    compacto = ''.join(caracter for caracter in valor if caracter not in separadores)
+    if compacto == TELEFONO_MOVIL_PREFIJO_CHILE:
+        return ''
+    if compacto.startswith('56') and not compacto.startswith(TELEFONO_MOVIL_PREFIJO_CHILE):
+        compacto = f'+{compacto}'
+    return compacto
+
+
 class Usuario(AbstractUser):
-    """Usuario principal del sistema con RUT, correo unico y rol operativo."""
+    """Usuario principal del sistema con RUT, correo único y rol operativo."""
 
     ADMINISTRADOR = 'ADMINISTRADOR'
     ENCARGADO_REGISTRO = 'ENCARGADO_REGISTRO'
@@ -48,12 +70,23 @@ class Usuario(AbstractUser):
         validators=[
             RegexValidator(
                 regex=r'^[0-9kK.\-\s]+$',
-                message='Ingrese un RUT valido.',
+                message='Ingrese un RUT válido.',
             )
         ],
         verbose_name='RUT',
     )
-    email = models.EmailField(unique=True, verbose_name='Correo electronico')
+    email = models.EmailField(unique=True, verbose_name='Correo electrónico')
+    telefono_movil = models.CharField(
+        max_length=12,
+        blank=True,
+        verbose_name='Teléfono móvil',
+        validators=[
+            RegexValidator(
+                regex=TELEFONO_MOVIL_REGEX_CHILE,
+                message=TELEFONO_MOVIL_MENSAJE_CHILE,
+            )
+        ],
+    )
     rol = models.CharField(max_length=20, choices=ROLES, default=SOCIO)
 
     objects = UsuarioManager()
@@ -109,6 +142,11 @@ class Usuario(AbstractUser):
         """Devuelve el nombre completo o el username cuando no hay nombres cargados."""
         return self.get_full_name() or self.username
 
+    def clean_fields(self, exclude=None):
+        """Normaliza campos antes de ejecutar validadores de modelo."""
+        self.telefono_movil = normalizar_telefono_movil(self.telefono_movil)
+        super().clean_fields(exclude=exclude)
+
     def clean(self):
         """Valida invariantes de rol que no deben depender solo de formularios."""
         super().clean()
@@ -143,5 +181,6 @@ class Usuario(AbstractUser):
         """Normaliza email y RUT antes de persistir el usuario."""
         self.email = (self.email or '').strip().lower()
         self.rut = normalizar_rut(self.rut)
+        self.telefono_movil = normalizar_telefono_movil(self.telefono_movil)
         self.full_clean()
         super().save(*args, **kwargs)

@@ -77,7 +77,7 @@ def puede_modificar_usuario(actor, usuario):
 
 
 def puede_eliminar_usuario_interno(actor, usuario):
-    """Valida eliminacion de administradores y encargados desde gestion interna."""
+    """Valida eliminación de administradores y encargados desde gestión interna."""
     if not es_administrador(actor) or usuario.pk == actor.pk or usuario.is_superuser:
         return False
     return usuario.rol in (Usuario.ADMINISTRADOR, Usuario.ENCARGADO_REGISTRO)
@@ -100,6 +100,7 @@ COLUMNAS_ORDENABLES_USUARIOS = [
     {'key': 'apellido', 'label': 'Apellido', 'field': 'last_name'},
     {'key': 'rut', 'label': 'RUT', 'field': 'rut'},
     {'key': 'email', 'label': 'Email', 'field': 'email'},
+    {'key': 'telefono', 'label': 'Teléfono', 'field': 'telefono_movil'},
     {'key': 'rol', 'label': 'Rol', 'field': 'rol'},
     {'key': 'estado', 'label': 'Estado', 'field': 'is_active'},
 ]
@@ -109,7 +110,26 @@ COLUMNAS_ORDENABLES_SOCIOS = [
     {'key': 'nombre', 'label': 'Nombre', 'field': 'first_name'},
     {'key': 'apellido', 'label': 'Apellido', 'field': 'last_name'},
     {'key': 'email', 'label': 'Email', 'field': 'email'},
+    {'key': 'telefono', 'label': 'Teléfono', 'field': 'telefono_movil'},
     {'key': 'estado', 'label': 'Estado', 'field': 'is_active'},
+]
+
+
+ROLES_FILTRABLES_USUARIOS = [
+    choice
+    for choice in Usuario.ROLES
+    if choice[0] in (Usuario.ADMINISTRADOR, Usuario.ENCARGADO_REGISTRO)
+]
+
+ESTADOS_FILTRABLES = [
+    ('activo', 'Activo'),
+    ('inactivo', 'Inactivo'),
+]
+
+INDICADORES_FILTRABLES_ASISTENCIA = [
+    ('sin_ausencias', 'Sin ausencias'),
+    ('una_inasistencia', 'Una inasistencia'),
+    ('bloqueado', 'Bloqueado'),
 ]
 
 
@@ -183,7 +203,11 @@ def aplicar_filtros_orden_socios(request, socios, columnas_ordenables):
         'rut': request.GET.get('rut', '').strip(),
         'nombre': request.GET.get('nombre', '').strip(),
         'apellido': request.GET.get('apellido', '').strip(),
+        'estado': request.GET.get('estado', '').strip(),
     }
+    estados_permitidos = {estado for estado, _label in ESTADOS_FILTRABLES}
+    if filtros['estado'] not in estados_permitidos:
+        filtros['estado'] = ''
 
     if filtros['rut']:
         filtro_rut = Q()
@@ -194,6 +218,8 @@ def aplicar_filtros_orden_socios(request, socios, columnas_ordenables):
         socios = socios.filter(first_name__icontains=filtros['nombre'])
     if filtros['apellido']:
         socios = socios.filter(last_name__icontains=filtros['apellido'])
+    if filtros['estado']:
+        socios = socios.filter(is_active=filtros['estado'] == 'activo')
 
     if orden_actual:
         campo_base = campos_ordenables[orden_actual]
@@ -263,7 +289,7 @@ def obtener_resumen_estado_asistencia_socios():
 
 
 def gestor_usuarios_required(view_func):
-    """Protege vistas de gestion completa para administradores."""
+    """Protege vistas de gestión completa para administradores."""
 
     @wraps(view_func)
     @login_required
@@ -352,7 +378,7 @@ class UsuarioLoginView(LoginView):
 
 
 class UsuarioLogoutView(LogoutView):
-    """Vista de cierre de sesion que vuelve al login."""
+    """Vista de cierre de sesión que vuelve al login."""
 
     next_page = reverse_lazy('usuarios:login')
 
@@ -411,9 +437,27 @@ def listado_socios_asistencia(request):
         COLUMNAS_ORDENABLES_SOCIOS,
     )
     socios = consulta['socios']
+    filtros = consulta['filtros'].copy()
+    indicador_actual = request.GET.get('indicador', '').strip()
+    indicadores_validos = {
+        indicador for indicador, _label in INDICADORES_FILTRABLES_ASISTENCIA
+    }
+    if indicador_actual not in indicadores_validos:
+        indicador_actual = ''
+    filtros['indicador'] = indicador_actual
+    socios_filtrados_por_indicador = bool(indicador_actual)
+
+    if socios_filtrados_por_indicador:
+        socios = [
+            socio
+            for socio in agregar_resumen_asistencia_socios(socios)
+            if socio.indicador_asistencia['key'] == indicador_actual
+        ]
+
     paginator = Paginator(socios, 50)
     page_obj = paginator.get_page(request.GET.get('page'))
-    page_obj.object_list = agregar_resumen_asistencia_socios(page_obj.object_list)
+    if not socios_filtrados_por_indicador:
+        page_obj.object_list = agregar_resumen_asistencia_socios(page_obj.object_list)
     pagination_params = request.GET.copy()
     if 'page' in pagination_params:
         del pagination_params['page']
@@ -427,8 +471,10 @@ def listado_socios_asistencia(request):
             'page_numbers': paginator.get_elided_page_range(page_obj.number),
             'pagination_ellipsis': Paginator.ELLIPSIS,
             'pagination_query': pagination_params.urlencode(),
-            'filtros': consulta['filtros'],
-            'filtros_activos': consulta['filtros_activos'],
+            'filtros': filtros,
+            'filtros_activos': consulta['filtros_activos'] or socios_filtrados_por_indicador,
+            'estados_filtrables': ESTADOS_FILTRABLES,
+            'indicadores_filtrables': INDICADORES_FILTRABLES_ASISTENCIA,
             'columnas_ordenables': obtener_columnas_ordenables_socios(
                 request.GET,
                 consulta['orden_actual'],
@@ -460,7 +506,7 @@ def agregar_resumen_asistencia_socios(socios):
 
 
 def obtener_resumen_asistencia_socio(socio):
-    """Devuelve los contadores de asistencia usados por vistas y eliminacion segura."""
+    """Devuelve los contadores de asistencia usados por vistas y eliminación segura."""
     return {
         'total_reuniones': 0,
         'total_asistencias': 0,
@@ -489,15 +535,18 @@ def obtener_indicador_asistencia(total_ausencias):
     """Calcula el indicador visual segun la cantidad de ausencias."""
     if total_ausencias >= 2:
         return {
+            'key': 'bloqueado',
             'label': 'Bloqueado',
             'badge_class': 'text-bg-danger',
         }
     if total_ausencias == 1:
         return {
+            'key': 'una_inasistencia',
             'label': 'Una inasistencia',
             'badge_class': 'text-bg-warning',
         }
     return {
+        'key': 'sin_ausencias',
         'label': 'Sin ausencias',
         'badge_class': 'text-bg-success',
     }
@@ -540,7 +589,11 @@ def listado_usuarios(request):
         'rut': request.GET.get('rut', '').strip(),
         'nombre': request.GET.get('nombre', '').strip(),
         'apellido': request.GET.get('apellido', '').strip(),
+        'rol': request.GET.get('rol', '').strip(),
     }
+    roles_permitidos = {rol for rol, _label in ROLES_FILTRABLES_USUARIOS}
+    if filtros['rol'] not in roles_permitidos:
+        filtros['rol'] = ''
 
     if filtros['rut']:
         filtro_rut = Q()
@@ -551,6 +604,8 @@ def listado_usuarios(request):
         usuarios = usuarios.filter(first_name__icontains=filtros['nombre'])
     if filtros['apellido']:
         usuarios = usuarios.filter(last_name__icontains=filtros['apellido'])
+    if filtros['rol']:
+        usuarios = usuarios.filter(rol=filtros['rol'])
 
     if orden_actual:
         campo_base = campos_ordenables[orden_actual]
@@ -581,6 +636,7 @@ def listado_usuarios(request):
             'pagination_query': pagination_params.urlencode(),
             'filtros': filtros,
             'filtros_activos': any(filtros.values()),
+            'roles_filtrables': ROLES_FILTRABLES_USUARIOS,
             'columnas_ordenables': obtener_columnas_ordenables_usuarios(
                 request.GET,
                 orden_actual,
@@ -623,6 +679,7 @@ def listado_socios(request):
             'pagination_query': pagination_params.urlencode(),
             'filtros': consulta['filtros'],
             'filtros_activos': consulta['filtros_activos'],
+            'estados_filtrables': ESTADOS_FILTRABLES,
             'columnas_ordenables': obtener_columnas_ordenables_socios(
                 request.GET,
                 consulta['orden_actual'],
@@ -751,7 +808,7 @@ def cambiar_estado_usuario(request, pk):
 @require_POST
 @gestor_usuarios_required
 def eliminar_usuario(request, pk):
-    """Elimina usuarios internos sin permitir autoeliminacion."""
+    """Elimina usuarios internos sin permitir autoeliminación."""
     usuario = get_object_or_404(Usuario, pk=pk)
 
     if usuario.pk == request.user.pk:

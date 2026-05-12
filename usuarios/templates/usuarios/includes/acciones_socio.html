@@ -12,7 +12,7 @@
         action="{% url 'usuarios:cambiar_estado_usuario' socio.pk %}"
         data-confirm-submit
         data-confirm-title="{% if socio.is_active %}Desactivar socio{% else %}Activar socio{% endif %}"
-        data-confirm-text="{% if socio.is_active %}El socio no podra iniciar sesion mientras este inactivo.{% else %}El socio volvera a poder iniciar sesion.{% endif %}"
+        data-confirm-text="{% if socio.is_active %}El socio no podrá iniciar sesión mientras esté inactivo.{% else %}El socio volverá a poder iniciar sesión.{% endif %}"
         data-confirm-button="{% if socio.is_active %}Desactivar{% else %}Activar{% endif %}"
         data-confirm-color="{% if socio.is_active %}#b42318{% else %}#2f5d50{% endif %}"
     >

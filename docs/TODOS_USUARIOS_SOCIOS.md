@@ -6,8 +6,10 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
 
 - [x] Implementar SweetAlert para reemplazar o complementar mensajes de confirmacion, exito y error.
 - [x] Aplicar formateo visual del RUT en el formulario, del lado del cliente, para mejorar la lectura mientras se escribe.
-- [ ] Ajustar en el listado de usuarios el boton de desactivacion del usuario autenticado: debe verse con estilo deshabilitado, ya que no se permite desactivar la propia cuenta.
+- [x] Ajustar en el listado de usuarios el boton de desactivacion del usuario autenticado: debe verse con estilo deshabilitado, ya que no se permite desactivar la propia cuenta.
+- [x] Agregar filtro por rol en el listado de usuarios.
 - [x] Documentar la correccion de estilos del admin de Django en PythonAnywhere: ejecutar `collectstatic`, mapear `/static/` a `staticfiles` y verificar `/static/admin/css/base.css`.
+- [x] Corregir tildes faltantes en etiquetas, ayudas y mensajes de los formularios.
 
 ## Seguridad
 
@@ -29,6 +31,7 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
   - Verde: sin ausencias.
   - Amarillo: una inasistencia.
   - Rojo: bloqueado por dos inasistencias.
+- [x] Agregar un campo de telefono movil a usuarios y socios para registrar un numero de contacto operativo.
 
 ## Pendientes por definir
 

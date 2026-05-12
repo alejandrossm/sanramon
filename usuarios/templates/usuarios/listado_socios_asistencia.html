@@ -62,6 +62,17 @@
             placeholder="Buscar por apellido"
         >
     </div>
+    <div class="col-12 col-md-3">
+        <label for="filtro-asistencia-indicador" class="form-label">Indicador</label>
+        <select class="form-select" id="filtro-asistencia-indicador" name="indicador">
+            <option value="">Todos los indicadores</option>
+            {% for valor_indicador, etiqueta_indicador in indicadores_filtrables %}
+                <option value="{{ valor_indicador }}" {% if filtros.indicador == valor_indicador %}selected{% endif %}>
+                    {{ etiqueta_indicador }}
+                </option>
+            {% endfor %}
+        </select>
+    </div>
     <div class="col-12 col-md-3 d-flex flex-wrap gap-2">
         <button type="submit" class="btn btn-outline-primary">
             {% include "includes/icon.html" with name="search" %}
@@ -138,6 +149,7 @@
                     <td>{{ socio.first_name }}</td>
                     <td>{{ socio.last_name }}</td>
                     <td>{{ socio.email }}</td>
+                    <td>{{ socio.telefono_movil|default:"-" }}</td>
                     <td class="text-center">{{ socio.total_reuniones }}</td>
                     <td class="text-center">{{ socio.total_asistencias }}</td>
                     <td class="text-center">{{ socio.total_ausencias }}</td>
@@ -167,7 +179,7 @@
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="10" class="text-center text-muted py-4">No hay socios registrados.</td>
+                    <td colspan="11" class="text-center text-muted py-4">No hay socios registrados.</td>
                 </tr>
             {% endfor %}
         </tbody>
@@ -207,6 +219,8 @@
                 <dd class="col-8 mb-0 text-break">{{ socio.last_name }}</dd>
                 <dt class="col-4 text-muted fw-semibold">EMAIL</dt>
                 <dd class="col-8 mb-0 text-break">{{ socio.email }}</dd>
+                <dt class="col-4 text-muted fw-semibold">TELÉFONO</dt>
+                <dd class="col-8 mb-0 text-break">{{ socio.telefono_movil|default:"-" }}</dd>
                 <dt class="col-4 text-muted fw-semibold">REUNIONES</dt>
                 <dd class="col-8 mb-0">{{ socio.total_reuniones }}</dd>
                 <dt class="col-4 text-muted fw-semibold">ASISTENCIAS</dt>
@@ -229,11 +243,11 @@
 </div>
 
 {% if page_obj.has_other_pages %}
-    <nav class="mt-3" aria-label="Paginacion de asistencia">
+    <nav class="mt-3" aria-label="Paginación de asistencia">
         <ul class="pagination justify-content-center mb-0">
             <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}">
                 {% if page_obj.has_previous %}
-                    <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={{ page_obj.previous_page_number }}" aria-label="Pagina anterior">Anterior</a>
+                    <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={{ page_obj.previous_page_number }}" aria-label="Página anterior">Anterior</a>
                 {% else %}
                     <span class="page-link" aria-disabled="true">Anterior</span>
                 {% endif %}
@@ -257,7 +271,7 @@
 
             <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}">
                 {% if page_obj.has_next %}
-                    <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={{ page_obj.next_page_number }}" aria-label="Pagina siguiente">Siguiente</a>
+                    <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={{ page_obj.next_page_number }}" aria-label="Página siguiente">Siguiente</a>
                 {% else %}
                     <span class="page-link" aria-disabled="true">Siguiente</span>
                 {% endif %}

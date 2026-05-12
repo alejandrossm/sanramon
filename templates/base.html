@@ -42,7 +42,7 @@
                     <small>{{ user.get_rol_display }}</small>
                 </div>
 
-                <nav class="nav flex-column gap-1" aria-label="Navegacion principal">
+                <nav class="nav flex-column gap-1" aria-label="Navegación principal">
                     {% if user.rol == 'SOCIO' and not user.is_superuser %}
                         <p class="sidebar-section-title text-uppercase fw-bold small mb-1 mt-0 px-3">Socio</p>
                         <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:mis_asistencias' %}">
@@ -98,14 +98,14 @@
                     {% csrf_token %}
                     <button type="submit" class="sidebar-link sidebar-button d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2 w-100 text-start">
                         {% include "includes/icon.html" with name="log-out" classes="sidebar-icon flex-shrink-0" %}
-                        <span>Cerrar sesion</span>
+                        <span>Cerrar sesión</span>
                     </button>
                 </form>
                 {% else %}
                 <div class="sidebar-user d-grid gap-1 rounded p-3 my-3">
                     <span class="small">Acceso</span>
-                    <strong>Inicia sesion</strong>
-                    <small>Gestion interna</small>
+                    <strong>Inicia sesión</strong>
+                    <small>Gestión interna</small>
                 </div>
                 {% endif %}
             </div>
@@ -190,11 +190,11 @@
                     info: 'info',
                 };
                 const titleByLevel = {
-                    success: 'Operacion completada',
+                    success: 'Operación completada',
                     error: 'No se pudo completar',
                     danger: 'No se pudo completar',
-                    warning: 'Atencion',
-                    info: 'Informacion',
+                    warning: 'Atención',
+                    info: 'Información',
                 };
 
                 document.querySelectorAll('[data-app-message]').forEach((message) => {
@@ -207,7 +207,7 @@
 
                     Swal.fire({
                         icon: iconByLevel[level] || 'info',
-                        title: titleByLevel[level] || 'Informacion',
+                        title: titleByLevel[level] || 'Información',
                         text,
                         confirmButtonText: 'Aceptar',
                         confirmButtonColor: '#2f5d50',
@@ -223,8 +223,8 @@
                         event.preventDefault();
 
                         Swal.fire({
-                            title: form.dataset.confirmTitle || 'Confirmar accion',
-                            text: form.dataset.confirmText || 'Esta accion se aplicara inmediatamente.',
+                            title: form.dataset.confirmTitle || 'Confirmar acción',
+                            text: form.dataset.confirmText || 'Esta acción se aplicará inmediatamente.',
                             icon: form.dataset.confirmIcon || 'warning',
                             showCancelButton: true,
                             confirmButtonText: form.dataset.confirmButton || 'Confirmar',
@@ -282,8 +282,8 @@
                         toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
                     }
                     const text = enabled
-                        ? toggle.dataset.disableDeleteLabel || 'Desactivar eliminacion'
-                        : toggle.dataset.enableDeleteLabel || 'Activar eliminacion';
+                        ? toggle.dataset.disableDeleteLabel || 'Desactivar eliminación'
+                        : toggle.dataset.enableDeleteLabel || 'Activar eliminación';
                     if (label) {
                         label.textContent = text;
                     } else {
@@ -309,14 +309,14 @@
                     activateDeletion();
 
                     if (!window.Swal) {
-                        window.alert(toggle.dataset.enableDeleteText || 'Eliminacion activada.');
+                        window.alert(toggle.dataset.enableDeleteText || 'Eliminación activada.');
                         return;
                     }
 
                     Swal.fire({
                         icon: 'warning',
-                        title: toggle.dataset.enableDeleteTitle || 'Eliminacion activada',
-                        text: toggle.dataset.enableDeleteText || 'La eliminacion quedo habilitada.',
+                        title: toggle.dataset.enableDeleteTitle || 'Eliminación activada',
+                        text: toggle.dataset.enableDeleteText || 'La eliminación quedó habilitada.',
                         confirmButtonText: 'Aceptar',
                         confirmButtonColor: '#b42318',
                     });
@@ -349,6 +349,48 @@
                 input.addEventListener('input', () => {
                     input.value = formatRut(input.value);
                     input.setSelectionRange(input.value.length, input.value.length);
+                });
+            });
+
+            const formatPhoneWithPrefix = (value, prefix) => {
+                const digits = value.replace(/\D/g, '');
+                let localDigits = digits;
+
+                if (localDigits.startsWith('56')) {
+                    localDigits = localDigits.slice(2);
+                }
+
+                return `${prefix}${localDigits.slice(0, 9)}`;
+            };
+
+            document.querySelectorAll('[data-phone-prefix]').forEach((input) => {
+                const prefix = input.dataset.phonePrefix || '+56';
+
+                input.value = formatPhoneWithPrefix(input.value || prefix, prefix);
+
+                input.addEventListener('focus', () => {
+                    if (!input.value.startsWith(prefix)) {
+                        input.value = prefix;
+                    }
+                    input.setSelectionRange(input.value.length, input.value.length);
+                });
+
+                input.addEventListener('input', () => {
+                    input.value = formatPhoneWithPrefix(input.value, prefix);
+                    input.setSelectionRange(input.value.length, input.value.length);
+                });
+
+                input.addEventListener('keydown', (event) => {
+                    const cursorAtPrefix = input.selectionStart <= prefix.length;
+                    const deletingPrefix = (
+                        (event.key === 'Backspace' && cursorAtPrefix)
+                        || (event.key === 'Delete' && input.selectionStart < prefix.length)
+                    );
+
+                    if (deletingPrefix) {
+                        event.preventDefault();
+                        input.setSelectionRange(prefix.length, prefix.length);
+                    }
                 });
             });
         });

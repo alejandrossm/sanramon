@@ -14,19 +14,23 @@ class UsuarioAdmin(UserAdmin):
         'first_name',
         'last_name',
         'rut',
+        'telefono_movil',
         'rol',
         'is_active',
         'is_staff',
     )
     list_filter = ('rol', 'is_active', 'is_staff', 'is_superuser')
-    search_fields = ('username', 'email', 'first_name', 'last_name', 'rut')
+    search_fields = ('username', 'email', 'first_name', 'last_name', 'rut', 'telefono_movil')
     ordering = ('last_name', 'first_name', 'username')
 
     fieldsets = UserAdmin.fieldsets + (
-        ('Datos del sistema', {'fields': ('rut', 'rol')}),
+        ('Datos del sistema', {'fields': ('rut', 'telefono_movil', 'rol')}),
     )
     add_fieldsets = UserAdmin.add_fieldsets + (
-        ('Datos del sistema', {'fields': ('email', 'first_name', 'last_name', 'rut', 'rol')}),
+        (
+            'Datos del sistema',
+            {'fields': ('email', 'first_name', 'last_name', 'rut', 'telefono_movil', 'rol')},
+        ),
     )
 
     def get_readonly_fields(self, request, obj=None):
