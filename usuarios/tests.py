@@ -1,10 +1,12 @@
 from io import StringIO
+from urllib.parse import urlparse
 from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.contrib.staticfiles import finders
+from django.core import mail
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.test import TestCase, override_settings
@@ -32,7 +34,10 @@ from .views import (
 )
 
 
-@override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
+@override_settings(
+    PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'],
+    EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+)
 class UsuariosModuloTests(TestCase):
     """Pruebas de autenticacion, roles, permisos y gestion de usuarios."""
 
@@ -167,6 +172,49 @@ class UsuariosModuloTests(TestCase):
             {'username': 'admin@example.com', 'password': 'ClaveSegura123'},
         )
         self.assertRedirects(response, reverse('usuarios:dashboard'))
+
+    def test_login_muestra_link_de_recuperacion_password(self):
+        """Expone el acceso publico para recuperar contrasena."""
+        response = self.client.get(reverse('usuarios:login'))
+
+        self.assertContains(response, reverse('usuarios:password_reset'))
+        self.assertContains(response, 'Olvide mi contrasena')
+
+    def test_recuperacion_password_envia_correo_y_actualiza_password(self):
+        """Envia el token por correo y permite guardar una nueva contrasena."""
+        response = self.client.post(
+            reverse('usuarios:password_reset'),
+            {'email': 'admin@example.com'},
+        )
+
+        self.assertRedirects(response, reverse('usuarios:password_reset_done'))
+        self.assertEqual(len(mail.outbox), 1)
+        mensaje = mail.outbox[0]
+        self.assertEqual(mensaje.to, ['admin@example.com'])
+        self.assertIn('Sistema San Ramon', mensaje.subject)
+
+        enlace = next(
+            linea.strip()
+            for linea in mensaje.body.splitlines()
+            if 'recuperar-contrasena' in linea
+        )
+        ruta_reset = urlparse(enlace).path
+
+        response = self.client.get(ruta_reset)
+        self.assertEqual(response.status_code, 302)
+        ruta_confirmacion = response['Location']
+
+        response = self.client.post(
+            ruta_confirmacion,
+            {
+                'new_password1': 'ClaveNuevaSegura123',
+                'new_password2': 'ClaveNuevaSegura123',
+            },
+        )
+
+        self.assertRedirects(response, reverse('usuarios:password_reset_complete'))
+        self.admin_user.refresh_from_db()
+        self.assertTrue(self.admin_user.check_password('ClaveNuevaSegura123'))
 
     def test_socio_no_accede_a_gestion_de_usuarios(self):
         """Redirige al socio cuando intenta entrar a gestion de usuarios."""

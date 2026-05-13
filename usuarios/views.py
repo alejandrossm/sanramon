@@ -3,7 +3,14 @@ from functools import wraps
 from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.views import LoginView, LogoutView
+from django.contrib.auth.views import (
+    LoginView,
+    LogoutView,
+    PasswordResetCompleteView,
+    PasswordResetConfirmView,
+    PasswordResetDoneView,
+    PasswordResetView,
+)
 from django.core.paginator import Paginator
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
@@ -13,6 +20,8 @@ from django.views.decorators.http import require_POST
 from .forms import (
     CambioPasswordForm,
     LoginForm,
+    RecuperarPasswordForm,
+    RestablecerPasswordForm,
     SocioCreationForm,
     SocioUpdateForm,
     UsuarioCreationForm,
@@ -419,6 +428,36 @@ class UsuarioLogoutView(LogoutView):
     """Vista de cierre de sesión que vuelve al login."""
 
     next_page = reverse_lazy('usuarios:login')
+
+
+class UsuarioPasswordResetView(PasswordResetView):
+    """Solicita un enlace de recuperacion de contrasena por correo."""
+
+    form_class = RecuperarPasswordForm
+    template_name = 'usuarios/password_reset_form.html'
+    email_template_name = 'usuarios/password_reset_email.html'
+    subject_template_name = 'usuarios/password_reset_subject.txt'
+    success_url = reverse_lazy('usuarios:password_reset_done')
+
+
+class UsuarioPasswordResetDoneView(PasswordResetDoneView):
+    """Confirma que la solicitud de recuperacion fue recibida."""
+
+    template_name = 'usuarios/password_reset_done.html'
+
+
+class UsuarioPasswordResetConfirmView(PasswordResetConfirmView):
+    """Permite guardar una nueva contrasena usando un token valido."""
+
+    form_class = RestablecerPasswordForm
+    template_name = 'usuarios/password_reset_confirm.html'
+    success_url = reverse_lazy('usuarios:password_reset_complete')
+
+
+class UsuarioPasswordResetCompleteView(PasswordResetCompleteView):
+    """Muestra el resultado final del restablecimiento de contrasena."""
+
+    template_name = 'usuarios/password_reset_complete.html'
 
 
 @login_required

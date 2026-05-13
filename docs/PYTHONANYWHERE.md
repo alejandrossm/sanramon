@@ -34,6 +34,8 @@ Para generar una clave segura:
 python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
 ```
 
+<https://myaccount.google.com/apppasswords>
+
 Ejemplo:
 
 ```bash
@@ -41,7 +43,15 @@ export DJANGO_SECRET_KEY="clave-generada"
 export DJANGO_DEBUG="False"
 export DJANGO_ALLOWED_HOSTS="tuusuario.pythonanywhere.com"
 export DJANGO_CSRF_TRUSTED_ORIGINS="https://tuusuario.pythonanywhere.com"
+export EMAIL_HOST="smtp.gmail.com"
+export EMAIL_PORT="587"
+export EMAIL_USE_TLS="True"
+export EMAIL_HOST_USER="tu-cuenta@gmail.com"
+export EMAIL_HOST_PASSWORD="clave-de-aplicacion-gmail"
+export DEFAULT_FROM_EMAIL="Sistema San Ramon <tu-cuenta@gmail.com>"
 ```
+
+Para usar una cuenta Gmail gratuita en el envio de recuperacion de contrasena, activar la verificacion en 2 pasos de Google y crear una clave de aplicacion para `EMAIL_HOST_PASSWORD`. No usar la contrasena normal de Gmail en el archivo `.env`.
 
 Para que las variables tambien existan en consolas Bash al activar el virtualenv:
 

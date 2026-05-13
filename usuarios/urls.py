@@ -9,6 +9,26 @@ urlpatterns = [
     path('dashboard/', views.dashboard, name='dashboard'),
     path('login/', views.UsuarioLoginView.as_view(), name='login'),
     path('logout/', views.UsuarioLogoutView.as_view(), name='logout'),
+    path(
+        'recuperar-contrasena/',
+        views.UsuarioPasswordResetView.as_view(),
+        name='password_reset',
+    ),
+    path(
+        'recuperar-contrasena/enviado/',
+        views.UsuarioPasswordResetDoneView.as_view(),
+        name='password_reset_done',
+    ),
+    path(
+        'recuperar-contrasena/<uidb64>/<token>/',
+        views.UsuarioPasswordResetConfirmView.as_view(),
+        name='password_reset_confirm',
+    ),
+    path(
+        'recuperar-contrasena/completo/',
+        views.UsuarioPasswordResetCompleteView.as_view(),
+        name='password_reset_complete',
+    ),
     path('mis-asistencias/', views.mis_asistencias, name='mis_asistencias'),
     path('asistencia/', views.listado_socios_asistencia, name='listado_socios_asistencia'),
     path('socios/', views.listado_socios, name='listado_socios'),

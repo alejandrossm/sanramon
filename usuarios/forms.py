@@ -3,7 +3,13 @@ import re
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Column, Layout, Row, Submit
 from django import forms
-from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm, UserCreationForm
+from django.contrib.auth.forms import (
+    AuthenticationForm,
+    PasswordChangeForm,
+    PasswordResetForm,
+    SetPasswordForm,
+    UserCreationForm,
+)
 from django.contrib.auth.password_validation import validate_password
 
 from .models import (
@@ -92,6 +98,31 @@ class LoginForm(AuthenticationForm):
             'username',
             'password',
             Submit('submit', 'Ingresar', css_class='btn btn-primary w-100'),
+        )
+
+
+class RecuperarPasswordForm(PasswordResetForm):
+    """Formulario publico para solicitar enlace de recuperacion."""
+
+    email = forms.EmailField(
+        label='Correo electrónico',
+        widget=forms.EmailInput(
+            attrs={
+                'autocomplete': 'email',
+                'autofocus': True,
+                'placeholder': 'nombre@correo.cl',
+            }
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        """Configura crispy forms para el envio del enlace de recuperacion."""
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.layout = Layout(
+            'email',
+            Submit('submit', 'Enviar enlace', css_class='btn btn-primary w-100'),
         )
 
 
@@ -542,4 +573,30 @@ class CambioPasswordForm(PasswordChangeForm):
                 Column('new_password2', css_class='col-md-6'),
             ),
             Submit('submit', 'Actualizar contraseña', css_class='btn btn-primary'),
+        )
+
+
+class RestablecerPasswordForm(SetPasswordForm):
+    """Formulario para definir una nueva contrasena desde un token valido."""
+
+    new_password1 = forms.CharField(
+        label='Nueva contraseña',
+        widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
+    )
+    new_password2 = forms.CharField(
+        label='Confirmar nueva contraseña',
+        widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        """Configura crispy forms para el restablecimiento publico."""
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.layout = Layout(
+            Row(
+                Column('new_password1', css_class='col-md-6'),
+                Column('new_password2', css_class='col-md-6'),
+            ),
+            Submit('submit', 'Guardar contraseña', css_class='btn btn-primary'),
         )

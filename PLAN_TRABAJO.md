@@ -117,13 +117,12 @@ Se usara un modelo de usuario personalizado basado en `AbstractUser`. Como el pr
 - Exportaciones.
 - Auditoria completa.
 
-## Decisiones pendientes con cliente
+## Recuperacion de contrasena por correo
 
-- Recuperacion de contrasena por correo: revisar con el cliente si se implementa y definir el proveedor de envio.
-- Alternativas a evaluar:
-  - Gmail: opcion simple y gratuita para bajo volumen, usando una cuenta dedicada del sistema y contrasena de aplicacion.
-  - Mailgun: opcion mas orientada a correos transaccionales, con plan gratuito de bajo volumen y mejor trazabilidad para produccion.
-- Definicion recomendada antes de implementar: confirmar proveedor, correo remitente, dominio si aplica, limites de envio aceptables y si el flujo aplica solo a usuarios internos activos o tambien a socios.
+- El flujo se implementa con Gmail como proveedor inicial, usando una cuenta dedicada del sistema y contrasena de aplicacion.
+- Alcance actual: recuperacion solo para usuarios internos activos con contrasena utilizable (`ADMINISTRADOR` y `ENCARGADO_REGISTRO`).
+- Los socios no recuperan contrasena en esta etapa; siguen creados sin contrasena utilizable desde el flujo operativo de socios.
+- Para una version futura, definir si los socios tendran activacion de cuenta o recuperacion de contrasena propia antes de cambiar este comportamiento.
 
 ## Pendientes de despliegue y seguridad
 

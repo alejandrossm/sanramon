@@ -24,6 +24,26 @@ except ImportError:
 
 if load_dotenv:
     load_dotenv(BASE_DIR / '.env')
+else:
+    env_path = BASE_DIR / '.env'
+    if env_path.exists():
+        for raw_line in env_path.read_text(encoding='utf-8').splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if line.startswith('export '):
+                line = line[len('export '):].strip()
+            if '=' not in line:
+                continue
+
+            key, value = line.split('=', 1)
+            key = key.strip()
+            value = value.strip()
+            if not key or key in os.environ:
+                continue
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+                value = value[1:-1]
+            os.environ[key] = value
 
 
 def env_bool(name, default=False):
@@ -168,6 +188,27 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 LOGIN_URL = 'usuarios:login'
 LOGIN_REDIRECT_URL = 'usuarios:dashboard'
 LOGOUT_REDIRECT_URL = 'usuarios:login'
+
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_USE_TLS = env_bool('EMAIL_USE_TLS', True)
+EMAIL_USE_SSL = env_bool('EMAIL_USE_SSL', False)
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.environ.get(
+    'DEFAULT_FROM_EMAIL',
+    EMAIL_HOST_USER or 'webmaster@localhost',
+)
+SERVER_EMAIL = os.environ.get('SERVER_EMAIL', DEFAULT_FROM_EMAIL)
+EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '20'))
+EMAIL_BACKEND = os.environ.get(
+    'EMAIL_BACKEND',
+    (
+        'django.core.mail.backends.smtp.EmailBackend'
+        if EMAIL_HOST_USER
+        else 'django.core.mail.backends.console.EmailBackend'
+    ),
+)
 
 AUTHENTICATION_BACKENDS = [
     'usuarios.backends.EmailOrUsernameBackend',
