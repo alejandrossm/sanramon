@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.auth.models import AbstractUser, UserManager
 from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
@@ -227,3 +228,55 @@ class Usuario(AbstractUser):
 
         if grupo_destino and grupo_destino in grupos_por_nombre:
             self.groups.add(grupos_por_nombre[grupo_destino])
+
+
+class Reunion(models.Model):
+    """Reunion programada para gestionar asistencia de socios."""
+
+    PROGRAMADA = 'PROGRAMADA'
+    ACTIVA = 'ACTIVA'
+    FINALIZADA = 'FINALIZADA'
+    CANCELADA = 'CANCELADA'
+    HISTORICA = 'HISTORICA'
+
+    ESTADOS = [
+        (PROGRAMADA, 'Programada'),
+        (ACTIVA, 'Activa'),
+        (FINALIZADA, 'Finalizada'),
+        (CANCELADA, 'Cancelada'),
+        (HISTORICA, 'Historica'),
+    ]
+
+    fecha = models.DateField()
+    locacion = models.CharField(max_length=150)
+    creador = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='reuniones_creadas',
+    )
+    estado = models.CharField(max_length=12, choices=ESTADOS, default=PROGRAMADA)
+    es_proxima = models.BooleanField(default=False)
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        """Orden y nombres legibles del modelo en Django."""
+
+        ordering = ['-fecha', '-fecha_creacion']
+        verbose_name = 'reunion'
+        verbose_name_plural = 'reuniones'
+
+    def __str__(self):
+        """Representa la reunion por fecha y locacion."""
+        return f'{self.fecha} - {self.locacion}'
+
+    def clean(self):
+        """Normaliza datos minimos antes de guardar."""
+        super().clean()
+        self.locacion = (self.locacion or '').strip()
+        if not self.locacion:
+            raise ValidationError({'locacion': 'La locacion es obligatoria.'})
+
+    def save(self, *args, **kwargs):
+        """Valida la reunion antes de persistirla."""
+        self.full_clean()
+        super().save(*args, **kwargs)

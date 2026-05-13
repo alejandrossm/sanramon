@@ -21,6 +21,7 @@ from .forms import (
     CambioPasswordForm,
     LoginForm,
     RecuperarPasswordForm,
+    ReunionCreationForm,
     RestablecerPasswordForm,
     SocioCreationForm,
     SocioUpdateForm,
@@ -645,6 +646,24 @@ def cambiar_mi_password(request):
         form = CambioPasswordForm(user=request.user)
 
     return render(request, 'usuarios/cambiar_mi_password.html', {'form': form})
+
+
+@gestor_usuarios_required
+def crear_reunion(request):
+    """Crea reuniones con estado inicial programada."""
+    if request.method == 'POST':
+        form = ReunionCreationForm(request.POST, creador=request.user)
+        if form.is_valid():
+            reunion = form.save()
+            messages.success(
+                request,
+                f'Reunion del {reunion.fecha:%d-%m-%Y} creada correctamente.',
+            )
+            return redirect('usuarios:crear_reunion')
+    else:
+        form = ReunionCreationForm(creador=request.user)
+
+    return render(request, 'usuarios/crear_reunion.html', {'form': form})
 
 
 @gestor_usuarios_required

@@ -95,6 +95,14 @@
                         {% endif %}
                     {% endif %}
 
+                    {% if nav_puede_gestionar_usuarios %}
+                        <p class="sidebar-section-title text-uppercase fw-bold small mb-1 mt-3 px-3">Reuniones</p>
+                        <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:crear_reunion' %}">
+                            {% include "includes/icon.html" with name="calendar-plus" classes="sidebar-icon flex-shrink-0" %}
+                            <span>Crear reuni&oacute;n</span>
+                        </a>
+                    {% endif %}
+
                     <p class="sidebar-section-title text-uppercase fw-bold small mb-1 mt-3 px-3">Cuenta</p>
                     <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:cambiar_mi_password' %}">
                         {% include "includes/icon.html" with name="key" classes="sidebar-icon flex-shrink-0" %}

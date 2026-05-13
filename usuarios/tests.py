@@ -1,3 +1,4 @@
+from datetime import date
 from io import StringIO
 from urllib.parse import urlparse
 from unittest.mock import patch
@@ -13,7 +14,8 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from .admin import UsuarioAdmin
-from .forms import UsuarioCreationForm, UsuarioUpdateForm
+from .forms import ReunionCreationForm, UsuarioCreationForm, UsuarioUpdateForm
+from .models import Reunion
 from .permisos import (
     GRUPO_ADMINISTRADOR,
     GRUPO_ENCARGADO_REGISTRO,
@@ -141,6 +143,27 @@ class UsuariosModuloTests(TestCase):
         self.assertFalse(puede_registrar_usuarios(self.socio_user))
         self.assertFalse(puede_registrar_socios(self.socio_user))
         self.assertFalse(puede_acceder_asistencia(self.socio_user))
+
+    def test_reunion_se_crea_programada_con_creador(self):
+        """Persiste los datos base de una reunion programada."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+
+        self.assertEqual(reunion.estado, Reunion.PROGRAMADA)
+        self.assertFalse(reunion.es_proxima)
+        self.assertEqual(reunion.creador, self.admin_user)
+        self.assertEqual(str(reunion), '2026-05-20 - Sede social')
+
+    def test_formulario_reunion_exige_fecha_y_locacion(self):
+        """Valida los campos obligatorios antes de guardar."""
+        form = ReunionCreationForm(data={}, creador=self.admin_user)
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('fecha', form.errors)
+        self.assertIn('locacion', form.errors)
 
     def test_roles_internos_gestionables_alimentan_formularios_y_filtros(self):
         """Centraliza roles internos usados por formularios y filtros."""
@@ -368,6 +391,8 @@ class UsuariosModuloTests(TestCase):
         self.assertNotContains(response, 'Listado socios')
         self.assertNotContains(response, 'Registrar socio')
         self.assertNotContains(response, 'Listado asistencia')
+        self.assertNotContains(response, 'Reuniones')
+        self.assertNotContains(response, 'Crear reuni')
 
     def test_menu_lateral_admin_agrupa_usuarios_y_socios(self):
         """Agrupa acciones administrativas de usuarios y socios en el sidebar."""
@@ -378,7 +403,43 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Listado socios')
         self.assertContains(response, 'Registrar socio')
         self.assertContains(response, 'Listado asistencia')
+        self.assertContains(response, 'Reuniones')
+        self.assertContains(response, 'Crear reuni')
+        self.assertContains(response, reverse('usuarios:crear_reunion'))
         self.assertNotContains(response, '<p class="sidebar-section-title">Asistencia</p>', html=True)
+
+    def test_crear_reunion_solo_disponible_para_administrador(self):
+        """Protege la entrada inicial de creacion de reuniones."""
+        url = reverse('usuarios:crear_reunion')
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Crear reuni')
+        self.assertContains(response, 'name="fecha"')
+        self.assertContains(response, 'name="locacion"')
+
+        response = self.client.post(
+            url,
+            {
+                'fecha': '2026-05-20',
+                'locacion': 'Sede social',
+            },
+            follow=True,
+        )
+        self.assertRedirects(response, url)
+        self.assertContains(response, 'creada correctamente')
+        reunion = Reunion.objects.get(locacion='Sede social')
+        self.assertEqual(reunion.creador, self.admin_user)
+        self.assertEqual(reunion.estado, Reunion.PROGRAMADA)
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(url)
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+
+        self.client.login(username='socio', password='ClaveSegura123')
+        response = self.client.get(url)
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
 
     def test_administrador_accede_a_asistencia_y_ve_solo_socios(self):
         """Permite al administrador ver el listado operativo de socios."""

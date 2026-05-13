@@ -13,6 +13,7 @@ from django.contrib.auth.forms import (
 from django.contrib.auth.password_validation import validate_password
 
 from .models import (
+    Reunion,
     TELEFONO_MOVIL_MENSAJE_CHILE,
     TELEFONO_MOVIL_PREFIJO_CHILE,
     TELEFONO_MOVIL_REGEX_CHILE,
@@ -308,6 +309,48 @@ class SocioCreationForm(TelefonoMovilFormMixin, forms.ModelForm):
             socio.save()
             self.save_m2m()
         return socio
+
+
+class ReunionCreationForm(forms.ModelForm):
+    """Formulario para programar una nueva reunion."""
+
+    class Meta:
+        """Campos editables al crear una reunion."""
+
+        model = Reunion
+        fields = ('fecha', 'locacion')
+        labels = {
+            'fecha': 'Fecha',
+            'locacion': 'Locacion',
+        }
+        widgets = {
+            'fecha': forms.DateInput(attrs={'type': 'date'}),
+            'locacion': forms.TextInput(attrs={'autocomplete': 'off'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        """Recibe al creador para asociarlo al guardar."""
+        self.creador = kwargs.pop('creador', None)
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.layout = Layout(
+            Row(
+                Column('fecha', css_class='col-md-6'),
+                Column('locacion', css_class='col-md-6'),
+            ),
+            Submit('submit', 'Guardar reunion', css_class='btn btn-primary'),
+        )
+
+    def save(self, commit=True):
+        """Guarda la reunion con estado inicial programada."""
+        reunion = super().save(commit=False)
+        reunion.creador = self.creador
+        reunion.estado = Reunion.PROGRAMADA
+        if commit:
+            reunion.save()
+            self.save_m2m()
+        return reunion
 
 
 class SocioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):

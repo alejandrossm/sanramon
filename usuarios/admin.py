@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
-from .models import Usuario
+from .models import Reunion, Usuario
 
 
 @admin.register(Usuario)
@@ -41,3 +41,14 @@ class UsuarioAdmin(UserAdmin):
         if obj and obj.rol == Usuario.SOCIO:
             readonly_fields.extend(('rol', 'is_staff', 'is_superuser'))
         return tuple(readonly_fields)
+
+
+@admin.register(Reunion)
+class ReunionAdmin(admin.ModelAdmin):
+    """Configuracion de reuniones dentro del admin de Django."""
+
+    list_display = ('fecha', 'locacion', 'estado', 'es_proxima', 'creador', 'fecha_creacion')
+    list_filter = ('estado', 'es_proxima', 'fecha')
+    search_fields = ('locacion', 'creador__username', 'creador__email')
+    readonly_fields = ('fecha_creacion',)
+    ordering = ('-fecha', '-fecha_creacion')

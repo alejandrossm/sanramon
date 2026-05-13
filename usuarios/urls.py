@@ -31,6 +31,7 @@ urlpatterns = [
     ),
     path('mis-asistencias/', views.mis_asistencias, name='mis_asistencias'),
     path('asistencia/', views.listado_socios_asistencia, name='listado_socios_asistencia'),
+    path('reuniones/crear/', views.crear_reunion, name='crear_reunion'),
     path('socios/', views.listado_socios, name='listado_socios'),
     path('registrar_socio/', views.registro_socio, name='registro_socio'),
     path('socios/<int:pk>/editar/', views.editar_socio, name='editar_socio'),
