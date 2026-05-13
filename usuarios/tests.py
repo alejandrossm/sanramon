@@ -180,6 +180,23 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, reverse('usuarios:password_reset'))
         self.assertContains(response, 'Olvide mi contrasena')
 
+    def test_recuperacion_password_muestra_link_a_home(self):
+        """Permite volver a home desde el flujo publico de recuperacion."""
+        response = self.client.get(reverse('usuarios:password_reset'))
+
+        self.assertContains(response, reverse('usuarios:home'))
+        self.assertContains(response, 'Volver a home')
+
+        response = self.client.get(
+            reverse(
+                'usuarios:password_reset_confirm',
+                kwargs={'uidb64': 'uid-invalido', 'token': 'token-invalido'},
+            )
+        )
+
+        self.assertContains(response, reverse('usuarios:home'))
+        self.assertContains(response, 'Volver a home')
+
     def test_recuperacion_password_envia_correo_y_actualiza_password(self):
         """Envia el token por correo y permite guardar una nueva contrasena."""
         response = self.client.post(
