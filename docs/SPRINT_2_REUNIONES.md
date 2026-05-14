@@ -23,7 +23,11 @@
 1. HU-04 - Crear reunion
    - Base funcional del modulo.
    - Crea el modelo de reunion, formulario, listado y alta.
-   - Estado inicial obligatorio: `programada`.
+   - La hora de reunion es obligatoria.
+   - La locacion de reunion es obligatoria.
+   - El formulario permite crear reuniones en estado `programada` o `historica`.
+   - Las reuniones historicas no se pueden iniciar ni finalizar.
+   - Las reuniones historicas solo se pueden eliminar si no tienen datos registrados.
    - La fecha de reunion es obligatoria.
    - Solo administrador puede crear reuniones.
 
@@ -81,6 +85,7 @@
 ### Reunion
 
 - `fecha`
+- `hora`
 - `locacion`
 - `creador`
 - `estado`: programada, activa, finalizada, cancelada, historica

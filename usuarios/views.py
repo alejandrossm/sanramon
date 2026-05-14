@@ -657,7 +657,7 @@ def crear_reunion(request):
             reunion = form.save()
             messages.success(
                 request,
-                f'Reunion del {reunion.fecha:%d-%m-%Y} creada correctamente.',
+                f'Reunion del {reunion.fecha:%d-%m-%Y} a las {reunion.hora:%H:%M} creada correctamente.',
             )
             return redirect('usuarios:crear_reunion')
     else:

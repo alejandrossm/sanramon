@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, time
 from io import StringIO
 from urllib.parse import urlparse
 from unittest.mock import patch
@@ -148,6 +148,7 @@ class UsuariosModuloTests(TestCase):
         """Persiste los datos base de una reunion programada."""
         reunion = Reunion.objects.create(
             fecha=date(2026, 5, 20),
+            hora=time(18, 30),
             locacion='Sede social',
             creador=self.admin_user,
         )
@@ -155,15 +156,57 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(reunion.estado, Reunion.PROGRAMADA)
         self.assertFalse(reunion.es_proxima)
         self.assertEqual(reunion.creador, self.admin_user)
-        self.assertEqual(str(reunion), '2026-05-20 - Sede social')
+        self.assertEqual(str(reunion), '2026-05-20 18:30 - Sede social')
 
-    def test_formulario_reunion_exige_fecha_y_locacion(self):
+    def test_formulario_reunion_exige_fecha_hora_y_locacion(self):
         """Valida los campos obligatorios antes de guardar."""
         form = ReunionCreationForm(data={}, creador=self.admin_user)
 
         self.assertFalse(form.is_valid())
         self.assertIn('fecha', form.errors)
+        self.assertIn('hora', form.errors)
         self.assertIn('locacion', form.errors)
+
+    def test_formulario_reunion_permite_programada_o_historica(self):
+        """Limita los estados disponibles al crear reuniones."""
+        form = ReunionCreationForm(creador=self.admin_user)
+
+        self.assertEqual(
+            list(form.fields['estado'].choices),
+            [
+                (Reunion.PROGRAMADA, 'Programada'),
+                (Reunion.HISTORICA, 'Histórica'),
+            ],
+        )
+
+        form = ReunionCreationForm(
+            data={
+                'fecha': '2026-05-20',
+                'hora': '18:30',
+                'locacion': 'Sede social',
+                'estado': Reunion.HISTORICA,
+            },
+            creador=self.admin_user,
+        )
+
+        self.assertTrue(form.is_valid())
+        reunion = form.save()
+        self.assertEqual(reunion.estado, Reunion.HISTORICA)
+
+    def test_reunion_historica_no_se_inicia_ni_finaliza(self):
+        """Reserva reuniones historicas para carga posterior y eliminacion segura."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+
+        self.assertTrue(reunion.es_historica())
+        self.assertFalse(reunion.puede_iniciarse())
+        self.assertFalse(reunion.puede_finalizarse())
+        self.assertTrue(reunion.puede_eliminarse())
 
     def test_roles_internos_gestionables_alimentan_formularios_y_filtros(self):
         """Centraliza roles internos usados por formularios y filtros."""
@@ -417,13 +460,20 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Crear reuni')
         self.assertContains(response, 'name="fecha"')
+        self.assertContains(response, 'name="hora"')
+        self.assertContains(response, 'type="time"')
         self.assertContains(response, 'name="locacion"')
+        self.assertContains(response, 'Locaci')
+        self.assertContains(response, 'name="estado"')
+        self.assertContains(response, 'Hist')
 
         response = self.client.post(
             url,
             {
                 'fecha': '2026-05-20',
+                'hora': '18:30',
                 'locacion': 'Sede social',
+                'estado': Reunion.PROGRAMADA,
             },
             follow=True,
         )

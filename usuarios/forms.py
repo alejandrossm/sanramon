@@ -314,17 +314,25 @@ class SocioCreationForm(TelefonoMovilFormMixin, forms.ModelForm):
 class ReunionCreationForm(forms.ModelForm):
     """Formulario para programar una nueva reunion."""
 
+    ESTADOS_CREACION = (
+        (Reunion.PROGRAMADA, 'Programada'),
+        (Reunion.HISTORICA, 'Histórica'),
+    )
+
     class Meta:
         """Campos editables al crear una reunion."""
 
         model = Reunion
-        fields = ('fecha', 'locacion')
+        fields = ('fecha', 'hora', 'locacion', 'estado')
         labels = {
             'fecha': 'Fecha',
-            'locacion': 'Locacion',
+            'hora': 'Hora',
+            'locacion': 'Locación',
+            'estado': 'Estado',
         }
         widgets = {
             'fecha': forms.DateInput(attrs={'type': 'date'}),
+            'hora': forms.TimeInput(attrs={'type': 'time'}),
             'locacion': forms.TextInput(attrs={'autocomplete': 'off'}),
         }
 
@@ -332,21 +340,26 @@ class ReunionCreationForm(forms.ModelForm):
         """Recibe al creador para asociarlo al guardar."""
         self.creador = kwargs.pop('creador', None)
         super().__init__(*args, **kwargs)
+        self.fields['estado'].choices = self.ESTADOS_CREACION
+        self.fields['estado'].initial = Reunion.PROGRAMADA
         self.helper = FormHelper()
         self.helper.form_method = 'post'
         self.helper.layout = Layout(
             Row(
-                Column('fecha', css_class='col-md-6'),
+                Column('fecha', css_class='col-md-4'),
+                Column('hora', css_class='col-md-4'),
+                Column('estado', css_class='col-md-4'),
+            ),
+            Row(
                 Column('locacion', css_class='col-md-6'),
             ),
             Submit('submit', 'Guardar reunion', css_class='btn btn-primary'),
         )
 
     def save(self, commit=True):
-        """Guarda la reunion con estado inicial programada."""
+        """Guarda la reunion con creador y estado validado por el formulario."""
         reunion = super().save(commit=False)
         reunion.creador = self.creador
-        reunion.estado = Reunion.PROGRAMADA
         if commit:
             reunion.save()
             self.save_m2m()

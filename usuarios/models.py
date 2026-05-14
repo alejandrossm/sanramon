@@ -244,10 +244,11 @@ class Reunion(models.Model):
         (ACTIVA, 'Activa'),
         (FINALIZADA, 'Finalizada'),
         (CANCELADA, 'Cancelada'),
-        (HISTORICA, 'Historica'),
+        (HISTORICA, 'Histórica'),
     ]
 
     fecha = models.DateField()
+    hora = models.TimeField()
     locacion = models.CharField(max_length=150)
     creador = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -261,22 +262,44 @@ class Reunion(models.Model):
     class Meta:
         """Orden y nombres legibles del modelo en Django."""
 
-        ordering = ['-fecha', '-fecha_creacion']
-        verbose_name = 'reunion'
+        ordering = ['-fecha', '-hora', '-fecha_creacion']
+        verbose_name = 'reunión'
         verbose_name_plural = 'reuniones'
 
     def __str__(self):
-        """Representa la reunion por fecha y locacion."""
-        return f'{self.fecha} - {self.locacion}'
+        """Representa la reunion por fecha, hora y locacion."""
+        return f'{self.fecha} {self.hora:%H:%M} - {self.locacion}'
 
     def clean(self):
         """Normaliza datos minimos antes de guardar."""
         super().clean()
         self.locacion = (self.locacion or '').strip()
         if not self.locacion:
-            raise ValidationError({'locacion': 'La locacion es obligatoria.'})
+            raise ValidationError({'locacion': 'La locación es obligatoria.'})
 
     def save(self, *args, **kwargs):
         """Valida la reunion antes de persistirla."""
         self.full_clean()
         super().save(*args, **kwargs)
+
+    def es_historica(self):
+        """Indica si la reunion corresponde a carga historica posterior."""
+        return self.estado == self.HISTORICA
+
+    def puede_iniciarse(self):
+        """Solo las reuniones programadas pueden pasar a activa."""
+        return self.estado == self.PROGRAMADA
+
+    def puede_finalizarse(self):
+        """Solo las reuniones activas pueden finalizarse."""
+        return self.estado == self.ACTIVA
+
+    def tiene_datos_registrados(self):
+        """Punto de extension para asistencias cuando exista el modelo asociado."""
+        return False
+
+    def puede_eliminarse(self):
+        """Las reuniones historicas se eliminan solo si no tienen datos registrados."""
+        if self.es_historica():
+            return not self.tiene_datos_registrados()
+        return True
