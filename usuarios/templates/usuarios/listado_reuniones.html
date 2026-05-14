@@ -22,6 +22,9 @@
 {% if reunion_activa %}
     <div class="alert alert-info" role="alert">
         Existe una reuni&oacute;n activa: {{ reunion_activa.fecha|date:"d-m-Y" }} a las {{ reunion_activa.hora|time:"H:i" }} en {{ reunion_activa.locacion }}.
+        <a href="{% url 'usuarios:registrar_asistencia_reunion' reunion_activa.pk %}" class="alert-link">
+            Registrar asistencia
+        </a>
     </div>
 {% endif %}
 
@@ -62,7 +65,15 @@
                         {% endif %}
                     </td>
                     <td class="text-end">
-                        {% if reunion.puede_iniciarse and not reunion_activa %}
+                        {% if reunion.estado == reunion.ACTIVA %}
+                            <a
+                                href="{% url 'usuarios:registrar_asistencia_reunion' reunion.pk %}"
+                                class="btn btn-success btn-sm"
+                            >
+                                {% include "includes/icon.html" with name="clipboard-check" %}
+                                <span>Registrar asistencia</span>
+                            </a>
+                        {% elif reunion.puede_iniciarse and not reunion_activa %}
                             <form
                                 method="post"
                                 action="{% url 'usuarios:iniciar_reunion' reunion.pk %}"

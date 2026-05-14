@@ -14,6 +14,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 
 from .models import (
+    AsistenciaReunion,
     Reunion,
     TELEFONO_MOVIL_MENSAJE_CHILE,
     TELEFONO_MOVIL_PREFIJO_CHILE,
@@ -422,6 +423,65 @@ class ReunionCreationForm(forms.ModelForm):
             reunion.save()
             self.save_m2m()
         return reunion
+
+
+class RegistroAsistenciaRutForm(forms.Form):
+    """Formulario para registrar asistencia de un socio existente por RUT."""
+
+    rut = forms.CharField(
+        label='RUT',
+        max_length=12,
+        widget=forms.TextInput(attrs={'placeholder': '12.345.678-9'}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        """Recibe la reunion activa y el usuario que registra."""
+        self.reunion = kwargs.pop('reunion')
+        self.registrador = kwargs.pop('registrador')
+        self.socio = None
+        super().__init__(*args, **kwargs)
+        marcar_campo_rut(self.fields['rut'])
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.layout = Layout(
+            Row(
+                Column('rut', css_class='col-md-8'),
+            ),
+            Submit('submit', 'Registrar por RUT', css_class='btn btn-primary'),
+        )
+
+    def clean_rut(self):
+        """Valida que el RUT corresponda a un socio existente."""
+        rut = normalizar_rut(self.cleaned_data['rut'])
+        socio = Usuario.objects.filter(rut__iexact=rut, rol=Usuario.SOCIO).first()
+
+        if not socio:
+            raise forms.ValidationError('Solo se pueden registrar socios existentes.')
+
+        if not socio.is_active:
+            raise forms.ValidationError('El socio esta inactivo.')
+
+        if AsistenciaReunion.objects.filter(reunion=self.reunion, socio=socio).exists():
+            raise forms.ValidationError('El socio ya tiene asistencia registrada en esta reunion.')
+
+        self.socio = socio
+        return rut
+
+    def clean(self):
+        """Valida que la reunion siga activa durante el registro."""
+        cleaned_data = super().clean()
+        if self.reunion.estado != Reunion.ACTIVA:
+            raise forms.ValidationError('Solo se puede registrar asistencia en una reunion activa.')
+        return cleaned_data
+
+    def save(self):
+        """Crea el registro de asistencia presente por RUT."""
+        return AsistenciaReunion.registrar_presente(
+            reunion=self.reunion,
+            socio=self.socio,
+            usuario=self.registrador,
+            origen=AsistenciaReunion.ORIGEN_RUT,
+        )
 
 
 class SocioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):

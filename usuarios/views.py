@@ -23,6 +23,7 @@ from .forms import (
     CambioPasswordForm,
     LoginForm,
     RecuperarPasswordForm,
+    RegistroAsistenciaRutForm,
     ReunionCreationForm,
     RestablecerPasswordForm,
     SocioCreationForm,
@@ -30,7 +31,7 @@ from .forms import (
     UsuarioCreationForm,
     UsuarioUpdateForm,
 )
-from .models import Reunion, Usuario
+from .models import AsistenciaReunion, Reunion, Usuario
 from .permisos import (
     PERM_ACCEDER_ASISTENCIA,
     PERM_ADMINISTRAR_PRIVILEGIOS,
@@ -113,6 +114,13 @@ def obtener_valores_busqueda_rut(valor):
     if '-' not in sin_puntos and len(solo_rut) > 1:
         variantes.append(f'{solo_rut[:-1]}-{solo_rut[-1]}')
     return [variante for variante in dict.fromkeys(variantes) if variante]
+
+
+def obtener_mensaje_validacion(error):
+    """Extrae un mensaje legible desde ValidationError de Django."""
+    if hasattr(error, 'message_dict'):
+        return next(iter(error.message_dict.values()))[0]
+    return error.messages[0] if error.messages else 'No fue posible completar la accion.'
 
 
 COLUMNAS_ORDENABLES_USUARIOS = [
@@ -586,11 +594,12 @@ def agregar_resumen_asistencia_socios(socios):
 
 
 def obtener_resumen_asistencia_socio(socio):
-    """Devuelve los contadores de asistencia usados por vistas y eliminación segura."""
+    """Devuelve los contadores de asistencia usados por vistas y eliminacion segura."""
+    asistencias = AsistenciaReunion.objects.filter(socio=socio)
     return {
-        'total_reuniones': 0,
-        'total_asistencias': 0,
-        'total_ausencias': 0,
+        'total_reuniones': asistencias.count(),
+        'total_asistencias': asistencias.filter(estado=AsistenciaReunion.PRESENTE).count(),
+        'total_ausencias': asistencias.filter(estado=AsistenciaReunion.AUSENTE).count(),
     }
 
 
@@ -697,8 +706,7 @@ def iniciar_reunion(request, pk):
     try:
         reunion.iniciar(request.user)
     except ValidationError as error:
-        mensaje = next(iter(error.message_dict.values()))[0]
-        messages.error(request, mensaje)
+        messages.error(request, obtener_mensaje_validacion(error))
     except IntegrityError:
         messages.error(request, 'Ya existe una reunion activa.')
     else:
@@ -708,6 +716,57 @@ def iniciar_reunion(request, pk):
         )
 
     return redirect('usuarios:listado_reuniones')
+
+
+@asistencia_required
+def registrar_asistencia_reunion(request, pk):
+    """Registra asistencia por RUT para una reunion activa."""
+    reunion = get_object_or_404(
+        Reunion.objects.select_related('activada_por'),
+        pk=pk,
+    )
+
+    if reunion.estado != Reunion.ACTIVA:
+        messages.error(request, 'Solo se puede registrar asistencia en una reunion activa.')
+        return redirect('usuarios:listado_socios_asistencia')
+
+    if request.method == 'POST':
+        form = RegistroAsistenciaRutForm(
+            request.POST,
+            reunion=reunion,
+            registrador=request.user,
+        )
+        if form.is_valid():
+            try:
+                asistencia = form.save()
+            except ValidationError as error:
+                form.add_error(None, obtener_mensaje_validacion(error))
+            except IntegrityError:
+                form.add_error('rut', 'El socio ya tiene asistencia registrada en esta reunion.')
+            else:
+                messages.success(
+                    request,
+                    f'Asistencia registrada para {asistencia.socio.nombre_completo}.',
+                )
+                return redirect('usuarios:registrar_asistencia_reunion', pk=reunion.pk)
+    else:
+        form = RegistroAsistenciaRutForm(reunion=reunion, registrador=request.user)
+
+    asistencias = reunion.asistencias.select_related('socio', 'registrada_por')[:20]
+    total_asistencias = reunion.asistencias.filter(
+        estado=AsistenciaReunion.PRESENTE,
+    ).count()
+
+    return render(
+        request,
+        'usuarios/registrar_asistencia_reunion.html',
+        {
+            'reunion': reunion,
+            'form': form,
+            'asistencias': asistencias,
+            'total_asistencias': total_asistencias,
+        },
+    )
 
 
 @gestor_usuarios_required

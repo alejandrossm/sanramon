@@ -324,11 +324,115 @@ class Reunion(models.Model):
         return self.estado == self.ACTIVA
 
     def tiene_datos_registrados(self):
-        """Punto de extension para asistencias cuando exista el modelo asociado."""
-        return False
+        """Indica si la reunion ya tiene asistencia registrada."""
+        return self.asistencias.exists()
 
     def puede_eliminarse(self):
         """Las reuniones historicas se eliminan solo si no tienen datos registrados."""
         if self.es_historica():
             return not self.tiene_datos_registrados()
         return True
+
+
+class AsistenciaReunion(models.Model):
+    """Registro de asistencia de un socio en una reunion."""
+
+    PRESENTE = 'PRESENTE'
+    AUSENTE = 'AUSENTE'
+
+    ESTADOS = [
+        (PRESENTE, 'Presente'),
+        (AUSENTE, 'Ausente'),
+    ]
+
+    ORIGEN_RUT = 'RUT'
+    ORIGEN_QR = 'QR'
+    ORIGEN_MANUAL = 'MANUAL'
+    ORIGEN_AUTOMATICO = 'AUTOMATICO'
+
+    ORIGENES = [
+        (ORIGEN_RUT, 'RUT'),
+        (ORIGEN_QR, 'QR'),
+        (ORIGEN_MANUAL, 'Manual'),
+        (ORIGEN_AUTOMATICO, 'Automatico'),
+    ]
+
+    reunion = models.ForeignKey(
+        Reunion,
+        on_delete=models.PROTECT,
+        related_name='asistencias',
+    )
+    socio = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='asistencias_reunion',
+    )
+    estado = models.CharField(max_length=10, choices=ESTADOS, default=PRESENTE)
+    origen = models.CharField(max_length=10, choices=ORIGENES)
+    registrada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='asistencias_registradas',
+    )
+    fecha_registro = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        """Orden e invariantes del registro de asistencia."""
+
+        ordering = ['-fecha_registro']
+        verbose_name = 'asistencia de reunion'
+        verbose_name_plural = 'asistencias de reuniones'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['reunion', 'socio'],
+                name='asistencia_unica_por_socio_reunion',
+            ),
+        ]
+
+    def __str__(self):
+        """Representa la asistencia por reunion y socio."""
+        return f'{self.reunion} - {self.socio.nombre_completo}'
+
+    def clean(self):
+        """Valida que la asistencia corresponda a un socio valido."""
+        super().clean()
+        errores = {}
+
+        if self.socio_id and self.socio.rol != Usuario.SOCIO:
+            errores['socio'] = 'Solo se pueden registrar socios.'
+
+        if self.estado == self.PRESENTE and self.socio_id and not self.socio.is_active:
+            errores['socio'] = 'El socio esta inactivo.'
+
+        if errores:
+            raise ValidationError(errores)
+
+    def save(self, *args, **kwargs):
+        """Valida la asistencia antes de persistirla."""
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def registrar_presente(cls, reunion, socio, usuario, origen):
+        """Registra un socio presente en una reunion activa."""
+        if reunion.estado != Reunion.ACTIVA:
+            raise ValidationError({'reunion': 'Solo se puede registrar asistencia en una reunion activa.'})
+
+        if socio.rol != Usuario.SOCIO:
+            raise ValidationError({'socio': 'Solo se pueden registrar socios existentes.'})
+
+        if not socio.is_active:
+            raise ValidationError({'socio': 'El socio esta inactivo.'})
+
+        if cls.objects.filter(reunion=reunion, socio=socio).exists():
+            raise ValidationError({'socio': 'El socio ya tiene asistencia registrada en esta reunion.'})
+
+        return cls.objects.create(
+            reunion=reunion,
+            socio=socio,
+            estado=cls.PRESENTE,
+            origen=origen,
+            registrada_por=usuario,
+        )

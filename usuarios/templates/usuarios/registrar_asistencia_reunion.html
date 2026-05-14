@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% load crispy_forms_tags %}
+
+{% block title %}Registrar asistencia | Sistema San Ramon{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column flex-lg-row justify-content-between gap-3 align-items-lg-start mb-4">
+    <div class="d-flex align-items-center gap-3">
+        {% include "includes/icon.html" with name="clipboard-check" classes="fs-4 text-primary" %}
+        <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Asistencia</p>
+            <h1 class="h3 mb-1">Registrar asistencia</h1>
+            <p class="text-muted mb-0">
+                {{ reunion.fecha|date:"d-m-Y" }} a las {{ reunion.hora|time:"H:i" }} en {{ reunion.locacion }}.
+            </p>
+        </div>
+    </div>
+
+    <div class="d-flex flex-wrap gap-2 align-self-start">
+        <span class="badge text-bg-success">Activa</span>
+        <span class="badge text-bg-primary">Asistencias: {{ total_asistencias }}</span>
+        <a href="{% url 'usuarios:listado_reuniones' %}" class="btn btn-outline-secondary btn-sm">
+            {% include "includes/icon.html" with name="arrow-left" %}
+            <span>Volver</span>
+        </a>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <section class="col-12 col-lg-5">
+        <div class="card shadow-sm border-0 p-4 h-100">
+            <div class="d-flex align-items-center gap-2 mb-3">
+                {% include "includes/icon.html" with name="qr-code" classes="text-primary" %}
+                <h2 class="h5 mb-0">Scanner QR</h2>
+            </div>
+            <button type="button" class="btn btn-outline-secondary align-self-start" disabled>
+                {% include "includes/icon.html" with name="qr-code" %}
+                <span>Escanear QR</span>
+            </button>
+        </div>
+    </section>
+
+    <section class="col-12 col-lg-7">
+        <div class="card shadow-sm border-0 p-4 h-100">
+            <div class="d-flex align-items-center gap-2 mb-3">
+                {% include "includes/icon.html" with name="id-card" classes="text-primary" %}
+                <h2 class="h5 mb-0">Registro por RUT</h2>
+            </div>
+            {% crispy form %}
+        </div>
+    </section>
+</div>
+
+<div class="table-responsive rounded overflow-hidden shadow-sm border bg-white">
+    <table class="table table-hover align-middle mb-0">
+        <thead>
+            <tr>
+                <th>RUT</th>
+                <th>Socio</th>
+                <th>Origen</th>
+                <th>Registrada por</th>
+                <th>Fecha registro</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for asistencia in asistencias %}
+                <tr>
+                    <td class="fw-semibold">{{ asistencia.socio.rut }}</td>
+                    <td>{{ asistencia.socio.nombre_completo }}</td>
+                    <td>{{ asistencia.get_origen_display }}</td>
+                    <td>
+                        {% if asistencia.registrada_por %}
+                            {{ asistencia.registrada_por.nombre_completo }}
+                        {% else %}
+                            <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ asistencia.fecha_registro|date:"d-m-Y H:i" }}</td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="5" class="text-center text-muted py-4">
+                        No hay asistencias registradas.
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

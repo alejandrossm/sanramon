@@ -17,7 +17,7 @@ from django.utils import timezone
 
 from .admin import UsuarioAdmin
 from .forms import ReunionCreationForm, UsuarioCreationForm, UsuarioUpdateForm
-from .models import Reunion
+from .models import AsistenciaReunion, Reunion
 from .permisos import (
     GRUPO_ADMINISTRADOR,
     GRUPO_ENCARGADO_REGISTRO,
@@ -32,9 +32,11 @@ from .views import (
     obtener_indicador_asistencia,
     obtener_resumen_estado_asistencia_socios,
     puede_acceder_asistencia,
+    puede_eliminar_socio_seguro,
     puede_gestionar_usuarios,
     puede_registrar_socios,
     puede_registrar_usuarios,
+    obtener_resumen_asistencia_socio,
 )
 
 
@@ -837,6 +839,206 @@ class UsuariosModuloTests(TestCase):
 
         reunion.refresh_from_db()
         self.assertEqual(reunion.estado, Reunion.PROGRAMADA)
+
+    def test_listado_reuniones_muestra_registro_asistencia_para_activa(self):
+        """Expone la accion de registro desde la reunion activa."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+        url_registro = reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk])
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_reuniones'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, url_registro)
+        self.assertContains(response, 'Registrar asistencia')
+
+    def test_registro_asistencia_reunion_muestra_rut_y_qr_pendiente(self):
+        """Muestra la vista de registro con RUT operativo y QR pendiente."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Scanner QR')
+        self.assertContains(response, 'Escanear QR')
+        self.assertContains(response, 'disabled')
+        self.assertContains(response, 'Registro por RUT')
+        self.assertContains(response, 'data-rut-format="true"')
+        self.assertContains(response, 'Registrar por RUT')
+        self.assertContains(response, reverse('usuarios:listado_reuniones'))
+
+    def test_encargado_registra_asistencia_por_rut(self):
+        """Crea asistencia presente para un socio existente en reunion activa."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
+            {'rut': '22.222.222-2'},
+            follow=True,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
+        )
+        self.assertContains(response, 'Asistencia registrada para Socio Prueba.')
+        asistencia = AsistenciaReunion.objects.get(reunion=reunion, socio=self.socio_user)
+        self.assertEqual(asistencia.estado, AsistenciaReunion.PRESENTE)
+        self.assertEqual(asistencia.origen, AsistenciaReunion.ORIGEN_RUT)
+        self.assertEqual(asistencia.registrada_por, self.encargado_user)
+
+    def test_registro_asistencia_rechaza_rut_no_existente(self):
+        """No permite registrar asistencia a socios inexistentes."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
+            {'rut': '99.999.999-9'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Solo se pueden registrar socios existentes.')
+        self.assertEqual(AsistenciaReunion.objects.count(), 0)
+
+    def test_registro_asistencia_rechaza_duplicada(self):
+        """Mantiene una sola asistencia por socio y reunion."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+        AsistenciaReunion.registrar_presente(
+            reunion=reunion,
+            socio=self.socio_user,
+            usuario=self.encargado_user,
+            origen=AsistenciaReunion.ORIGEN_RUT,
+        )
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
+            {'rut': '22.222.222-2'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'El socio ya tiene asistencia registrada en esta reunion.')
+        self.assertEqual(AsistenciaReunion.objects.count(), 1)
+
+    def test_registro_asistencia_rechaza_socio_inactivo(self):
+        """Impide registrar asistencia presente a socios inactivos."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+        self.socio_user.is_active = False
+        self.socio_user.save(update_fields=['is_active'])
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
+            {'rut': '22.222.222-2'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'El socio esta inactivo.')
+        self.assertEqual(AsistenciaReunion.objects.count(), 0)
+
+    def test_registro_asistencia_requiere_reunion_activa(self):
+        """Bloquea el registro si la reunion no esta activa."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_socios_asistencia'))
+        self.assertContains(response, 'Solo se puede registrar asistencia en una reunion activa.')
+
+    def test_registro_asistencia_solo_disponible_para_permiso_asistencia(self):
+        """Protege el registro para socios sin permiso operativo."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+
+        self.client.login(username='socio', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
+        )
+
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+
+    def test_resumen_asistencia_socio_usa_registros_reales(self):
+        """Cuenta asistencias reales para indicadores y eliminacion segura."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+        AsistenciaReunion.registrar_presente(
+            reunion=reunion,
+            socio=self.socio_user,
+            usuario=self.encargado_user,
+            origen=AsistenciaReunion.ORIGEN_RUT,
+        )
+
+        resumen = obtener_resumen_asistencia_socio(self.socio_user)
+
+        self.assertEqual(
+            resumen,
+            {
+                'total_reuniones': 1,
+                'total_asistencias': 1,
+                'total_ausencias': 0,
+            },
+        )
+        self.assertFalse(puede_eliminar_socio_seguro(self.socio_user))
 
     def test_administrador_accede_a_asistencia_y_ve_solo_socios(self):
         """Permite al administrador ver el listado operativo de socios."""

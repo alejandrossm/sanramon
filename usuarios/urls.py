@@ -34,6 +34,11 @@ urlpatterns = [
     path('reuniones/', views.listado_reuniones, name='listado_reuniones'),
     path('reuniones/crear/', views.crear_reunion, name='crear_reunion'),
     path('reuniones/<int:pk>/iniciar/', views.iniciar_reunion, name='iniciar_reunion'),
+    path(
+        'reuniones/<int:pk>/asistencia/',
+        views.registrar_asistencia_reunion,
+        name='registrar_asistencia_reunion',
+    ),
     path('socios/', views.listado_socios, name='listado_socios'),
     path('registrar_socio/', views.registro_socio, name='registro_socio'),
     path('socios/<int:pk>/editar/', views.editar_socio, name='editar_socio'),

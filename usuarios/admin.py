@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
-from .models import Reunion, Usuario
+from .models import AsistenciaReunion, Reunion, Usuario
 
 
 @admin.register(Usuario)
@@ -62,3 +62,26 @@ class ReunionAdmin(admin.ModelAdmin):
     search_fields = ('locacion', 'creador__username', 'creador__email')
     readonly_fields = ('fecha_creacion', 'fecha_activacion')
     ordering = ('-fecha', '-fecha_creacion')
+
+
+@admin.register(AsistenciaReunion)
+class AsistenciaReunionAdmin(admin.ModelAdmin):
+    """Configuracion de asistencias de reuniones dentro del admin de Django."""
+
+    list_display = (
+        'reunion',
+        'socio',
+        'estado',
+        'origen',
+        'registrada_por',
+        'fecha_registro',
+    )
+    list_filter = ('estado', 'origen', 'reunion__fecha')
+    search_fields = (
+        'socio__rut',
+        'socio__first_name',
+        'socio__last_name',
+        'registrada_por__username',
+    )
+    readonly_fields = ('fecha_registro',)
+    ordering = ('-fecha_registro',)

@@ -37,7 +37,10 @@
    - El sistema bloquea el inicio si ya existe otra reunion activa.
    - La reunion cambia a estado `activa`.
 
-3. HU-08 - Registrar asistencia por QR
+3. HU-08 - Registrar asistencia por RUT y QR
+   - Primero se implementara el registro ingresando el RUT en un input.
+   - La vista dejara preparado el acceso al scanner QR para implementacion posterior.
+   - El registro por RUT debe registrar la asistencia correctamente.
    - Requiere una reunion activa.
    - Valida que el socio exista.
    - Valida que el socio este activo.
@@ -46,7 +49,7 @@
    - Muestra confirmacion al registrar.
 
 4. HU-09 - Registrar asistencia manual
-   - Usa las mismas validaciones del registro por QR.
+   - Usa las mismas validaciones del registro por RUT y QR.
    - Permite registrar asistencia ingresando RUT.
    - El registro manual debe estar siempre disponible mientras exista una reunion activa.
    - Muestra mensaje de exito o error.
