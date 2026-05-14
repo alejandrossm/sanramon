@@ -42,7 +42,7 @@
                     <small>{{ user.get_rol_display }}</small>
                 </div>
 
-                <nav class="nav flex-column gap-1" aria-label="Navegación principal">
+                <nav class="nav flex-column gap-1" aria-label="Navegacion principal">
                     {% if nav_usuario_es_socio %}
                         <p class="sidebar-section-title text-uppercase fw-bold small mb-1 mt-0 px-3">Socio</p>
                         <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:mis_asistencias' %}">
@@ -106,7 +106,7 @@
                     <p class="sidebar-section-title text-uppercase fw-bold small mb-1 mt-3 px-3">Cuenta</p>
                     <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:cambiar_mi_password' %}">
                         {% include "includes/icon.html" with name="key" classes="sidebar-icon flex-shrink-0" %}
-                        <span>Mi contraseña</span>
+                        <span>Mi contrase&ntilde;a</span>
                     </a>
                 </nav>
 
@@ -114,14 +114,14 @@
                     {% csrf_token %}
                     <button type="submit" class="sidebar-link sidebar-button d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2 w-100 text-start">
                         {% include "includes/icon.html" with name="log-out" classes="sidebar-icon flex-shrink-0" %}
-                        <span>Cerrar sesión</span>
+                        <span>Cerrar sesi&oacute;n</span>
                     </button>
                 </form>
                 {% else %}
                 <div class="sidebar-user d-grid gap-1 rounded p-3 my-3">
                     <span class="small">Acceso</span>
-                    <strong>Inicia sesión</strong>
-                    <small>Gestión interna</small>
+                    <strong>Inicia sesi&oacute;n</strong>
+                    <small>Gesti&oacute;n interna</small>
                 </div>
                 {% endif %}
             </div>
@@ -150,7 +150,7 @@
             </main>
 
             <footer class="app-footer">
-                valle san ramón
+                valle san ram&oacute;n
             </footer>
         </div>
     </div>
@@ -158,344 +158,7 @@
     <script src="{% static 'vendor/bootstrap/bootstrap.bundle.min.js' %}"></script>
     <script src="{% static 'vendor/sweetalert2/sweetalert2.all.min.js' %}"></script>
     <script src="{% static 'vendor/chart.js/chart.min.js' %}"></script>
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const sidebar = document.querySelector('[data-sidebar]');
-            const sidebarToggle = document.querySelector('[data-sidebar-toggle]');
-            const sidebarPanel = document.querySelector('[data-sidebar-panel]');
-            const sidebarToggleLabel = document.querySelector('[data-sidebar-toggle-label]');
-            const mobileSidebarQuery = window.matchMedia('(max-width: 991.98px)');
-
-            const setSidebarOpen = (isOpen) => {
-                if (!sidebar || !sidebarToggle) {
-                    return;
-                }
-
-                sidebar.dataset.sidebarOpen = isOpen ? 'true' : 'false';
-                sidebarToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-                if (sidebarToggleLabel) {
-                    sidebarToggleLabel.textContent = isOpen ? 'Cerrar menu' : 'Abrir menu';
-                }
-            };
-
-            if (sidebar && sidebarToggle && sidebarPanel) {
-                setSidebarOpen(false);
-                sidebarToggle.addEventListener('click', () => {
-                    setSidebarOpen(sidebar.dataset.sidebarOpen !== 'true');
-                });
-
-                sidebarPanel.querySelectorAll('a').forEach((link) => {
-                    link.addEventListener('click', () => {
-                        if (mobileSidebarQuery.matches) {
-                            setSidebarOpen(false);
-                        }
-                    });
-                });
-
-                mobileSidebarQuery.addEventListener('change', () => {
-                    setSidebarOpen(false);
-                });
-            }
-
-            if (window.Swal) {
-                const iconByLevel = {
-                    success: 'success',
-                    error: 'error',
-                    danger: 'error',
-                    warning: 'warning',
-                    info: 'info',
-                };
-                const titleByLevel = {
-                    success: 'Operación completada',
-                    error: 'No se pudo completar',
-                    danger: 'No se pudo completar',
-                    warning: 'Atención',
-                    info: 'Información',
-                };
-
-                document.querySelectorAll('[data-app-message]').forEach((message) => {
-                    const level = message.dataset.messageLevel || 'info';
-                    const text = message.dataset.messageText || message.textContent.trim();
-
-                    if (!text) {
-                        return;
-                    }
-
-                    Swal.fire({
-                        icon: iconByLevel[level] || 'info',
-                        title: titleByLevel[level] || 'Información',
-                        text,
-                        confirmButtonText: 'Aceptar',
-                        confirmButtonColor: '#2f5d50',
-                    });
-                });
-
-                document.querySelectorAll('[data-confirm-submit]').forEach((form) => {
-                    form.addEventListener('submit', (event) => {
-                        if (form.dataset.confirmed === 'true') {
-                            return;
-                        }
-
-                        event.preventDefault();
-
-                        Swal.fire({
-                            title: form.dataset.confirmTitle || 'Confirmar acción',
-                            text: form.dataset.confirmText || 'Esta acción se aplicará inmediatamente.',
-                            icon: form.dataset.confirmIcon || 'warning',
-                            showCancelButton: true,
-                            confirmButtonText: form.dataset.confirmButton || 'Confirmar',
-                            cancelButtonText: form.dataset.cancelButton || 'Cancelar',
-                            confirmButtonColor: form.dataset.confirmColor || '#2f5d50',
-                            cancelButtonColor: '#5d6b74',
-                        }).then((result) => {
-                            if (result.isConfirmed) {
-                                form.dataset.confirmed = 'true';
-                                form.submit();
-                            }
-                        });
-                    });
-                });
-            }
-
-            document.querySelectorAll('[data-reunion-date]').forEach((dateInput) => {
-                const form = dateInput.closest('form') || document;
-                const timeInput = form.querySelector('[data-reunion-time]');
-                const statusSelect = form.querySelector('[data-reunion-status]');
-
-                if (!statusSelect) {
-                    return;
-                }
-
-                const historicalValue = statusSelect.dataset.historicalValue;
-                const getHiddenStatusInput = () => form.querySelector('[data-reunion-status-hidden]');
-                const ensureHiddenStatusInput = () => {
-                    let hiddenStatusInput = getHiddenStatusInput();
-
-                    if (!hiddenStatusInput) {
-                        hiddenStatusInput = document.createElement('input');
-                        hiddenStatusInput.type = 'hidden';
-                        hiddenStatusInput.name = statusSelect.name;
-                        hiddenStatusInput.dataset.reunionStatusHidden = 'true';
-                        statusSelect.insertAdjacentElement('afterend', hiddenStatusInput);
-                    }
-
-                    hiddenStatusInput.value = historicalValue;
-                };
-                const removeHiddenStatusInput = () => {
-                    const hiddenStatusInput = getHiddenStatusInput();
-
-                    if (hiddenStatusInput) {
-                        hiddenStatusInput.remove();
-                    }
-                };
-                const meetingIsPast = () => {
-                    const today = dateInput.dataset.today;
-                    const currentTime = timeInput ? timeInput.dataset.currentTime : '';
-
-                    if (!dateInput.value || !today || !historicalValue) {
-                        return false;
-                    }
-
-                    if (dateInput.value < today) {
-                        return true;
-                    }
-
-                    return (
-                        dateInput.value === today
-                        && Boolean(timeInput && timeInput.value && currentTime)
-                        && timeInput.value < currentTime
-                    );
-                };
-                const syncMeetingStatusWithDateTime = () => {
-                    if (!dateInput.value || !historicalValue) {
-                        statusSelect.disabled = false;
-                        statusSelect.removeAttribute('aria-disabled');
-                        removeHiddenStatusInput();
-                        return;
-                    }
-
-                    // Fechas y horas pasadas siempre se fuerzan como historicas y bloquean el cambio manual.
-                    if (meetingIsPast()) {
-                        if (statusSelect.value !== historicalValue) {
-                            statusSelect.value = historicalValue;
-                            statusSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                        }
-                        statusSelect.disabled = true;
-                        statusSelect.setAttribute('aria-disabled', 'true');
-                        // Un select deshabilitado no se envia en el POST; este hidden conserva el valor.
-                        ensureHiddenStatusInput();
-                        return;
-                    }
-
-                    // Desde el momento actual en adelante el estado vuelve a ser editable.
-                    statusSelect.disabled = false;
-                    statusSelect.removeAttribute('aria-disabled');
-                    removeHiddenStatusInput();
-                };
-
-                syncMeetingStatusWithDateTime();
-                dateInput.addEventListener('input', syncMeetingStatusWithDateTime);
-                dateInput.addEventListener('change', syncMeetingStatusWithDateTime);
-                if (timeInput) {
-                    timeInput.addEventListener('input', syncMeetingStatusWithDateTime);
-                    timeInput.addEventListener('change', syncMeetingStatusWithDateTime);
-                }
-                statusSelect.addEventListener('change', syncMeetingStatusWithDateTime);
-            });
-
-            const setDeleteButtonVariant = (button, variantClasses) => {
-                button.classList.remove('btn-danger', 'btn-outline-danger', 'btn-outline-secondary', 'text-muted');
-                button.classList.add(...variantClasses);
-            };
-
-            const setDeleteButtonsEnabled = (enabled) => {
-                document
-                    .querySelectorAll('[data-delete-user-button][data-delete-allowed="true"]')
-                    .forEach((button) => {
-                        button.disabled = !enabled;
-                        setDeleteButtonVariant(
-                            button,
-                            enabled ? ['btn-danger'] : ['btn-outline-secondary', 'text-muted']
-                        );
-                    });
-
-                document
-                    .querySelectorAll('[data-delete-unavailable-button]')
-                    .forEach((button) => {
-                        button.disabled = true;
-                        setDeleteButtonVariant(
-                            button,
-                            enabled ? ['btn-outline-danger'] : ['btn-outline-secondary', 'text-muted']
-                        );
-                    });
-            };
-
-            document.querySelectorAll('[data-enable-delete-column]').forEach((toggle) => {
-                const isCheckboxSwitch = toggle.matches('input[type="checkbox"]');
-                const labelContainer = toggle.closest('.form-check') || toggle;
-                const label = labelContainer.querySelector('[data-delete-toggle-label]');
-
-                const setToggleState = (enabled) => {
-                    toggle.dataset.deleteEnabled = enabled ? 'true' : 'false';
-                    if (isCheckboxSwitch) {
-                        toggle.checked = enabled;
-                        toggle.setAttribute('aria-checked', enabled ? 'true' : 'false');
-                    } else {
-                        toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
-                    }
-                    const text = enabled
-                        ? toggle.dataset.disableDeleteLabel || 'Desactivar eliminación'
-                        : toggle.dataset.enableDeleteLabel || 'Activar eliminación';
-                    if (label) {
-                        label.textContent = text;
-                    } else {
-                        toggle.textContent = text;
-                    }
-                    setDeleteButtonsEnabled(enabled);
-                };
-
-                setToggleState(toggle.dataset.deleteEnabled === 'true');
-
-                const handleToggle = () => {
-                    const shouldEnable = isCheckboxSwitch ? toggle.checked : toggle.dataset.deleteEnabled !== 'true';
-
-                    if (!shouldEnable) {
-                        setToggleState(false);
-                        return;
-                    }
-
-                    const activateDeletion = () => {
-                        setToggleState(true);
-                    };
-
-                    activateDeletion();
-
-                    if (!window.Swal) {
-                        window.alert(toggle.dataset.enableDeleteText || 'Eliminación activada.');
-                        return;
-                    }
-
-                    Swal.fire({
-                        icon: 'warning',
-                        title: toggle.dataset.enableDeleteTitle || 'Eliminación activada',
-                        text: toggle.dataset.enableDeleteText || 'La eliminación quedó habilitada.',
-                        confirmButtonText: 'Aceptar',
-                        confirmButtonColor: '#b42318',
-                    });
-                };
-
-                toggle.addEventListener(isCheckboxSwitch ? 'change' : 'click', handleToggle);
-            });
-
-            const cleanRut = (value) => value
-                .toUpperCase()
-                .replace(/[^0-9K]/g, '')
-                .slice(0, 9);
-
-            const formatRut = (value) => {
-                const cleanValue = cleanRut(value);
-                if (cleanValue.length <= 1) {
-                    return cleanValue;
-                }
-
-                const body = cleanValue.slice(0, -1);
-                const verifier = cleanValue.slice(-1);
-                const formattedBody = body.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-
-                return `${formattedBody}-${verifier}`;
-            };
-
-            document.querySelectorAll('[data-rut-format]').forEach((input) => {
-                input.value = formatRut(input.value);
-
-                input.addEventListener('input', () => {
-                    input.value = formatRut(input.value);
-                    input.setSelectionRange(input.value.length, input.value.length);
-                });
-            });
-
-            const formatPhoneWithPrefix = (value, prefix) => {
-                const digits = value.replace(/\D/g, '');
-                let localDigits = digits;
-
-                if (localDigits.startsWith('56')) {
-                    localDigits = localDigits.slice(2);
-                }
-
-                return `${prefix}${localDigits.slice(0, 9)}`;
-            };
-
-            document.querySelectorAll('[data-phone-prefix]').forEach((input) => {
-                const prefix = input.dataset.phonePrefix || '+56';
-
-                input.value = formatPhoneWithPrefix(input.value || prefix, prefix);
-
-                input.addEventListener('focus', () => {
-                    if (!input.value.startsWith(prefix)) {
-                        input.value = prefix;
-                    }
-                    input.setSelectionRange(input.value.length, input.value.length);
-                });
-
-                input.addEventListener('input', () => {
-                    input.value = formatPhoneWithPrefix(input.value, prefix);
-                    input.setSelectionRange(input.value.length, input.value.length);
-                });
-
-                input.addEventListener('keydown', (event) => {
-                    const cursorAtPrefix = input.selectionStart <= prefix.length;
-                    const deletingPrefix = (
-                        (event.key === 'Backspace' && cursorAtPrefix)
-                        || (event.key === 'Delete' && input.selectionStart < prefix.length)
-                    );
-
-                    if (deletingPrefix) {
-                        event.preventDefault();
-                        input.setSelectionRange(prefix.length, prefix.length);
-                    }
-                });
-            });
-        });
-    </script>
+    <script src="{% static 'js/app.js' %}"></script>
+    {% block extra_js %}{% endblock %}
 </body>
 </html>

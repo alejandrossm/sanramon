@@ -469,14 +469,11 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'vendor/bootstrap/bootstrap.bundle.min.js')
         self.assertContains(response, 'vendor/sweetalert2/sweetalert2.all.min.js')
         self.assertContains(response, 'vendor/chart.js/chart.min.js')
+        self.assertContains(response, 'js/app.js')
+        self.assertContains(response, 'js/dashboard.js')
+        self.assertNotContains(response, 'js/reuniones.js')
         self.assertContains(response, 'data-sidebar-toggle')
         self.assertContains(response, 'aria-controls="sidebar-panel"')
-        self.assertContains(response, "document.querySelectorAll('[data-reunion-date]')")
-        self.assertContains(response, 'statusSelect.dataset.historicalValue')
-        self.assertContains(response, 'statusSelect.disabled = true')
-        self.assertContains(response, 'statusSelect.disabled = false')
-        self.assertContains(response, 'data-reunion-status-hidden')
-        self.assertContains(response, 'Fechas y horas pasadas siempre se fuerzan como historicas')
 
         rutas_estaticas = [
             'vendor/bootstrap/bootstrap.min.css',
@@ -486,6 +483,9 @@ class UsuariosModuloTests(TestCase):
             'vendor/bootstrap/bootstrap.bundle.min.js',
             'vendor/sweetalert2/sweetalert2.all.min.js',
             'vendor/chart.js/chart.min.js',
+            'js/app.js',
+            'js/dashboard.js',
+            'js/reuniones.js',
         ]
         for ruta in rutas_estaticas:
             with self.subTest(ruta=ruta):
@@ -573,6 +573,7 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'name="estado"')
         self.assertContains(response, 'data-reunion-status="true"')
         self.assertContains(response, 'data-historical-value="HISTORICA"')
+        self.assertContains(response, 'js/reuniones.js')
         self.assertContains(response, 'Hist')
 
         response = self.client.post(
@@ -1439,9 +1440,9 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(usuario.rut, '33333333-3')
         self.assertEqual(usuario.telefono_movil, '+56933333333')
         self.assertContains(response, 'Usuario encargado_nuevo creado correctamente.')
-        self.assertContains(response, 'Operación completada')
-        self.assertContains(response, "confirmButtonText: 'Aceptar'")
-        self.assertNotContains(response, 'toast: true')
+        self.assertContains(response, 'data-app-message')
+        self.assertContains(response, 'data-message-level="success"')
+        self.assertContains(response, 'js/app.js')
 
     def test_registro_usuario_interno_no_ofrece_rol_socio(self):
         """Reserva el formulario interno para administradores y encargados."""
