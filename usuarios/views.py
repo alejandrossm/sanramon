@@ -660,6 +660,10 @@ def crear_reunion(request):
                 f'Reunion del {reunion.fecha:%d-%m-%Y} a las {reunion.hora:%H:%M} creada correctamente.',
             )
             return redirect('usuarios:crear_reunion')
+        if form.reunion_duplicada:
+            messages.warning(request, form.REUNION_DUPLICADA_MENSAJE)
+        if form.reunion_pasada_requiere_historica:
+            messages.warning(request, form.REUNION_PASADA_HISTORICA_MENSAJE)
     else:
         form = ReunionCreationForm(creador=request.user)
 

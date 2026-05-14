@@ -11,6 +11,7 @@ from django.contrib.auth.forms import (
     UserCreationForm,
 )
 from django.contrib.auth.password_validation import validate_password
+from django.utils import timezone
 
 from .models import (
     Reunion,
@@ -314,6 +315,14 @@ class SocioCreationForm(TelefonoMovilFormMixin, forms.ModelForm):
 class ReunionCreationForm(forms.ModelForm):
     """Formulario para programar una nueva reunion."""
 
+    REUNION_DUPLICADA_MENSAJE = (
+        'Ya existe una reunion programada para la misma fecha y hora. '
+        'Ajusta la fecha u hora antes de guardar.'
+    )
+    REUNION_PASADA_HISTORICA_MENSAJE = (
+        'Las reuniones con fecha y hora anteriores al momento actual deben '
+        'registrarse como historicas.'
+    )
     ESTADOS_CREACION = (
         (Reunion.PROGRAMADA, 'Programada'),
         (Reunion.HISTORICA, 'Histórica'),
@@ -339,9 +348,30 @@ class ReunionCreationForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         """Recibe al creador para asociarlo al guardar."""
         self.creador = kwargs.pop('creador', None)
+        self.reunion_duplicada = False
+        self.reunion_pasada_requiere_historica = False
         super().__init__(*args, **kwargs)
+        ahora = timezone.localtime()
         self.fields['estado'].choices = self.ESTADOS_CREACION
         self.fields['estado'].initial = Reunion.PROGRAMADA
+        self.fields['fecha'].widget.attrs.update(
+            {
+                'data-reunion-date': 'true',
+                'data-today': ahora.date().isoformat(),
+            }
+        )
+        self.fields['hora'].widget.attrs.update(
+            {
+                'data-reunion-time': 'true',
+                'data-current-time': ahora.strftime('%H:%M'),
+            }
+        )
+        self.fields['estado'].widget.attrs.update(
+            {
+                'data-reunion-status': 'true',
+                'data-historical-value': Reunion.HISTORICA,
+            }
+        )
         self.helper = FormHelper()
         self.helper.form_method = 'post'
         self.helper.layout = Layout(
@@ -355,6 +385,34 @@ class ReunionCreationForm(forms.ModelForm):
             ),
             Submit('submit', 'Guardar reunion', css_class='btn btn-primary'),
         )
+
+    def clean(self):
+        """Valida reglas de fecha, estado y duplicidad antes de guardar."""
+        cleaned_data = super().clean()
+        fecha = cleaned_data.get('fecha')
+        hora = cleaned_data.get('hora')
+        estado = cleaned_data.get('estado')
+
+        if (
+            fecha
+            and hora
+            and self._reunion_es_pasada(fecha, hora)
+            and estado != Reunion.HISTORICA
+        ):
+            self.reunion_pasada_requiere_historica = True
+            raise forms.ValidationError(self.REUNION_PASADA_HISTORICA_MENSAJE)
+
+        if fecha and hora and Reunion.objects.filter(fecha=fecha, hora=hora).exists():
+            self.reunion_duplicada = True
+            raise forms.ValidationError(self.REUNION_DUPLICADA_MENSAJE)
+
+        return cleaned_data
+
+    def _reunion_es_pasada(self, fecha, hora):
+        """Compara fecha y hora de la reunion contra el momento local actual."""
+        ahora = timezone.localtime()
+        hora_actual = ahora.replace(second=0, microsecond=0).time()
+        return fecha < ahora.date() or (fecha == ahora.date() and hora < hora_actual)
 
     def save(self, commit=True):
         """Guarda la reunion con creador y estado validado por el formulario."""

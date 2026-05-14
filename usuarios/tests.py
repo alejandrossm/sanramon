@@ -1,4 +1,4 @@
-from datetime import date, time
+from datetime import date, datetime, time
 from io import StringIO
 from urllib.parse import urlparse
 from unittest.mock import patch
@@ -11,6 +11,7 @@ from django.core import mail
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.test import TestCase, override_settings
+from django.template.loader import render_to_string
 from django.urls import reverse
 
 from .admin import UsuarioAdmin
@@ -167,6 +168,97 @@ class UsuariosModuloTests(TestCase):
         self.assertIn('hora', form.errors)
         self.assertIn('locacion', form.errors)
 
+    @patch('usuarios.forms.timezone.localtime', return_value=datetime(2026, 5, 14, 12, 0))
+    def test_formulario_reunion_alerta_fecha_hora_duplicada(self, _localtime):
+        """Bloquea reuniones con fecha y hora ya registradas."""
+        Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+
+        form = ReunionCreationForm(
+            data={
+                'fecha': '2026-05-20',
+                'hora': '18:30',
+                'locacion': 'Sede norte',
+                'estado': Reunion.PROGRAMADA,
+            },
+            creador=self.admin_user,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertTrue(form.reunion_duplicada)
+        self.assertIn(
+            ReunionCreationForm.REUNION_DUPLICADA_MENSAJE,
+            form.non_field_errors(),
+        )
+
+    @patch('usuarios.forms.timezone.localtime', return_value=datetime(2026, 5, 14, 12, 0))
+    def test_formulario_reunion_pasada_debe_ser_historica(self, _localtime):
+        """Obliga a registrar como historicas las reuniones anteriores a ahora."""
+        form = ReunionCreationForm(
+            data={
+                'fecha': '2026-05-13',
+                'hora': '18:30',
+                'locacion': 'Sede social',
+                'estado': Reunion.PROGRAMADA,
+            },
+            creador=self.admin_user,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertTrue(form.reunion_pasada_requiere_historica)
+        self.assertIn(
+            ReunionCreationForm.REUNION_PASADA_HISTORICA_MENSAJE,
+            form.non_field_errors(),
+        )
+
+        form = ReunionCreationForm(
+            data={
+                'fecha': '2026-05-13',
+                'hora': '18:30',
+                'locacion': 'Sede social',
+                'estado': Reunion.HISTORICA,
+            },
+            creador=self.admin_user,
+        )
+
+        self.assertTrue(form.is_valid())
+
+    @patch('usuarios.forms.timezone.localtime', return_value=datetime(2026, 5, 14, 12, 0))
+    def test_formulario_reunion_hoy_con_hora_pasada_debe_ser_historica(self, _localtime):
+        """Considera historicas las reuniones de hoy cuando la hora ya paso."""
+        form = ReunionCreationForm(
+            data={
+                'fecha': '2026-05-14',
+                'hora': '11:30',
+                'locacion': 'Sede social',
+                'estado': Reunion.PROGRAMADA,
+            },
+            creador=self.admin_user,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertTrue(form.reunion_pasada_requiere_historica)
+        self.assertIn(
+            ReunionCreationForm.REUNION_PASADA_HISTORICA_MENSAJE,
+            form.non_field_errors(),
+        )
+
+        form = ReunionCreationForm(
+            data={
+                'fecha': '2026-05-14',
+                'hora': '12:30',
+                'locacion': 'Sede social',
+                'estado': Reunion.PROGRAMADA,
+            },
+            creador=self.admin_user,
+        )
+
+        self.assertTrue(form.is_valid())
+
     def test_formulario_reunion_permite_programada_o_historica(self):
         """Limita los estados disponibles al crear reuniones."""
         form = ReunionCreationForm(creador=self.admin_user)
@@ -274,7 +366,10 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         mensaje = mail.outbox[0]
         self.assertEqual(mensaje.to, ['admin@example.com'])
-        self.assertIn('Sistema San Ramon', mensaje.subject)
+        asunto_esperado = ''.join(
+            render_to_string('usuarios/password_reset_subject.txt').splitlines()
+        )
+        self.assertEqual(mensaje.subject, asunto_esperado)
 
         enlace = next(
             linea.strip()
@@ -376,6 +471,12 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'vendor/chart.js/chart.min.js')
         self.assertContains(response, 'data-sidebar-toggle')
         self.assertContains(response, 'aria-controls="sidebar-panel"')
+        self.assertContains(response, "document.querySelectorAll('[data-reunion-date]')")
+        self.assertContains(response, 'statusSelect.dataset.historicalValue')
+        self.assertContains(response, 'statusSelect.disabled = true')
+        self.assertContains(response, 'statusSelect.disabled = false')
+        self.assertContains(response, 'data-reunion-status-hidden')
+        self.assertContains(response, 'Fechas y horas pasadas siempre se fuerzan como historicas')
 
         rutas_estaticas = [
             'vendor/bootstrap/bootstrap.min.css',
@@ -451,7 +552,8 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, reverse('usuarios:crear_reunion'))
         self.assertNotContains(response, '<p class="sidebar-section-title">Asistencia</p>', html=True)
 
-    def test_crear_reunion_solo_disponible_para_administrador(self):
+    @patch('usuarios.forms.timezone.localtime', return_value=datetime(2026, 5, 14, 12, 0))
+    def test_crear_reunion_solo_disponible_para_administrador(self, _localtime):
         """Protege la entrada inicial de creacion de reuniones."""
         url = reverse('usuarios:crear_reunion')
 
@@ -460,11 +562,17 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Crear reuni')
         self.assertContains(response, 'name="fecha"')
+        self.assertContains(response, 'data-reunion-date="true"')
+        self.assertContains(response, 'data-today="2026-05-14"')
         self.assertContains(response, 'name="hora"')
         self.assertContains(response, 'type="time"')
+        self.assertContains(response, 'data-reunion-time="true"')
+        self.assertContains(response, 'data-current-time="12:00"')
         self.assertContains(response, 'name="locacion"')
         self.assertContains(response, 'Locaci')
         self.assertContains(response, 'name="estado"')
+        self.assertContains(response, 'data-reunion-status="true"')
+        self.assertContains(response, 'data-historical-value="HISTORICA"')
         self.assertContains(response, 'Hist')
 
         response = self.client.post(
@@ -490,6 +598,54 @@ class UsuariosModuloTests(TestCase):
         self.client.login(username='socio', password='ClaveSegura123')
         response = self.client.get(url)
         self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+
+    @patch('usuarios.forms.timezone.localtime', return_value=datetime(2026, 5, 14, 12, 0))
+    def test_crear_reunion_muestra_alerta_si_fecha_hora_duplicada(self, _localtime):
+        """Informa al administrador cuando intenta duplicar una reunion."""
+        url = reverse('usuarios:crear_reunion')
+        Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            url,
+            {
+                'fecha': '2026-05-20',
+                'hora': '18:30',
+                'locacion': 'Sede norte',
+                'estado': Reunion.PROGRAMADA,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, ReunionCreationForm.REUNION_DUPLICADA_MENSAJE)
+        self.assertContains(response, 'data-message-level="warning"')
+        self.assertEqual(Reunion.objects.count(), 1)
+
+    @patch('usuarios.forms.timezone.localtime', return_value=datetime(2026, 5, 14, 12, 0))
+    def test_crear_reunion_muestra_alerta_si_reunion_pasada_no_es_historica(self, _localtime):
+        """Alerta cuando una reunion anterior al momento actual no se marca historica."""
+        url = reverse('usuarios:crear_reunion')
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            url,
+            {
+                'fecha': '2026-05-14',
+                'hora': '11:30',
+                'locacion': 'Sede social',
+                'estado': Reunion.PROGRAMADA,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, ReunionCreationForm.REUNION_PASADA_HISTORICA_MENSAJE)
+        self.assertContains(response, 'data-message-level="warning"')
+        self.assertEqual(Reunion.objects.count(), 0)
 
     def test_administrador_accede_a_asistencia_y_ve_solo_socios(self):
         """Permite al administrador ver el listado operativo de socios."""
