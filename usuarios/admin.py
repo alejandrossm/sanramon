@@ -47,8 +47,18 @@ class UsuarioAdmin(UserAdmin):
 class ReunionAdmin(admin.ModelAdmin):
     """Configuracion de reuniones dentro del admin de Django."""
 
-    list_display = ('fecha', 'hora', 'locacion', 'estado', 'es_proxima', 'creador', 'fecha_creacion')
+    list_display = (
+        'fecha',
+        'hora',
+        'locacion',
+        'estado',
+        'es_proxima',
+        'creador',
+        'activada_por',
+        'fecha_activacion',
+        'fecha_creacion',
+    )
     list_filter = ('estado', 'es_proxima', 'fecha')
     search_fields = ('locacion', 'creador__username', 'creador__email')
-    readonly_fields = ('fecha_creacion',)
+    readonly_fields = ('fecha_creacion', 'fecha_activacion')
     ordering = ('-fecha', '-fecha_creacion')

@@ -101,6 +101,10 @@
                             {% include "includes/icon.html" with name="calendar-plus" classes="sidebar-icon flex-shrink-0" %}
                             <span>Crear reuni&oacute;n</span>
                         </a>
+                        <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:listado_reuniones' %}">
+                            {% include "includes/icon.html" with name="list" classes="sidebar-icon flex-shrink-0" %}
+                            <span>Listado reuniones</span>
+                        </a>
                     {% endif %}
 
                     <p class="sidebar-section-title text-uppercase fw-bold small mb-1 mt-3 px-3">Cuenta</p>

@@ -11,7 +11,9 @@ from django.contrib.auth.views import (
     PasswordResetDoneView,
     PasswordResetView,
 )
+from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
+from django.db import IntegrityError
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
@@ -28,7 +30,7 @@ from .forms import (
     UsuarioCreationForm,
     UsuarioUpdateForm,
 )
-from .models import Usuario
+from .models import Reunion, Usuario
 from .permisos import (
     PERM_ACCEDER_ASISTENCIA,
     PERM_ADMINISTRAR_PRIVILEGIOS,
@@ -668,6 +670,44 @@ def crear_reunion(request):
         form = ReunionCreationForm(creador=request.user)
 
     return render(request, 'usuarios/crear_reunion.html', {'form': form})
+
+
+@gestor_usuarios_required
+def listado_reuniones(request):
+    """Lista reuniones registradas y expone acciones operativas."""
+    reuniones = Reunion.objects.select_related('creador', 'activada_por')
+    reunion_activa = reuniones.filter(estado=Reunion.ACTIVA).first()
+
+    return render(
+        request,
+        'usuarios/listado_reuniones.html',
+        {
+            'reuniones': reuniones,
+            'reunion_activa': reunion_activa,
+        },
+    )
+
+
+@require_POST
+@gestor_usuarios_required
+def iniciar_reunion(request, pk):
+    """Activa una reunion programada si no existe otra activa."""
+    reunion = get_object_or_404(Reunion, pk=pk)
+
+    try:
+        reunion.iniciar(request.user)
+    except ValidationError as error:
+        mensaje = next(iter(error.message_dict.values()))[0]
+        messages.error(request, mensaje)
+    except IntegrityError:
+        messages.error(request, 'Ya existe una reunion activa.')
+    else:
+        messages.success(
+            request,
+            f'Reunion del {reunion.fecha:%d-%m-%Y} a las {reunion.hora:%H:%M} iniciada correctamente.',
+        )
+
+    return redirect('usuarios:listado_reuniones')
 
 
 @gestor_usuarios_required

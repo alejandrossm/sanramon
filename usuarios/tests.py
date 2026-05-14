@@ -13,6 +13,7 @@ from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.template.loader import render_to_string
 from django.urls import reverse
+from django.utils import timezone
 
 from .admin import UsuarioAdmin
 from .forms import ReunionCreationForm, UsuarioCreationForm, UsuarioUpdateForm
@@ -300,6 +301,65 @@ class UsuariosModuloTests(TestCase):
         self.assertFalse(reunion.puede_finalizarse())
         self.assertTrue(reunion.puede_eliminarse())
 
+    @patch('usuarios.models.timezone.now')
+    def test_reunion_programada_se_inicia_con_usuario_y_fecha(self, now_mock):
+        """Cambia una reunion programada a activa registrando responsable."""
+        momento = datetime(2026, 5, 20, 18, 35, tzinfo=timezone.get_current_timezone())
+        now_mock.return_value = momento
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+
+        reunion.iniciar(self.admin_user)
+        reunion.refresh_from_db()
+
+        self.assertEqual(reunion.estado, Reunion.ACTIVA)
+        self.assertEqual(reunion.activada_por, self.admin_user)
+        self.assertEqual(reunion.fecha_activacion, momento)
+        self.assertTrue(reunion.puede_finalizarse())
+
+    def test_reunion_no_inicia_si_no_esta_programada(self):
+        """Impide activar reuniones historicas o en estados no iniciables."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+
+        with self.assertRaises(ValidationError):
+            reunion.iniciar(self.admin_user)
+
+        reunion.refresh_from_db()
+        self.assertEqual(reunion.estado, Reunion.HISTORICA)
+
+    def test_reunion_no_inicia_si_ya_existe_otra_activa(self):
+        """Mantiene una unica reunion activa en el sistema."""
+        activa = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        activa.iniciar(self.admin_user)
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 21),
+            hora=time(18, 30),
+            locacion='Sede norte',
+            creador=self.admin_user,
+        )
+
+        with self.assertRaises(ValidationError):
+            reunion.iniciar(self.admin_user)
+
+        reunion.refresh_from_db()
+        self.assertEqual(reunion.estado, Reunion.PROGRAMADA)
+        self.assertEqual(Reunion.objects.filter(estado=Reunion.ACTIVA).count(), 1)
+
     def test_roles_internos_gestionables_alimentan_formularios_y_filtros(self):
         """Centraliza roles internos usados por formularios y filtros."""
         roles_esperados = {
@@ -550,6 +610,13 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Reuniones')
         self.assertContains(response, 'Crear reuni')
         self.assertContains(response, reverse('usuarios:crear_reunion'))
+        self.assertContains(response, 'Listado reuniones')
+        self.assertContains(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'bi-list-ul')
+        self.assertLess(
+            response.content.decode().index('Crear reuni'),
+            response.content.decode().index('Listado reuniones'),
+        )
         self.assertNotContains(response, '<p class="sidebar-section-title">Asistencia</p>', html=True)
 
     @patch('usuarios.forms.timezone.localtime', return_value=datetime(2026, 5, 14, 12, 0))
@@ -561,6 +628,9 @@ class UsuariosModuloTests(TestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Crear reuni')
+        self.assertNotContains(response, 'Control de reuniones programadas y activas.')
+        self.assertNotContains(response, '<th>FECHA</th>', html=True)
+        self.assertNotContains(response, '/reuniones/1/iniciar/')
         self.assertContains(response, 'name="fecha"')
         self.assertContains(response, 'data-reunion-date="true"')
         self.assertContains(response, 'data-today="2026-05-14"')
@@ -647,6 +717,126 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, ReunionCreationForm.REUNION_PASADA_HISTORICA_MENSAJE)
         self.assertContains(response, 'data-message-level="warning"')
         self.assertEqual(Reunion.objects.count(), 0)
+
+    @patch('usuarios.models.timezone.now')
+    def test_administrador_inicia_reunion_programada(self, now_mock):
+        """Permite habilitar asistencia cambiando la reunion a activa."""
+        momento = datetime(2026, 5, 20, 18, 35, tzinfo=timezone.get_current_timezone())
+        now_mock.return_value = momento
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'Listado reuniones')
+        self.assertContains(response, reverse('usuarios:iniciar_reunion', args=[reunion.pk]))
+        self.assertContains(response, 'Iniciar')
+
+        response = self.client.post(
+            reverse('usuarios:iniciar_reunion', args=[reunion.pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'iniciada correctamente')
+        self.assertContains(response, 'Activa')
+        reunion.refresh_from_db()
+        self.assertEqual(reunion.estado, Reunion.ACTIVA)
+        self.assertEqual(reunion.activada_por, self.admin_user)
+        self.assertEqual(reunion.fecha_activacion, momento)
+
+    def test_iniciar_reunion_bloquea_si_ya_existe_activa(self):
+        """Evita iniciar una segunda reunion cuando ya hay una activa."""
+        activa = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        activa.iniciar(self.admin_user)
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 21),
+            hora=time(18, 30),
+            locacion='Sede norte',
+            creador=self.admin_user,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:iniciar_reunion', args=[reunion.pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'Ya existe una reunion activa.')
+        reunion.refresh_from_db()
+        self.assertEqual(reunion.estado, Reunion.PROGRAMADA)
+        self.assertEqual(Reunion.objects.filter(estado=Reunion.ACTIVA).count(), 1)
+
+    def test_iniciar_reunion_bloquea_reunion_historica(self):
+        """Impide iniciar reuniones historicas desde la vista."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:iniciar_reunion', args=[reunion.pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'Solo se pueden iniciar reuniones programadas.')
+        reunion.refresh_from_db()
+        self.assertEqual(reunion.estado, Reunion.HISTORICA)
+
+    def test_listado_reuniones_solo_disponible_para_administrador(self):
+        """Protege el listado operativo de reuniones."""
+        url = reverse('usuarios:listado_reuniones')
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Listado reuniones')
+        self.assertContains(response, 'No hay reuniones registradas.')
+        self.assertContains(response, reverse('usuarios:crear_reunion'))
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(url)
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+
+        self.client.login(username='socio', password='ClaveSegura123')
+        response = self.client.get(url)
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+
+    def test_iniciar_reunion_solo_disponible_para_administrador(self):
+        """Protege la accion de inicio con los mismos permisos de reuniones."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        url = reverse('usuarios:iniciar_reunion', args=[reunion.pk])
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(url)
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+
+        self.client.login(username='socio', password='ClaveSegura123')
+        response = self.client.post(url)
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+
+        reunion.refresh_from_db()
+        self.assertEqual(reunion.estado, Reunion.PROGRAMADA)
 
     def test_administrador_accede_a_asistencia_y_ve_solo_socios(self):
         """Permite al administrador ver el listado operativo de socios."""

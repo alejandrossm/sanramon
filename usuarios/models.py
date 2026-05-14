@@ -3,6 +3,7 @@ from django.contrib.auth.models import AbstractUser, UserManager
 from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import models
+from django.utils import timezone
 
 from .permisos import (
     GRUPO_POR_ROL,
@@ -257,6 +258,14 @@ class Reunion(models.Model):
     )
     estado = models.CharField(max_length=12, choices=ESTADOS, default=PROGRAMADA)
     es_proxima = models.BooleanField(default=False)
+    activada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='reuniones_activadas',
+    )
+    fecha_activacion = models.DateTimeField(blank=True, null=True)
     fecha_creacion = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -265,6 +274,13 @@ class Reunion(models.Model):
         ordering = ['-fecha', '-hora', '-fecha_creacion']
         verbose_name = 'reunión'
         verbose_name_plural = 'reuniones'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['estado'],
+                condition=models.Q(estado='ACTIVA'),
+                name='solo_una_reunion_activa',
+            ),
+        ]
 
     def __str__(self):
         """Representa la reunion por fecha, hora y locacion."""
@@ -289,6 +305,19 @@ class Reunion(models.Model):
     def puede_iniciarse(self):
         """Solo las reuniones programadas pueden pasar a activa."""
         return self.estado == self.PROGRAMADA
+
+    def iniciar(self, usuario):
+        """Activa una reunion programada y registra el responsable."""
+        if not self.puede_iniciarse():
+            raise ValidationError({'estado': 'Solo se pueden iniciar reuniones programadas.'})
+
+        if type(self).objects.filter(estado=self.ACTIVA).exclude(pk=self.pk).exists():
+            raise ValidationError({'estado': 'Ya existe una reunion activa.'})
+
+        self.estado = self.ACTIVA
+        self.activada_por = usuario
+        self.fecha_activacion = timezone.now()
+        self.save(update_fields=['estado', 'activada_por', 'fecha_activacion'])
 
     def puede_finalizarse(self):
         """Solo las reuniones activas pueden finalizarse."""
