@@ -13,12 +13,13 @@ from django.contrib.auth.views import (
 )
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.views.decorators.http import require_POST
 
+from .identificacion import parsear_lectura_rut
 from .forms import (
     CambioPasswordForm,
     LoginForm,
@@ -108,6 +109,9 @@ def puede_eliminar_usuario_interno(actor, usuario):
 def obtener_valores_busqueda_rut(valor):
     """Genera variantes de busqueda para RUT con o sin puntos y guion."""
     valor = (valor or '').strip()
+    lectura_rut = parsear_lectura_rut(valor)
+    if lectura_rut:
+        valor = lectura_rut.rut
     sin_puntos = valor.replace('.', '').replace(' ', '').upper()
     solo_rut = ''.join(caracter for caracter in sin_puntos if caracter.isdigit() or caracter == 'K')
     variantes = [valor, sin_puntos]
@@ -695,6 +699,23 @@ def listado_reuniones(request):
             'reunion_activa': reunion_activa,
         },
     )
+
+
+@require_POST
+@gestor_usuarios_required
+def limpiar_reuniones_prueba(request):
+    """Elimina reuniones y asistencias de reunion para pruebas operativas."""
+    with transaction.atomic():
+        total_asistencias = AsistenciaReunion.objects.count()
+        total_reuniones = Reunion.objects.count()
+        AsistenciaReunion.objects.all().delete()
+        Reunion.objects.all().delete()
+
+    messages.success(
+        request,
+        f'Se eliminaron {total_reuniones} reuniones y {total_asistencias} asistencias.',
+    )
+    return redirect('usuarios:listado_reuniones')
 
 
 @require_POST

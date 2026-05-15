@@ -5,6 +5,7 @@ from django.core.validators import RegexValidator
 from django.db import models
 from django.utils import timezone
 
+from .identificacion import normalizar_rut
 from .permisos import (
     GRUPO_POR_ROL,
     GRUPOS_OPERATIVOS,
@@ -23,19 +24,6 @@ class UsuarioManager(UserManager):
         """Crea superusuarios con el rol reservado para el admin de Django."""
         extra_fields.setdefault('rol', self.model.SUPERADMINISTRADOR)
         return super().create_superuser(username, email, password, **extra_fields)
-
-
-def normalizar_rut(rut):
-    """Normaliza el RUT al formato cuerpo-digito, sin puntos."""
-    valor = ''.join(
-        caracter
-        for caracter in (rut or '').upper()
-        if caracter not in '.-' and not caracter.isspace()
-    )
-    if len(valor) <= 1:
-        return valor
-    return f'{valor[:-1]}-{valor[-1]}'
-
 
 TELEFONO_MOVIL_PREFIJO_CHILE = '+56'
 TELEFONO_MOVIL_REGEX_CHILE = r'^\+56\d{9}$'

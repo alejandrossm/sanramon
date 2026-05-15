@@ -214,6 +214,25 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    document.querySelectorAll('[data-rut-scan-trigger]').forEach((button) => {
+        const target = document.querySelector(button.dataset.rutScanTarget || '[data-rut-scan-input]');
+
+        if (!target) {
+            return;
+        }
+
+        button.addEventListener('click', () => {
+            target.value = '';
+            target.focus();
+            target.select();
+        });
+    });
+
+    const rutScanInput = document.querySelector('[data-rut-scan-input]');
+    if (rutScanInput && document.activeElement === document.body) {
+        rutScanInput.focus();
+    }
+
     // Mantiene telefonos moviles chilenos con prefijo +56 y 9 digitos locales.
     const formatPhoneWithPrefix = (value, prefix) => {
         const digits = value.replace(/\D/g, '');

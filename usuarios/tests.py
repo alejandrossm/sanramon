@@ -17,6 +17,11 @@ from django.utils import timezone
 
 from .admin import UsuarioAdmin
 from .forms import ReunionCreationForm, UsuarioCreationForm, UsuarioUpdateForm
+from .identificacion import (
+    ORIGEN_QR_REGISTRO_CIVIL,
+    ORIGEN_RUT_MANUAL,
+    parsear_lectura_rut,
+)
 from .models import AsistenciaReunion, Reunion
 from .permisos import (
     GRUPO_ADMINISTRADOR,
@@ -810,6 +815,8 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Listado reuniones')
         self.assertContains(response, 'No hay reuniones registradas.')
         self.assertContains(response, reverse('usuarios:crear_reunion'))
+        self.assertContains(response, reverse('usuarios:limpiar_reuniones_prueba'))
+        self.assertContains(response, 'Limpiar pruebas')
 
         self.client.login(username='encargado', password='ClaveSegura123')
         response = self.client.get(url)
@@ -840,6 +847,69 @@ class UsuariosModuloTests(TestCase):
         reunion.refresh_from_db()
         self.assertEqual(reunion.estado, Reunion.PROGRAMADA)
 
+    def test_administrador_limpia_reuniones_y_asistencias_para_pruebas(self):
+        """Borra reuniones y asistencias asociadas sin tocar usuarios ni socios."""
+        reunion_activa = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion_activa.iniciar(self.admin_user)
+        AsistenciaReunion.registrar_presente(
+            reunion=reunion_activa,
+            socio=self.socio_user,
+            usuario=self.encargado_user,
+            origen=AsistenciaReunion.ORIGEN_QR,
+        )
+        reunion_historica = Reunion.objects.create(
+            fecha=date(2026, 5, 19),
+            hora=time(18, 30),
+            locacion='Sede norte',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        AsistenciaReunion.objects.create(
+            reunion=reunion_historica,
+            socio=self.socio_user,
+            estado=AsistenciaReunion.AUSENTE,
+            origen=AsistenciaReunion.ORIGEN_MANUAL,
+            registrada_por=self.admin_user,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:limpiar_reuniones_prueba'),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'Se eliminaron 2 reuniones y 2 asistencias.')
+        self.assertEqual(Reunion.objects.count(), 0)
+        self.assertEqual(AsistenciaReunion.objects.count(), 0)
+        self.assertTrue(self.User.objects.filter(pk=self.socio_user.pk).exists())
+        self.assertTrue(self.User.objects.filter(pk=self.admin_user.pk).exists())
+
+    def test_limpieza_reuniones_solo_disponible_para_administrador(self):
+        """Protege la limpieza temporal con permisos de gestion de reuniones."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        url = reverse('usuarios:limpiar_reuniones_prueba')
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(url)
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+
+        self.client.login(username='socio', password='ClaveSegura123')
+        response = self.client.post(url)
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+
+        self.assertTrue(Reunion.objects.filter(pk=reunion.pk).exists())
+
     def test_listado_reuniones_muestra_registro_asistencia_para_activa(self):
         """Expone la accion de registro desde la reunion activa."""
         reunion = Reunion.objects.create(
@@ -858,8 +928,8 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, url_registro)
         self.assertContains(response, 'Registrar asistencia')
 
-    def test_registro_asistencia_reunion_muestra_rut_y_qr_pendiente(self):
-        """Muestra la vista de registro con RUT operativo y QR pendiente."""
+    def test_registro_asistencia_reunion_muestra_rut_y_qr_operativo(self):
+        """Muestra la vista de registro con RUT manual y scanner QR operativo."""
         reunion = Reunion.objects.create(
             fecha=date(2026, 5, 20),
             hora=time(18, 30),
@@ -876,11 +946,24 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Scanner QR')
         self.assertContains(response, 'Escanear QR')
-        self.assertContains(response, 'disabled')
-        self.assertContains(response, 'Registro por RUT')
-        self.assertContains(response, 'data-rut-format="true"')
+        self.assertContains(response, 'data-rut-scan-trigger')
+        self.assertNotContains(response, 'disabled')
+        self.assertContains(response, 'Registro por RUT/RUN')
+        self.assertContains(response, 'data-rut-scan-input="true"')
         self.assertContains(response, 'Registrar por RUT')
         self.assertContains(response, reverse('usuarios:listado_reuniones'))
+
+    def test_parser_reutilizable_extrae_rut_manual_o_run_qr(self):
+        """Normaliza RUT manual y payload QR con el mismo contrato."""
+        lectura_manual = parsear_lectura_rut('22.222.222-2')
+        lectura_qr = parsear_lectura_rut(
+            "httpsÑ--portal.sidiv.registrocivil.cl-docstatus_RUN¿14333689'1/type¿CEDULA"
+        )
+
+        self.assertEqual(lectura_manual.rut, '22222222-2')
+        self.assertEqual(lectura_manual.origen, ORIGEN_RUT_MANUAL)
+        self.assertEqual(lectura_qr.rut, '14333689-1')
+        self.assertEqual(lectura_qr.origen, ORIGEN_QR_REGISTRO_CIVIL)
 
     def test_encargado_registra_asistencia_por_rut(self):
         """Crea asistencia presente para un socio existente en reunion activa."""
@@ -907,6 +990,37 @@ class UsuariosModuloTests(TestCase):
         asistencia = AsistenciaReunion.objects.get(reunion=reunion, socio=self.socio_user)
         self.assertEqual(asistencia.estado, AsistenciaReunion.PRESENTE)
         self.assertEqual(asistencia.origen, AsistenciaReunion.ORIGEN_RUT)
+        self.assertEqual(asistencia.registrada_por, self.encargado_user)
+
+    def test_encargado_registra_asistencia_por_qr_con_bloque_run(self):
+        """Crea asistencia presente usando el RUN incluido en el payload QR."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+        payload_qr = (
+            "httpsÑ--portal.sidiv.registrocivil.cl-docstatus_RUN¿22222222'2/"
+            'type¿CEDULA/serial¿513275009/mrz¿513275009077100902710095'
+        )
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
+            {'rut': payload_qr},
+            follow=True,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
+        )
+        self.assertContains(response, 'Asistencia registrada para Socio Prueba.')
+        asistencia = AsistenciaReunion.objects.get(reunion=reunion, socio=self.socio_user)
+        self.assertEqual(asistencia.estado, AsistenciaReunion.PRESENTE)
+        self.assertEqual(asistencia.origen, AsistenciaReunion.ORIGEN_QR)
         self.assertEqual(asistencia.registrada_por, self.encargado_user)
 
     def test_registro_asistencia_rechaza_rut_no_existente(self):

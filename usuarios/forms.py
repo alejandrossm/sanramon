@@ -13,6 +13,11 @@ from django.contrib.auth.forms import (
 from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 
+from .identificacion import (
+    ORIGEN_QR_REGISTRO_CIVIL,
+    normalizar_rut,
+    parsear_lectura_rut,
+)
 from .models import (
     AsistenciaReunion,
     Reunion,
@@ -20,7 +25,6 @@ from .models import (
     TELEFONO_MOVIL_PREFIJO_CHILE,
     TELEFONO_MOVIL_REGEX_CHILE,
     Usuario,
-    normalizar_rut,
     normalizar_telefono_movil,
 )
 from .permisos import (
@@ -429,9 +433,17 @@ class RegistroAsistenciaRutForm(forms.Form):
     """Formulario para registrar asistencia de un socio existente por RUT."""
 
     rut = forms.CharField(
-        label='RUT',
-        max_length=12,
-        widget=forms.TextInput(attrs={'placeholder': '12.345.678-9'}),
+        label='RUT o lectura QR',
+        max_length=512,
+        widget=forms.TextInput(
+            attrs={
+                'placeholder': '12.345.678-9',
+                'data-rut-scan-input': 'true',
+                'autocomplete': 'off',
+                'autofocus': True,
+                'inputmode': 'text',
+            }
+        ),
     )
 
     def __init__(self, *args, **kwargs):
@@ -439,8 +451,8 @@ class RegistroAsistenciaRutForm(forms.Form):
         self.reunion = kwargs.pop('reunion')
         self.registrador = kwargs.pop('registrador')
         self.socio = None
+        self.lectura_rut = None
         super().__init__(*args, **kwargs)
-        marcar_campo_rut(self.fields['rut'])
         self.helper = FormHelper()
         self.helper.form_method = 'post'
         self.helper.layout = Layout(
@@ -451,8 +463,12 @@ class RegistroAsistenciaRutForm(forms.Form):
         )
 
     def clean_rut(self):
-        """Valida que el RUT corresponda a un socio existente."""
-        rut = normalizar_rut(self.cleaned_data['rut'])
+        """Valida que el RUT o QR corresponda a un socio existente."""
+        lectura_rut = parsear_lectura_rut(self.cleaned_data['rut'])
+        if not lectura_rut:
+            raise forms.ValidationError('Ingrese un RUT valido o una lectura QR con bloque RUN.')
+
+        rut = lectura_rut.rut
         socio = Usuario.objects.filter(rut__iexact=rut, rol=Usuario.SOCIO).first()
 
         if not socio:
@@ -465,6 +481,7 @@ class RegistroAsistenciaRutForm(forms.Form):
             raise forms.ValidationError('El socio ya tiene asistencia registrada en esta reunion.')
 
         self.socio = socio
+        self.lectura_rut = lectura_rut
         return rut
 
     def clean(self):
@@ -475,12 +492,16 @@ class RegistroAsistenciaRutForm(forms.Form):
         return cleaned_data
 
     def save(self):
-        """Crea el registro de asistencia presente por RUT."""
+        """Crea el registro de asistencia presente segun el origen detectado."""
+        origen = AsistenciaReunion.ORIGEN_RUT
+        if self.lectura_rut and self.lectura_rut.origen == ORIGEN_QR_REGISTRO_CIVIL:
+            origen = AsistenciaReunion.ORIGEN_QR
+
         return AsistenciaReunion.registrar_presente(
             reunion=self.reunion,
             socio=self.socio,
             usuario=self.registrador,
-            origen=AsistenciaReunion.ORIGEN_RUT,
+            origen=origen,
         )
 
 

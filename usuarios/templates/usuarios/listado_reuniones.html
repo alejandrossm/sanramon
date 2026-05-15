@@ -13,10 +13,29 @@
         </div>
     </div>
 
-    <a href="{% url 'usuarios:crear_reunion' %}" class="btn btn-primary align-self-start align-self-md-center">
-        {% include "includes/icon.html" with name="calendar-plus" %}
-        <span>Crear reuni&oacute;n</span>
-    </a>
+    <div class="d-flex flex-wrap gap-2 align-self-start align-self-md-center">
+        <form
+            method="post"
+            action="{% url 'usuarios:limpiar_reuniones_prueba' %}"
+            data-confirm-submit
+            data-confirm-title="Limpiar reuniones de prueba"
+            data-confirm-text="Se eliminaran todas las reuniones y asistencias de reunion, sin importar el estado. No se eliminaran usuarios ni socios."
+            data-confirm-button="Eliminar"
+            data-confirm-color="#b42318"
+            data-confirm-icon="error"
+        >
+            {% csrf_token %}
+            <button type="submit" class="btn btn-outline-danger">
+                {% include "includes/icon.html" with name="trash-2" %}
+                <span>Limpiar pruebas</span>
+            </button>
+        </form>
+
+        <a href="{% url 'usuarios:crear_reunion' %}" class="btn btn-primary">
+            {% include "includes/icon.html" with name="calendar-plus" %}
+            <span>Crear reuni&oacute;n</span>
+        </a>
+    </div>
 </div>
 
 {% if reunion_activa %}

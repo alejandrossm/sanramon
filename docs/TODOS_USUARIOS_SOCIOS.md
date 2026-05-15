@@ -35,6 +35,10 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
 - [x] Agregar un campo de telefono movil a usuarios y socios para registrar un numero de contacto operativo.
 - [ ] Definir si en una version futura los socios podran activar cuenta o recuperar contrasena propia. Por ahora no aplica: los socios se crean sin contrasena utilizable y no reciben correo de recuperacion.
 
+## Reuniones y asistencia
+
+- [ ] Eliminar el boton temporal `Limpiar pruebas` antes de pasar a produccion. Esta accion vive en `usuarios:listado_reuniones`, usa la ruta `usuarios:limpiar_reuniones_prueba` y borra reuniones junto con asistencias de reunion para facilitar pruebas.
+
 ## Pendientes por definir
 
 - [x] Modo seguro de eliminacion: solo se pueden eliminar socios sin asistencias contabilizadas; los encargados de registro solo se activan o desactivan.
