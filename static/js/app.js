@@ -244,7 +244,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 toggle.classList.toggle('btn-outline-primary', !manualEnabled);
             }
             if (label) {
-                label.textContent = manualEnabled ? 'Registro manual activo' : 'Habilitar registro manual';
+                label.textContent = manualEnabled ? 'Registro manual activo' : 'Registro manual';
             }
             if (status) {
                 status.textContent = qrEnabled
@@ -259,6 +259,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     manualRegion.removeAttribute('aria-disabled');
                 }
+                manualRegion
+                    .querySelectorAll('input, button, select, textarea')
+                    .forEach((control) => {
+                        control.disabled = qrEnabled;
+                        if (qrEnabled) {
+                            control.setAttribute('aria-disabled', 'true');
+                            control.setAttribute('tabindex', '-1');
+                        } else {
+                            control.removeAttribute('aria-disabled');
+                            control.removeAttribute('tabindex');
+                        }
+                    });
             }
             if (manualInput) {
                 manualInput.disabled = qrEnabled;
