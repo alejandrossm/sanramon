@@ -1,5 +1,5 @@
-{% if reunion.estado == reunion.ACTIVA %}
-    <div class="d-flex flex-wrap justify-content-end gap-2">
+<div class="d-flex flex-wrap justify-content-end gap-2">
+    {% if reunion.estado == reunion.ACTIVA %}
         <a
             href="{% url 'usuarios:registrar_asistencia_reunion' reunion.pk %}"
             class="btn btn-success btn-sm"
@@ -21,28 +21,62 @@
                 Finalizar
             </button>
         </form>
-    </div>
-{% elif reunion.puede_iniciarse and not reunion_activa %}
-    <form
-        method="post"
-        action="{% url 'usuarios:iniciar_reunion' reunion.pk %}"
-        class="d-inline"
-        data-confirm-submit
-        data-confirm-title="Iniciar reuni&oacute;n"
-        data-confirm-text="Se habilitar&aacute; el registro de asistencia para esta reuni&oacute;n."
-        data-confirm-button="Iniciar"
-    >
-        {% csrf_token %}
-        <button type="submit" class="btn btn-success btn-sm">
-            Iniciar
+    {% elif reunion.puede_iniciarse and not reunion_activa %}
+        <form
+            method="post"
+            action="{% url 'usuarios:iniciar_reunion' reunion.pk %}"
+            class="d-inline"
+            data-confirm-submit
+            data-confirm-title="Iniciar reuni&oacute;n"
+            data-confirm-text="Se habilitar&aacute; el registro de asistencia para esta reuni&oacute;n."
+            data-confirm-button="Iniciar"
+        >
+            {% csrf_token %}
+            <button type="submit" class="btn btn-success btn-sm">
+                Iniciar
+            </button>
+        </form>
+    {% elif reunion.puede_iniciarse %}
+        <span class="d-inline-block" title="Ya existe una reuni&oacute;n activa.">
+            <button type="button" class="btn btn-outline-secondary btn-sm" disabled>
+                Iniciar
+            </button>
+        </span>
+    {% else %}
+        <span class="text-muted small">No disponible</span>
+    {% endif %}
+
+    {% if reunion.puede_eliminarse %}
+        <form
+            method="post"
+            action="{% url 'usuarios:eliminar_reunion' reunion.pk %}"
+            class="d-inline"
+            data-confirm-submit
+            data-confirm-title="Eliminar reuni&oacute;n"
+            data-confirm-text="Solo se eliminar&aacute; si no tiene asistencias registradas. Esta acci&oacute;n no se puede deshacer."
+            data-confirm-button="Eliminar"
+            data-confirm-color="#b42318"
+            data-confirm-icon="error"
+        >
+            {% csrf_token %}
+            <button
+                type="submit"
+                class="btn btn-outline-danger btn-sm"
+                title="Eliminar reuni&oacute;n"
+                aria-label="Eliminar reuni&oacute;n"
+            >
+                {% include "includes/icon.html" with name="trash-2" %}
+            </button>
+        </form>
+    {% else %}
+        <button
+            type="button"
+            class="btn btn-outline-secondary btn-sm"
+            title="Tiene asistencias registradas; no se puede eliminar."
+            aria-label="Eliminar reuni&oacute;n no disponible"
+            disabled
+        >
+            {% include "includes/icon.html" with name="trash-2" %}
         </button>
-    </form>
-{% elif reunion.puede_iniciarse %}
-    <span class="d-inline-block" title="Ya existe una reuni&oacute;n activa.">
-        <button type="button" class="btn btn-outline-secondary btn-sm" disabled>
-            Iniciar
-        </button>
-    </span>
-{% else %}
-    <span class="text-muted small">No disponible</span>
-{% endif %}
+    {% endif %}
+</div>

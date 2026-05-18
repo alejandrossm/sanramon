@@ -108,6 +108,11 @@
                             </a>
                         </div>
                     </th>
+                    {% if columna.key == 'rut' %}
+                        <th class="text-center text-nowrap px-1" style="width: 1%;" title="Estado de asistencia" aria-label="Estado de asistencia">
+                            {% include "includes/icon.html" with name="info" %}
+                        </th>
+                    {% endif %}
                 {% endfor %}
                 <th class="text-end">Acciones</th>
                 <th class="text-end">Eliminar</th>
@@ -117,6 +122,9 @@
             {% for socio in socios %}
                 <tr>
                     <td class="fw-semibold">{{ socio.rut }}</td>
+                    <td class="text-center text-nowrap px-1" style="width: 1%;">
+                        {% include "usuarios/includes/indicador_asistencia_socio.html" %}
+                    </td>
                     <td>{{ socio.first_name }}</td>
                     <td>{{ socio.last_name }}</td>
                     <td>{{ socio.email }}</td>
@@ -137,7 +145,7 @@
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="8" class="text-center text-muted py-4">No hay socios registrados.</td>
+                    <td colspan="9" class="text-center text-muted py-4">No hay socios registrados.</td>
                 </tr>
             {% endfor %}
         </tbody>
@@ -156,6 +164,7 @@
                         {% else %}
                             <span class="badge text-bg-secondary">Inactivo</span>
                         {% endif %}
+                        {% include "usuarios/includes/indicador_asistencia_socio.html" %}
                     </div>
                     <div class="text-muted small text-break">{{ socio.first_name }} {{ socio.last_name }}</div>
                 </div>
@@ -167,6 +176,11 @@
             <dl class="row g-2 small mt-3 mb-0">
                 <dt class="col-4 text-muted fw-semibold">NOMBRE</dt>
                 <dd class="col-8 mb-0 text-break">{{ socio.first_name }}</dd>
+                <dt class="col-4 text-muted fw-semibold">
+                    {% include "includes/icon.html" with name="info" %}
+                    <span class="visually-hidden">ASISTENCIA</span>
+                </dt>
+                <dd class="col-8 mb-0">{% include "usuarios/includes/indicador_asistencia_socio.html" %}</dd>
                 <dt class="col-4 text-muted fw-semibold">APELLIDO</dt>
                 <dd class="col-8 mb-0 text-break">{{ socio.last_name }}</dd>
                 <dt class="col-4 text-muted fw-semibold">EMAIL</dt>

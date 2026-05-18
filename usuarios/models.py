@@ -363,10 +363,8 @@ class Reunion(models.Model):
         return self.asistencias.exists()
 
     def puede_eliminarse(self):
-        """Las reuniones historicas se eliminan solo si no tienen datos registrados."""
-        if self.es_historica():
-            return not self.tiene_datos_registrados()
-        return True
+        """Permite eliminar reuniones solo si no tienen asistencias registradas."""
+        return not self.tiene_datos_registrados()
 
 
 class AsistenciaReunion(models.Model):

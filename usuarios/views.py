@@ -688,12 +688,25 @@ def crear_reunion(request):
 @gestor_usuarios_required
 def listado_reuniones(request):
     """Lista reuniones registradas y expone acciones operativas."""
-    reuniones = Reunion.objects.select_related(
+    reuniones_base = Reunion.objects.select_related(
         'creador',
         'activada_por',
         'finalizada_por',
     )
-    reunion_activa = reuniones.filter(estado=Reunion.ACTIVA).first()
+    reunion_activa = reuniones_base.filter(estado=Reunion.ACTIVA).first()
+    anios_reuniones = [
+        fecha.year
+        for fecha in Reunion.objects.dates('fecha', 'year', order='DESC')
+    ]
+    anio_actual = request.GET.get('anio', '').strip()
+    if anio_actual and not (
+        anio_actual.isdigit() and int(anio_actual) in anios_reuniones
+    ):
+        anio_actual = ''
+
+    reuniones = reuniones_base
+    if anio_actual:
+        reuniones = reuniones.filter(fecha__year=int(anio_actual))
 
     return render(
         request,
@@ -701,6 +714,9 @@ def listado_reuniones(request):
         {
             'reuniones': reuniones,
             'reunion_activa': reunion_activa,
+            'anios_reuniones': anios_reuniones,
+            'anio_actual': anio_actual,
+            'filtros_activos': bool(anio_actual),
         },
     )
 
@@ -748,6 +764,25 @@ def finalizar_reunion(request, pk):
             ),
         )
 
+    return redirect('usuarios:listado_reuniones')
+
+
+@require_POST
+@gestor_usuarios_required
+def eliminar_reunion(request, pk):
+    """Elimina una reunion solo cuando no tiene asistencias registradas."""
+    reunion = get_object_or_404(Reunion, pk=pk)
+
+    if not reunion.puede_eliminarse():
+        messages.error(
+            request,
+            'Solo se pueden eliminar reuniones sin asistencias registradas.',
+        )
+        return redirect('usuarios:listado_reuniones')
+
+    descripcion = f'{reunion.fecha:%d-%m-%Y} a las {reunion.hora:%H:%M}'
+    reunion.delete()
+    messages.success(request, f'Reunion del {descripcion} eliminada correctamente.')
     return redirect('usuarios:listado_reuniones')
 
 

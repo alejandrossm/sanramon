@@ -308,6 +308,25 @@ class UsuariosModuloTests(TestCase):
         self.assertFalse(reunion.puede_finalizarse())
         self.assertTrue(reunion.puede_eliminarse())
 
+    def test_reunion_no_se_elimina_si_tiene_asistencias(self):
+        """Bloquea eliminacion de reuniones con asistencia registrada."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        AsistenciaReunion.objects.create(
+            reunion=reunion,
+            socio=self.socio_user,
+            estado=AsistenciaReunion.PRESENTE,
+            origen=AsistenciaReunion.ORIGEN_RUT,
+            registrada_por=self.admin_user,
+        )
+
+        self.assertFalse(reunion.puede_eliminarse())
+
     @patch('usuarios.models.timezone.now')
     def test_reunion_programada_se_inicia_con_usuario_y_fecha(self, now_mock):
         """Cambia una reunion programada a activa registrando responsable."""
@@ -932,6 +951,121 @@ class UsuariosModuloTests(TestCase):
         self.client.login(username='socio', password='ClaveSegura123')
         response = self.client.get(url)
         self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+
+    def test_listado_reuniones_filtra_por_anio(self):
+        """Permite acotar el listado de reuniones por ano calendario."""
+        reunion_2026 = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede 2026',
+            creador=self.admin_user,
+        )
+        Reunion.objects.create(
+            fecha=date(2025, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede 2025',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:listado_reuniones'),
+            {'anio': '2026'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="filtro-reunion-anio"')
+        self.assertContains(response, '<option value="2026" selected>2026</option>', html=True)
+        self.assertContains(response, '<option value="2025" >2025</option>', html=True)
+        self.assertContains(response, 'Sede 2026')
+        self.assertNotContains(response, 'Sede 2025')
+        self.assertContains(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'Limpiar')
+
+        response = self.client.get(
+            reverse('usuarios:listado_reuniones'),
+            {'anio': '2030'},
+        )
+
+        self.assertContains(response, 'Sede 2026')
+        self.assertContains(response, 'Sede 2025')
+        self.assertEqual(
+            list(response.context['anios_reuniones']),
+            [2026, 2025],
+        )
+        self.assertEqual(response.context['anio_actual'], '')
+        self.assertIn(reunion_2026, response.context['reuniones'])
+
+    def test_administrador_elimina_reunion_sin_asistencias(self):
+        """Permite eliminar reuniones, incluidas historicas, sin asistencias."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        url_eliminar = reverse('usuarios:eliminar_reunion', args=[reunion.pk])
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, url_eliminar)
+        self.assertContains(response, 'aria-label="Eliminar reuni')
+
+        response = self.client.post(url_eliminar, follow=True)
+
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'eliminada correctamente')
+        self.assertFalse(Reunion.objects.filter(pk=reunion.pk).exists())
+
+    def test_eliminar_reunion_bloquea_si_tiene_asistencias(self):
+        """Impide eliminar reuniones con asistencias registradas."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+        AsistenciaReunion.registrar_presente(
+            reunion=reunion,
+            socio=self.socio_user,
+            usuario=self.encargado_user,
+            origen=AsistenciaReunion.ORIGEN_RUT,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'Eliminar reuni&oacute;n no disponible')
+        response = self.client.post(
+            reverse('usuarios:eliminar_reunion', args=[reunion.pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'Solo se pueden eliminar reuniones sin asistencias registradas.')
+        self.assertTrue(Reunion.objects.filter(pk=reunion.pk).exists())
+
+    def test_eliminar_reunion_solo_disponible_para_administrador(self):
+        """Protege la eliminacion de reuniones para usuarios sin permisos."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        url = reverse('usuarios:eliminar_reunion', args=[reunion.pk])
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(url)
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+
+        self.client.login(username='socio', password='ClaveSegura123')
+        response = self.client.post(url)
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+
+        self.assertTrue(Reunion.objects.filter(pk=reunion.pk).exists())
 
     def test_iniciar_reunion_solo_disponible_para_administrador(self):
         """Protege la accion de inicio con los mismos permisos de reuniones."""
@@ -1817,6 +1951,11 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Gestión administrativa de socios registrados.')
         self.assertContains(response, 'socio@example.com')
         self.assertContains(response, '+56922222222')
+        self.assertContains(response, 'aria-label="Estado de asistencia"')
+        self.assertContains(response, 'bi-info-circle')
+        self.assertContains(response, 'title="Sin ausencias"')
+        self.assertContains(response, 'aria-label="Estado de asistencia: Sin ausencias"')
+        self.assertContains(response, 'bi-check-circle')
         self.assertContains(response, reverse('usuarios:editar_socio', args=[self.socio_user.pk]))
         self.assertContains(response, 'data-confirm-title="Desactivar socio"')
         self.assertContains(response, reverse('usuarios:eliminar_socio', args=[self.socio_user.pk]))
@@ -1909,6 +2048,40 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">APELLIDO</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">EMAIL</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">TELÉFONO</dt>', html=True)
+
+        self.assertContains(response, '<span class="visually-hidden">ASISTENCIA</span>', html=True)
+
+    def test_listado_socios_muestra_indicador_visual_de_asistencia(self):
+        """Expone iconos de estado de asistencia en el listado administrativo."""
+        self.client.login(username='admin', password='ClaveSegura123')
+
+        with patch(
+            'usuarios.views.obtener_resumen_asistencia_socio',
+            return_value={
+                'total_reuniones': 1,
+                'total_asistencias': 0,
+                'total_ausencias': 1,
+            },
+        ):
+            response = self.client.get(reverse('usuarios:listado_socios'))
+
+        self.assertContains(response, 'title="Una inasistencia"')
+        self.assertContains(response, 'aria-label="Estado de asistencia: Una inasistencia"')
+        self.assertContains(response, 'bi-exclamation-triangle')
+
+        with patch(
+            'usuarios.views.obtener_resumen_asistencia_socio',
+            return_value={
+                'total_reuniones': 2,
+                'total_asistencias': 0,
+                'total_ausencias': 2,
+            },
+        ):
+            response = self.client.get(reverse('usuarios:listado_socios'))
+
+        self.assertContains(response, 'title="Bloqueado"')
+        self.assertContains(response, 'aria-label="Estado de asistencia: Bloqueado"')
+        self.assertContains(response, 'bi-x-circle')
 
     def test_listado_socios_paginacion_conserva_filtros(self):
         """Mantiene los filtros activos al navegar paginas de socios."""

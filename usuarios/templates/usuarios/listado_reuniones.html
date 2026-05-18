@@ -28,6 +28,32 @@
     </div>
 {% endif %}
 
+<form method="get" class="row g-2 align-items-end mb-3" aria-label="Filtros de reuniones">
+    <div class="col-12 col-md-3">
+        <label for="filtro-reunion-anio" class="form-label">A&ntilde;o</label>
+        <select class="form-select" id="filtro-reunion-anio" name="anio">
+            <option value="">Todos los a&ntilde;os</option>
+            {% for anio in anios_reuniones %}
+                <option value="{{ anio }}" {% if anio_actual == anio|stringformat:"s" %}selected{% endif %}>
+                    {{ anio }}
+                </option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-12 col-md-3 d-flex flex-wrap gap-2">
+        <button type="submit" class="btn btn-outline-primary">
+            {% include "includes/icon.html" with name="search" %}
+            <span>Filtrar</span>
+        </button>
+        {% if filtros_activos %}
+            <a href="{% url 'usuarios:listado_reuniones' %}" class="btn btn-outline-secondary">
+                {% include "includes/icon.html" with name="x-circle" %}
+                <span>Limpiar</span>
+            </a>
+        {% endif %}
+    </div>
+</form>
+
 <div class="table-responsive rounded overflow-hidden shadow-sm border bg-white d-none d-md-block">
     <table class="table table-hover align-middle mb-0">
         <thead>
