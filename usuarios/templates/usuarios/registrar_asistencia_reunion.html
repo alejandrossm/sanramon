@@ -27,31 +27,50 @@
 </div>
 
 <div class="row g-3 mb-4">
-    <section class="col-12 col-lg-5">
-        <div class="card shadow-sm border-0 p-4 h-100">
-            <div class="d-flex align-items-center gap-2 mb-3">
-                {% include "includes/icon.html" with name="qr-code" classes="text-primary" %}
-                <h2 class="h5 mb-0">Scanner QR</h2>
-            </div>
-            <button
-                type="button"
-                class="btn btn-primary align-self-start"
-                data-rut-scan-trigger
-                data-rut-scan-target="#id_rut"
-            >
-                {% include "includes/icon.html" with name="qr-code" %}
-                <span>Escanear QR</span>
-            </button>
-        </div>
-    </section>
-
-    <section class="col-12 col-lg-7">
+    <section class="col-12">
         <div class="card shadow-sm border-0 p-4 h-100">
             <div class="d-flex align-items-center gap-2 mb-3">
                 {% include "includes/icon.html" with name="id-card" classes="text-primary" %}
-                <h2 class="h5 mb-0">Registro por RUT/RUN</h2>
+                <h2 class="h5 mb-0">Registro de asistencia</h2>
             </div>
-            {% crispy form %}
+
+            <div class="mb-3">
+                <form method="post" class="m-0" data-rut-scan-form>
+                    {% csrf_token %}
+                    <input
+                        type="text"
+                        name="lectura_qr"
+                        id="id_lectura_qr_scanner"
+                        class="visually-hidden"
+                        autocomplete="off"
+                        tabindex="-1"
+                        data-rut-scan-input
+                    >
+                    <div class="form-check form-switch m-0">
+                        <input
+                            class="form-check-input"
+                            type="checkbox"
+                            role="switch"
+                            id="modo-lector-qr"
+                            data-rut-scan-toggle
+                            data-rut-scan-target="#id_lectura_qr_scanner"
+                            data-rut-scan-label="#modo-lector-qr-label"
+                        >
+                        <label
+                            class="form-check-label fw-semibold"
+                            for="modo-lector-qr"
+                            id="modo-lector-qr-label"
+                            data-rut-scan-toggle-label
+                        >
+                            Lector QR
+                        </label>
+                    </div>
+                </form>
+            </div>
+
+            <div data-rut-manual-region>
+                {% crispy form %}
+            </div>
         </div>
     </section>
 </div>

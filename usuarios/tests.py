@@ -944,12 +944,20 @@ class UsuariosModuloTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Scanner QR')
-        self.assertContains(response, 'Escanear QR')
-        self.assertContains(response, 'data-rut-scan-trigger')
+        self.assertNotContains(response, 'Scanner QR')
+        self.assertContains(response, 'Registro de asistencia')
+        self.assertContains(response, 'form-switch')
+        self.assertContains(response, 'role="switch"')
+        self.assertContains(response, 'Lector QR')
+        self.assertContains(response, 'data-rut-scan-toggle')
+        self.assertContains(response, 'data-rut-scan-target="#id_lectura_qr_scanner"')
         self.assertNotContains(response, 'disabled')
-        self.assertContains(response, 'Registro por RUT/RUN')
-        self.assertContains(response, 'data-rut-scan-input="true"')
+        self.assertContains(response, 'data-rut-scan-input')
+        self.assertContains(response, 'name="lectura_qr"')
+        self.assertContains(response, 'data-rut-manual-region')
+        self.assertContains(response, 'data-rut-format="true"')
+        self.assertContains(response, 'data-rut-manual-input="true"')
+        self.assertContains(response, 'data-rut-manual-submit="true"')
         self.assertContains(response, 'Registrar por RUT')
         self.assertContains(response, reverse('usuarios:listado_reuniones'))
 
@@ -1009,7 +1017,7 @@ class UsuariosModuloTests(TestCase):
         self.client.login(username='encargado', password='ClaveSegura123')
         response = self.client.post(
             reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
-            {'rut': payload_qr},
+            {'lectura_qr': payload_qr},
             follow=True,
         )
 

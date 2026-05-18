@@ -433,17 +433,22 @@ class RegistroAsistenciaRutForm(forms.Form):
     """Formulario para registrar asistencia de un socio existente por RUT."""
 
     rut = forms.CharField(
-        label='RUT o lectura QR',
-        max_length=512,
+        label='RUT',
+        required=False,
+        max_length=12,
         widget=forms.TextInput(
             attrs={
                 'placeholder': '12.345.678-9',
-                'data-rut-scan-input': 'true',
                 'autocomplete': 'off',
-                'autofocus': True,
                 'inputmode': 'text',
+                'data-rut-manual-input': 'true',
             }
         ),
+    )
+    lectura_qr = forms.CharField(
+        required=False,
+        max_length=512,
+        widget=forms.HiddenInput(),
     )
 
     def __init__(self, *args, **kwargs):
@@ -453,20 +458,28 @@ class RegistroAsistenciaRutForm(forms.Form):
         self.socio = None
         self.lectura_rut = None
         super().__init__(*args, **kwargs)
+        marcar_campo_rut(self.fields['rut'])
         self.helper = FormHelper()
         self.helper.form_method = 'post'
         self.helper.layout = Layout(
             Row(
                 Column('rut', css_class='col-md-8'),
             ),
-            Submit('submit', 'Registrar por RUT', css_class='btn btn-primary'),
+            Submit(
+                'submit',
+                'Registrar por RUT',
+                css_class='btn btn-primary',
+                data_rut_manual_submit='true',
+            ),
         )
 
-    def clean_rut(self):
+    def clean(self):
         """Valida que el RUT o QR corresponda a un socio existente."""
-        lectura_rut = parsear_lectura_rut(self.cleaned_data['rut'])
+        cleaned_data = super().clean()
+        entrada = cleaned_data.get('lectura_qr') or cleaned_data.get('rut')
+        lectura_rut = parsear_lectura_rut(entrada)
         if not lectura_rut:
-            raise forms.ValidationError('Ingrese un RUT valido o una lectura QR con bloque RUN.')
+            raise forms.ValidationError('Ingrese un RUT valido o escanee un QR con bloque RUN.')
 
         rut = lectura_rut.rut
         socio = Usuario.objects.filter(rut__iexact=rut, rol=Usuario.SOCIO).first()
@@ -482,11 +495,7 @@ class RegistroAsistenciaRutForm(forms.Form):
 
         self.socio = socio
         self.lectura_rut = lectura_rut
-        return rut
-
-    def clean(self):
-        """Valida que la reunion siga activa durante el registro."""
-        cleaned_data = super().clean()
+        cleaned_data['rut'] = rut
         if self.reunion.estado != Reunion.ACTIVA:
             raise forms.ValidationError('Solo se puede registrar asistencia en una reunion activa.')
         return cleaned_data

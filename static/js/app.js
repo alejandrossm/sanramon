@@ -214,22 +214,133 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    document.querySelectorAll('[data-rut-scan-trigger]').forEach((button) => {
-        const target = document.querySelector(button.dataset.rutScanTarget || '[data-rut-scan-input]');
+    document.querySelectorAll('[data-rut-scan-toggle]').forEach((toggle) => {
+        const target = document.querySelector(toggle.dataset.rutScanTarget || '[data-rut-scan-input]');
+        const label = toggle.dataset.rutScanLabel
+            ? document.querySelector(toggle.dataset.rutScanLabel)
+            : document.querySelector('[data-rut-scan-toggle-label]');
+        const manualRegion = document.querySelector('[data-rut-manual-region]');
+        const manualInput = document.querySelector('[data-rut-manual-input]');
+        const manualSubmit = document.querySelector('[data-rut-manual-submit]');
+        const isCheckboxSwitch = toggle.matches('input[type="checkbox"]');
+        const storageKey = `sanramon:rut-scan-mode:${window.location.pathname}`;
 
         if (!target) {
             return;
         }
 
-        button.addEventListener('click', () => {
+        const setQrMode = (enabled) => {
+            toggle.dataset.rutScanActive = enabled ? 'true' : 'false';
+            if (isCheckboxSwitch) {
+                toggle.checked = enabled;
+                toggle.setAttribute('aria-checked', enabled ? 'true' : 'false');
+            } else {
+                toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+                toggle.classList.toggle('btn-primary', enabled);
+                toggle.classList.toggle('btn-outline-primary', !enabled);
+            }
+            if (label) {
+                label.textContent = enabled ? 'Lector QR activo' : 'Lector QR';
+            }
+            if (manualRegion) {
+                manualRegion.classList.toggle('opacity-50', enabled);
+            }
+            if (manualInput) {
+                manualInput.disabled = enabled;
+                manualInput.readOnly = enabled;
+                manualInput.value = '';
+                if (enabled) {
+                    manualInput.setAttribute('aria-disabled', 'true');
+                    manualInput.setAttribute('tabindex', '-1');
+                } else {
+                    manualInput.removeAttribute('aria-disabled');
+                    manualInput.removeAttribute('tabindex');
+                }
+            }
+            if (manualSubmit) {
+                manualSubmit.disabled = enabled;
+                if (enabled) {
+                    manualSubmit.setAttribute('aria-disabled', 'true');
+                } else {
+                    manualSubmit.removeAttribute('aria-disabled');
+                }
+            }
             target.value = '';
-            target.focus();
-            target.select();
+            if (enabled) {
+                target.focus();
+                target.select();
+            } else if (manualInput) {
+                manualInput.focus();
+            }
+        };
+
+        setQrMode(window.localStorage.getItem(storageKey) === 'true');
+
+        const handleModeChange = () => {
+            const enabled = isCheckboxSwitch
+                ? toggle.checked
+                : toggle.dataset.rutScanActive !== 'true';
+            window.localStorage.setItem(storageKey, enabled ? 'true' : 'false');
+            setQrMode(enabled);
+        };
+
+        toggle.addEventListener(isCheckboxSwitch ? 'change' : 'click', handleModeChange);
+    });
+
+    const qrRunPattern = /RUN[^0-9]{0,8}[0-9]{7,8}[^0-9A-Z]?[0-9K]/i;
+    const submitRutScanForm = (form) => {
+        if (form.dataset.submitting === 'true') {
+            return;
+        }
+
+        form.dataset.submitting = 'true';
+        form.submit();
+    };
+
+    document.querySelectorAll('[data-rut-scan-form]').forEach((form) => {
+        const input = form.querySelector('[data-rut-scan-input]');
+        const toggle = form.querySelector('[data-rut-scan-toggle]')
+            || document.querySelector('[data-rut-scan-toggle]');
+        let submitTimer = null;
+
+        if (!input) {
+            return;
+        }
+
+        input.addEventListener('input', () => {
+            window.clearTimeout(submitTimer);
+
+            if (
+                (!toggle || toggle.dataset.rutScanActive === 'true')
+                && qrRunPattern.test(input.value)
+            ) {
+                submitTimer = window.setTimeout(() => submitRutScanForm(form), 120);
+            }
+        });
+
+        input.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter') {
+                return;
+            }
+
+            event.preventDefault();
+            if (
+                (!toggle || toggle.dataset.rutScanActive === 'true')
+                && input.value.trim()
+            ) {
+                submitRutScanForm(form);
+            }
         });
     });
 
     const rutScanInput = document.querySelector('[data-rut-scan-input]');
-    if (rutScanInput && document.activeElement === document.body) {
+    const rutScanToggle = document.querySelector('[data-rut-scan-toggle]');
+    if (
+        rutScanInput
+        && rutScanToggle
+        && rutScanToggle.dataset.rutScanActive === 'true'
+        && document.activeElement === document.body
+    ) {
         rutScanInput.focus();
     }
 
