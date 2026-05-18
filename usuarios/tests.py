@@ -367,6 +367,112 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(reunion.estado, Reunion.PROGRAMADA)
         self.assertEqual(Reunion.objects.filter(estado=Reunion.ACTIVA).count(), 1)
 
+    @patch('usuarios.models.timezone.now')
+    def test_reunion_activa_se_finaliza_marcando_ausentes_activos(self, now_mock):
+        """Cierra la reunion y crea ausencias automaticas para socios activos."""
+        momento = datetime(2026, 5, 20, 20, 0, tzinfo=timezone.get_current_timezone())
+        now_mock.return_value = momento
+        socio_ausente = self.User.objects.create_user(
+            username='socio.ausente',
+            email='socio.ausente@example.com',
+            password='ClaveSegura123',
+            first_name='Socio',
+            last_name='Ausente',
+            rut='33.333.333-3',
+            rol=self.User.SOCIO,
+        )
+        socio_inactivo = self.User.objects.create_user(
+            username='socio.inactivo',
+            email='socio.inactivo@example.com',
+            password='ClaveSegura123',
+            first_name='Socio',
+            last_name='Inactivo',
+            rut='55.555.555-5',
+            rol=self.User.SOCIO,
+            is_active=False,
+        )
+        reunion_previa = Reunion.objects.create(
+            fecha=date(2026, 3, 10),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+            estado=Reunion.FINALIZADA,
+        )
+        AsistenciaReunion.objects.create(
+            reunion=reunion_previa,
+            socio=socio_ausente,
+            estado=AsistenciaReunion.AUSENTE,
+            origen=AsistenciaReunion.ORIGEN_AUTOMATICO,
+            registrada_por=self.admin_user,
+        )
+        reunion_anio_anterior = Reunion.objects.create(
+            fecha=date(2025, 12, 10),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+            estado=Reunion.FINALIZADA,
+        )
+        AsistenciaReunion.objects.create(
+            reunion=reunion_anio_anterior,
+            socio=socio_ausente,
+            estado=AsistenciaReunion.AUSENTE,
+            origen=AsistenciaReunion.ORIGEN_AUTOMATICO,
+            registrada_por=self.admin_user,
+        )
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+        AsistenciaReunion.registrar_presente(
+            reunion=reunion,
+            socio=self.socio_user,
+            usuario=self.encargado_user,
+            origen=AsistenciaReunion.ORIGEN_RUT,
+        )
+
+        resultado = reunion.finalizar(self.admin_user)
+        reunion.refresh_from_db()
+
+        self.assertEqual(reunion.estado, Reunion.FINALIZADA)
+        self.assertEqual(reunion.finalizada_por, self.admin_user)
+        self.assertEqual(reunion.fecha_finalizacion, momento)
+        self.assertEqual(resultado['ausencias_creadas'], 1)
+        self.assertEqual(resultado['inasistencias_anuales'][socio_ausente.pk], 2)
+        self.assertFalse(
+            AsistenciaReunion.objects.filter(
+                reunion=reunion,
+                socio=socio_inactivo,
+            ).exists()
+        )
+        asistencia_ausente = AsistenciaReunion.objects.get(
+            reunion=reunion,
+            socio=socio_ausente,
+        )
+        self.assertEqual(asistencia_ausente.estado, AsistenciaReunion.AUSENTE)
+        self.assertEqual(asistencia_ausente.origen, AsistenciaReunion.ORIGEN_AUTOMATICO)
+        self.assertEqual(asistencia_ausente.registrada_por, self.admin_user)
+
+    def test_reunion_no_finaliza_si_no_esta_activa(self):
+        """Impide cerrar reuniones programadas, historicas o ya finalizadas."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+
+        with self.assertRaises(ValidationError):
+            reunion.finalizar(self.admin_user)
+
+        reunion.refresh_from_db()
+        self.assertEqual(reunion.estado, Reunion.PROGRAMADA)
+        self.assertFalse(
+            AsistenciaReunion.objects.filter(reunion=reunion).exists()
+        )
+
     def test_roles_internos_gestionables_alimentan_formularios_y_filtros(self):
         """Centraliza roles internos usados por formularios y filtros."""
         roles_esperados = {
@@ -815,6 +921,8 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Listado reuniones')
         self.assertContains(response, 'No hay reuniones registradas.')
         self.assertContains(response, reverse('usuarios:crear_reunion'))
+        self.assertContains(response, 'd-none d-md-block')
+        self.assertContains(response, 'list-group shadow-sm border rounded overflow-hidden d-md-none')
         self.assertNotContains(response, 'Limpiar pruebas')
 
         self.client.login(username='encargado', password='ClaveSegura123')
@@ -845,6 +953,101 @@ class UsuariosModuloTests(TestCase):
 
         reunion.refresh_from_db()
         self.assertEqual(reunion.estado, Reunion.PROGRAMADA)
+
+    @patch('usuarios.models.timezone.now')
+    def test_administrador_finaliza_reunion_activa(self, now_mock):
+        """Permite cerrar asistencia y marcar ausentes desde el listado."""
+        momento = datetime(2026, 5, 20, 20, 0, tzinfo=timezone.get_current_timezone())
+        now_mock.return_value = momento
+        socio_ausente = self.User.objects.create_user(
+            username='socio.finalizar',
+            email='socio.finalizar@example.com',
+            password='ClaveSegura123',
+            first_name='Socio',
+            last_name='Finalizar',
+            rut='66.666.666-6',
+            rol=self.User.SOCIO,
+        )
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+        AsistenciaReunion.registrar_presente(
+            reunion=reunion,
+            socio=self.socio_user,
+            usuario=self.encargado_user,
+            origen=AsistenciaReunion.ORIGEN_RUT,
+        )
+        url_finalizar = reverse('usuarios:finalizar_reunion', args=[reunion.pk])
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, url_finalizar)
+        self.assertContains(response, 'Finalizar')
+
+        response = self.client.post(url_finalizar, follow=True)
+
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'finalizada correctamente')
+        self.assertContains(response, 'Ausencias automaticas: 1.')
+        reunion.refresh_from_db()
+        self.assertEqual(reunion.estado, Reunion.FINALIZADA)
+        self.assertEqual(reunion.finalizada_por, self.admin_user)
+        self.assertEqual(reunion.fecha_finalizacion, momento)
+        asistencia_ausente = AsistenciaReunion.objects.get(
+            reunion=reunion,
+            socio=socio_ausente,
+        )
+        self.assertEqual(asistencia_ausente.estado, AsistenciaReunion.AUSENTE)
+        self.assertEqual(asistencia_ausente.origen, AsistenciaReunion.ORIGEN_AUTOMATICO)
+        self.assertContains(response, 'Finalizada')
+        self.assertContains(response, self.admin_user.nombre_completo)
+
+    def test_finalizar_reunion_bloquea_si_no_esta_activa(self):
+        """Muestra error sin crear ausencias cuando la reunion no esta activa."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:finalizar_reunion', args=[reunion.pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'Solo se pueden finalizar reuniones activas.')
+        reunion.refresh_from_db()
+        self.assertEqual(reunion.estado, Reunion.PROGRAMADA)
+        self.assertEqual(AsistenciaReunion.objects.filter(reunion=reunion).count(), 0)
+
+    def test_finalizar_reunion_solo_disponible_para_administrador(self):
+        """Protege el cierre de reunion para usuarios sin gestion de reuniones."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+        url = reverse('usuarios:finalizar_reunion', args=[reunion.pk])
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(url)
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+
+        self.client.login(username='socio', password='ClaveSegura123')
+        response = self.client.post(url)
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+
+        reunion.refresh_from_db()
+        self.assertEqual(reunion.estado, Reunion.ACTIVA)
 
     def test_listado_reuniones_muestra_registro_asistencia_para_activa(self):
         """Expone la accion de registro desde la reunion activa."""

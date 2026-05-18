@@ -688,7 +688,11 @@ def crear_reunion(request):
 @gestor_usuarios_required
 def listado_reuniones(request):
     """Lista reuniones registradas y expone acciones operativas."""
-    reuniones = Reunion.objects.select_related('creador', 'activada_por')
+    reuniones = Reunion.objects.select_related(
+        'creador',
+        'activada_por',
+        'finalizada_por',
+    )
     reunion_activa = reuniones.filter(estado=Reunion.ACTIVA).first()
 
     return render(
@@ -717,6 +721,31 @@ def iniciar_reunion(request, pk):
         messages.success(
             request,
             f'Reunion del {reunion.fecha:%d-%m-%Y} a las {reunion.hora:%H:%M} iniciada correctamente.',
+        )
+
+    return redirect('usuarios:listado_reuniones')
+
+
+@require_POST
+@gestor_usuarios_required
+def finalizar_reunion(request, pk):
+    """Finaliza una reunion activa y registra ausencias automaticas."""
+    reunion = get_object_or_404(Reunion, pk=pk)
+
+    try:
+        resultado = reunion.finalizar(request.user)
+    except ValidationError as error:
+        messages.error(request, obtener_mensaje_validacion(error))
+    except IntegrityError:
+        messages.error(request, 'No fue posible finalizar la reunion.')
+    else:
+        messages.success(
+            request,
+            (
+                f'Reunion del {reunion.fecha:%d-%m-%Y} a las {reunion.hora:%H:%M} '
+                f'finalizada correctamente. Ausencias automaticas: '
+                f'{resultado["ausencias_creadas"]}.'
+            ),
         )
 
     return redirect('usuarios:listado_reuniones')

@@ -1,0 +1,11 @@
+{% if reunion.estado == reunion.ACTIVA %}
+    <span class="badge text-bg-success">{{ reunion.get_estado_display }}</span>
+{% elif reunion.estado == reunion.PROGRAMADA %}
+    <span class="badge text-bg-primary">{{ reunion.get_estado_display }}</span>
+{% elif reunion.estado == reunion.FINALIZADA %}
+    <span class="badge text-bg-dark">{{ reunion.get_estado_display }}</span>
+{% elif reunion.estado == reunion.HISTORICA %}
+    <span class="badge text-bg-secondary">{{ reunion.get_estado_display }}</span>
+{% else %}
+    <span class="badge text-bg-light text-dark">{{ reunion.get_estado_display }}</span>
+{% endif %}

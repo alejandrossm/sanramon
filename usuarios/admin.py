@@ -56,11 +56,13 @@ class ReunionAdmin(admin.ModelAdmin):
         'creador',
         'activada_por',
         'fecha_activacion',
+        'finalizada_por',
+        'fecha_finalizacion',
         'fecha_creacion',
     )
     list_filter = ('estado', 'es_proxima', 'fecha')
     search_fields = ('locacion', 'creador__username', 'creador__email')
-    readonly_fields = ('fecha_creacion', 'fecha_activacion')
+    readonly_fields = ('fecha_creacion', 'fecha_activacion', 'fecha_finalizacion')
     ordering = ('-fecha', '-fecha_creacion')
 
 

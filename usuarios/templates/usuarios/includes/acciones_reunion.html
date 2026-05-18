@@ -1,0 +1,48 @@
+{% if reunion.estado == reunion.ACTIVA %}
+    <div class="d-flex flex-wrap justify-content-end gap-2">
+        <a
+            href="{% url 'usuarios:registrar_asistencia_reunion' reunion.pk %}"
+            class="btn btn-success btn-sm"
+        >
+            {% include "includes/icon.html" with name="clipboard-check" %}
+            <span>Registrar asistencia</span>
+        </a>
+        <form
+            method="post"
+            action="{% url 'usuarios:finalizar_reunion' reunion.pk %}"
+            class="d-inline"
+            data-confirm-submit
+            data-confirm-title="Finalizar reuni&oacute;n"
+            data-confirm-text="Se cerrar&aacute; el registro de asistencia y se marcar&aacute;n ausentes autom&aacute;ticamente los socios activos sin registro."
+            data-confirm-button="Finalizar"
+        >
+            {% csrf_token %}
+            <button type="submit" class="btn btn-outline-danger btn-sm">
+                Finalizar
+            </button>
+        </form>
+    </div>
+{% elif reunion.puede_iniciarse and not reunion_activa %}
+    <form
+        method="post"
+        action="{% url 'usuarios:iniciar_reunion' reunion.pk %}"
+        class="d-inline"
+        data-confirm-submit
+        data-confirm-title="Iniciar reuni&oacute;n"
+        data-confirm-text="Se habilitar&aacute; el registro de asistencia para esta reuni&oacute;n."
+        data-confirm-button="Iniciar"
+    >
+        {% csrf_token %}
+        <button type="submit" class="btn btn-success btn-sm">
+            Iniciar
+        </button>
+    </form>
+{% elif reunion.puede_iniciarse %}
+    <span class="d-inline-block" title="Ya existe una reuni&oacute;n activa.">
+        <button type="button" class="btn btn-outline-secondary btn-sm" disabled>
+            Iniciar
+        </button>
+    </span>
+{% else %}
+    <span class="text-muted small">No disponible</span>
+{% endif %}

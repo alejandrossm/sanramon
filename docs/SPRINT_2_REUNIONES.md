@@ -143,5 +143,7 @@
 - Validar que exista como maximo una reunion marcada como proxima.
 - Usar esa reunion destacada para mostrar informacion publica en el landing page solicitado por el cliente.
 - Mantener este punto fuera del alcance inicial de Sprint 2, salvo que se planifique como HU adicional.
+- Permitir que el administrador elimine reuniones siempre que no tengan asistencias registradas.
+- Las reuniones historicas tambien pueden eliminarse por administrador bajo la misma regla: solo si no tienen asistencias registradas.
 - Soportar reuniones en estado `historica` para registrar asistencias posteriores mediante carga masiva CSV u otro mecanismo operativo.
 - Definir permisos y flujo para carga historica: administrador o socio podran registrar asistencia historica mediante CSV u otro mecanismo validado.

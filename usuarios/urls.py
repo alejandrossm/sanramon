@@ -34,6 +34,7 @@ urlpatterns = [
     path('reuniones/', views.listado_reuniones, name='listado_reuniones'),
     path('reuniones/crear/', views.crear_reunion, name='crear_reunion'),
     path('reuniones/<int:pk>/iniciar/', views.iniciar_reunion, name='iniciar_reunion'),
+    path('reuniones/<int:pk>/finalizar/', views.finalizar_reunion, name='finalizar_reunion'),
     path(
         'reuniones/<int:pk>/asistencia/',
         views.registrar_asistencia_reunion,

@@ -2,7 +2,7 @@ from django.conf import settings
 from django.contrib.auth.models import AbstractUser, UserManager
 from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 from .identificacion import normalizar_rut
@@ -254,6 +254,14 @@ class Reunion(models.Model):
         related_name='reuniones_activadas',
     )
     fecha_activacion = models.DateTimeField(blank=True, null=True)
+    finalizada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='reuniones_finalizadas',
+    )
+    fecha_finalizacion = models.DateTimeField(blank=True, null=True)
     fecha_creacion = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -310,6 +318,45 @@ class Reunion(models.Model):
     def puede_finalizarse(self):
         """Solo las reuniones activas pueden finalizarse."""
         return self.estado == self.ACTIVA
+
+    @transaction.atomic
+    def finalizar(self, usuario):
+        """Finaliza una reunion activa marcando ausentes automaticamente."""
+        if not self.puede_finalizarse():
+            raise ValidationError({'estado': 'Solo se pueden finalizar reuniones activas.'})
+
+        socios_con_asistencia = self.asistencias.values('socio_id')
+        socios_ausentes = Usuario.objects.filter(
+            rol=Usuario.SOCIO,
+            is_active=True,
+        ).exclude(pk__in=socios_con_asistencia)
+        ausencias = [
+            AsistenciaReunion(
+                reunion=self,
+                socio=socio,
+                estado=AsistenciaReunion.AUSENTE,
+                origen=AsistenciaReunion.ORIGEN_AUTOMATICO,
+                registrada_por=usuario,
+            )
+            for socio in socios_ausentes
+        ]
+
+        for ausencia in ausencias:
+            ausencia.full_clean()
+
+        AsistenciaReunion.objects.bulk_create(ausencias)
+
+        self.estado = self.FINALIZADA
+        self.finalizada_por = usuario
+        self.fecha_finalizacion = timezone.now()
+        self.save(update_fields=['estado', 'finalizada_por', 'fecha_finalizacion'])
+
+        return {
+            'ausencias_creadas': len(ausencias),
+            'inasistencias_anuales': AsistenciaReunion.obtener_inasistencias_anuales(
+                self.fecha.year,
+            ),
+        }
 
     def tiene_datos_registrados(self):
         """Indica si la reunion ya tiene asistencia registrada."""
@@ -401,6 +448,18 @@ class AsistenciaReunion(models.Model):
         """Valida la asistencia antes de persistirla."""
         self.full_clean()
         super().save(*args, **kwargs)
+
+    @classmethod
+    def obtener_inasistencias_anuales(cls, anio):
+        """Cuenta ausencias de socios por ano de reunion para bloqueo futuro."""
+        return {
+            item['socio']: item['total']
+            for item in cls.objects.filter(
+                estado=cls.AUSENTE,
+                reunion__fecha__year=anio,
+                socio__rol=Usuario.SOCIO,
+            ).values('socio').annotate(total=models.Count('id'))
+        }
 
     @classmethod
     def registrar_presente(cls, reunion, socio, usuario, origen):

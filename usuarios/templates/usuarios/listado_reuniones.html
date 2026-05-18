@@ -28,7 +28,7 @@
     </div>
 {% endif %}
 
-<div class="table-responsive rounded overflow-hidden shadow-sm border bg-white">
+<div class="table-responsive rounded overflow-hidden shadow-sm border bg-white d-none d-md-block">
     <table class="table table-hover align-middle mb-0">
         <thead>
             <tr>
@@ -37,6 +37,7 @@
                 <th>LOCACI&Oacute;N</th>
                 <th>ESTADO</th>
                 <th>ACTIVADA POR</th>
+                <th>FINALIZADA POR</th>
                 <th class="text-end">Acciones</th>
             </tr>
         </thead>
@@ -47,15 +48,7 @@
                     <td>{{ reunion.hora|time:"H:i" }}</td>
                     <td>{{ reunion.locacion }}</td>
                     <td>
-                        {% if reunion.estado == reunion.ACTIVA %}
-                            <span class="badge text-bg-success">{{ reunion.get_estado_display }}</span>
-                        {% elif reunion.estado == reunion.PROGRAMADA %}
-                            <span class="badge text-bg-primary">{{ reunion.get_estado_display }}</span>
-                        {% elif reunion.estado == reunion.HISTORICA %}
-                            <span class="badge text-bg-secondary">{{ reunion.get_estado_display }}</span>
-                        {% else %}
-                            <span class="badge text-bg-light text-dark">{{ reunion.get_estado_display }}</span>
-                        {% endif %}
+                        {% include "usuarios/includes/estado_reunion.html" %}
                     </td>
                     <td>
                         {% if reunion.activada_por %}
@@ -64,49 +57,74 @@
                             <span class="text-muted">-</span>
                         {% endif %}
                     </td>
-                    <td class="text-end">
-                        {% if reunion.estado == reunion.ACTIVA %}
-                            <a
-                                href="{% url 'usuarios:registrar_asistencia_reunion' reunion.pk %}"
-                                class="btn btn-success btn-sm"
-                            >
-                                {% include "includes/icon.html" with name="clipboard-check" %}
-                                <span>Registrar asistencia</span>
-                            </a>
-                        {% elif reunion.puede_iniciarse and not reunion_activa %}
-                            <form
-                                method="post"
-                                action="{% url 'usuarios:iniciar_reunion' reunion.pk %}"
-                                class="d-inline"
-                                data-confirm-submit
-                                data-confirm-title="Iniciar reuni&oacute;n"
-                                data-confirm-text="Se habilitar&aacute; el registro de asistencia para esta reuni&oacute;n."
-                                data-confirm-button="Iniciar"
-                            >
-                                {% csrf_token %}
-                                <button type="submit" class="btn btn-success btn-sm">
-                                    Iniciar
-                                </button>
-                            </form>
-                        {% elif reunion.puede_iniciarse %}
-                            <span class="d-inline-block" title="Ya existe una reuni&oacute;n activa.">
-                                <button type="button" class="btn btn-outline-secondary btn-sm" disabled>
-                                    Iniciar
-                                </button>
-                            </span>
+                    <td>
+                        {% if reunion.finalizada_por %}
+                            {{ reunion.finalizada_por.nombre_completo }}
                         {% else %}
-                            <span class="text-muted small">No disponible</span>
+                            <span class="text-muted">-</span>
                         {% endif %}
+                    </td>
+                    <td class="text-end">
+                        {% include "usuarios/includes/acciones_reunion.html" %}
                     </td>
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="6" class="text-center text-muted py-4">
+                    <td colspan="7" class="text-center text-muted py-4">
                         No hay reuniones registradas.
                     </td>
                 </tr>
             {% endfor %}
         </tbody>
     </table>
+</div>
+
+<div class="list-group shadow-sm border rounded overflow-hidden d-md-none">
+    {% for reunion in reuniones %}
+        <div class="list-group-item p-3">
+            <div class="d-flex justify-content-between gap-3 align-items-start">
+                <div class="flex-grow-1">
+                    <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+                        <strong>{{ reunion.fecha|date:"d-m-Y" }} {{ reunion.hora|time:"H:i" }}</strong>
+                        {% include "usuarios/includes/estado_reunion.html" %}
+                    </div>
+                    <div class="text-muted small text-break">{{ reunion.locacion }}</div>
+                </div>
+            </div>
+
+            <dl class="row g-2 small mt-3 mb-0">
+                <dt class="col-5 text-muted fw-semibold">FECHA</dt>
+                <dd class="col-7 mb-0">{{ reunion.fecha|date:"d-m-Y" }}</dd>
+                <dt class="col-5 text-muted fw-semibold">HORA</dt>
+                <dd class="col-7 mb-0">{{ reunion.hora|time:"H:i" }}</dd>
+                <dt class="col-5 text-muted fw-semibold">LOCACI&Oacute;N</dt>
+                <dd class="col-7 mb-0 text-break">{{ reunion.locacion }}</dd>
+                <dt class="col-5 text-muted fw-semibold">ACTIVADA POR</dt>
+                <dd class="col-7 mb-0 text-break">
+                    {% if reunion.activada_por %}
+                        {{ reunion.activada_por.nombre_completo }}
+                    {% else %}
+                        <span class="text-muted">-</span>
+                    {% endif %}
+                </dd>
+                <dt class="col-5 text-muted fw-semibold">FINALIZADA POR</dt>
+                <dd class="col-7 mb-0 text-break">
+                    {% if reunion.finalizada_por %}
+                        {{ reunion.finalizada_por.nombre_completo }}
+                    {% else %}
+                        <span class="text-muted">-</span>
+                    {% endif %}
+                </dd>
+            </dl>
+
+            <div class="d-flex justify-content-end mt-3">
+                {% include "usuarios/includes/acciones_reunion.html" %}
+            </div>
+        </div>
+    {% empty %}
+        <div class="list-group-item text-center text-muted py-4">
+            No hay reuniones registradas.
+        </div>
+    {% endfor %}
 </div>
 {% endblock %}
