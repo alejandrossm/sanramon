@@ -442,6 +442,10 @@ class RegistroAsistenciaRutForm(forms.Form):
                 'autocomplete': 'off',
                 'inputmode': 'text',
                 'data-rut-manual-input': 'true',
+                'aria-disabled': 'true',
+                'disabled': 'disabled',
+                'readonly': 'readonly',
+                'tabindex': '-1',
             }
         ),
     )
@@ -470,6 +474,8 @@ class RegistroAsistenciaRutForm(forms.Form):
                 'Registrar por RUT',
                 css_class='btn btn-primary',
                 data_rut_manual_submit='true',
+                disabled='disabled',
+                aria_disabled='true',
             ),
         )
 

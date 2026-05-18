@@ -219,37 +219,52 @@ document.addEventListener('DOMContentLoaded', () => {
         const label = toggle.dataset.rutScanLabel
             ? document.querySelector(toggle.dataset.rutScanLabel)
             : document.querySelector('[data-rut-scan-toggle-label]');
+        const status = document.querySelector('[data-rut-scan-status]');
         const manualRegion = document.querySelector('[data-rut-manual-region]');
         const manualInput = document.querySelector('[data-rut-manual-input]');
         const manualSubmit = document.querySelector('[data-rut-manual-submit]');
         const isCheckboxSwitch = toggle.matches('input[type="checkbox"]');
-        const storageKey = `sanramon:rut-scan-mode:${window.location.pathname}`;
+        const storageKey = `sanramon:rut-manual-mode:${window.location.pathname}`;
 
         if (!target) {
             return;
         }
 
-        const setQrMode = (enabled) => {
-            toggle.dataset.rutScanActive = enabled ? 'true' : 'false';
+        const setManualMode = (manualEnabled) => {
+            const qrEnabled = !manualEnabled;
+
+            toggle.dataset.rutManualActive = manualEnabled ? 'true' : 'false';
+            toggle.dataset.rutScanActive = qrEnabled ? 'true' : 'false';
             if (isCheckboxSwitch) {
-                toggle.checked = enabled;
-                toggle.setAttribute('aria-checked', enabled ? 'true' : 'false');
+                toggle.checked = manualEnabled;
+                toggle.setAttribute('aria-checked', manualEnabled ? 'true' : 'false');
             } else {
-                toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
-                toggle.classList.toggle('btn-primary', enabled);
-                toggle.classList.toggle('btn-outline-primary', !enabled);
+                toggle.setAttribute('aria-pressed', manualEnabled ? 'true' : 'false');
+                toggle.classList.toggle('btn-primary', manualEnabled);
+                toggle.classList.toggle('btn-outline-primary', !manualEnabled);
             }
             if (label) {
-                label.textContent = enabled ? 'Lector QR activo' : 'Lector QR';
+                label.textContent = manualEnabled ? 'Registro manual activo' : 'Habilitar registro manual';
+            }
+            if (status) {
+                status.textContent = qrEnabled
+                    ? 'Escaneo con lector QR activo'
+                    : 'Registro manual habilitado';
             }
             if (manualRegion) {
-                manualRegion.classList.toggle('opacity-50', enabled);
+                manualRegion.classList.toggle('opacity-50', qrEnabled);
+                manualRegion.classList.toggle('pe-none', qrEnabled);
+                if (qrEnabled) {
+                    manualRegion.setAttribute('aria-disabled', 'true');
+                } else {
+                    manualRegion.removeAttribute('aria-disabled');
+                }
             }
             if (manualInput) {
-                manualInput.disabled = enabled;
-                manualInput.readOnly = enabled;
+                manualInput.disabled = qrEnabled;
+                manualInput.readOnly = qrEnabled;
                 manualInput.value = '';
-                if (enabled) {
+                if (qrEnabled) {
                     manualInput.setAttribute('aria-disabled', 'true');
                     manualInput.setAttribute('tabindex', '-1');
                 } else {
@@ -258,15 +273,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             if (manualSubmit) {
-                manualSubmit.disabled = enabled;
-                if (enabled) {
+                manualSubmit.disabled = qrEnabled;
+                if (qrEnabled) {
                     manualSubmit.setAttribute('aria-disabled', 'true');
                 } else {
                     manualSubmit.removeAttribute('aria-disabled');
                 }
             }
             target.value = '';
-            if (enabled) {
+            if (qrEnabled) {
                 target.focus();
                 target.select();
             } else if (manualInput) {
@@ -274,14 +289,14 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         };
 
-        setQrMode(window.localStorage.getItem(storageKey) === 'true');
+        setManualMode(window.localStorage.getItem(storageKey) === 'true');
 
         const handleModeChange = () => {
-            const enabled = isCheckboxSwitch
+            const manualEnabled = isCheckboxSwitch
                 ? toggle.checked
-                : toggle.dataset.rutScanActive !== 'true';
-            window.localStorage.setItem(storageKey, enabled ? 'true' : 'false');
-            setQrMode(enabled);
+                : toggle.dataset.rutManualActive !== 'true';
+            window.localStorage.setItem(storageKey, manualEnabled ? 'true' : 'false');
+            setManualMode(manualEnabled);
         };
 
         toggle.addEventListener(isCheckboxSwitch ? 'change' : 'click', handleModeChange);
