@@ -815,8 +815,7 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Listado reuniones')
         self.assertContains(response, 'No hay reuniones registradas.')
         self.assertContains(response, reverse('usuarios:crear_reunion'))
-        self.assertContains(response, reverse('usuarios:limpiar_reuniones_prueba'))
-        self.assertContains(response, 'Limpiar pruebas')
+        self.assertNotContains(response, 'Limpiar pruebas')
 
         self.client.login(username='encargado', password='ClaveSegura123')
         response = self.client.get(url)
@@ -846,69 +845,6 @@ class UsuariosModuloTests(TestCase):
 
         reunion.refresh_from_db()
         self.assertEqual(reunion.estado, Reunion.PROGRAMADA)
-
-    def test_administrador_limpia_reuniones_y_asistencias_para_pruebas(self):
-        """Borra reuniones y asistencias asociadas sin tocar usuarios ni socios."""
-        reunion_activa = Reunion.objects.create(
-            fecha=date(2026, 5, 20),
-            hora=time(18, 30),
-            locacion='Sede social',
-            creador=self.admin_user,
-        )
-        reunion_activa.iniciar(self.admin_user)
-        AsistenciaReunion.registrar_presente(
-            reunion=reunion_activa,
-            socio=self.socio_user,
-            usuario=self.encargado_user,
-            origen=AsistenciaReunion.ORIGEN_QR,
-        )
-        reunion_historica = Reunion.objects.create(
-            fecha=date(2026, 5, 19),
-            hora=time(18, 30),
-            locacion='Sede norte',
-            creador=self.admin_user,
-            estado=Reunion.HISTORICA,
-        )
-        AsistenciaReunion.objects.create(
-            reunion=reunion_historica,
-            socio=self.socio_user,
-            estado=AsistenciaReunion.AUSENTE,
-            origen=AsistenciaReunion.ORIGEN_MANUAL,
-            registrada_por=self.admin_user,
-        )
-
-        self.client.login(username='admin', password='ClaveSegura123')
-        response = self.client.post(
-            reverse('usuarios:limpiar_reuniones_prueba'),
-            follow=True,
-        )
-
-        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
-        self.assertContains(response, 'Se eliminaron 2 reuniones y 2 asistencias.')
-        self.assertEqual(Reunion.objects.count(), 0)
-        self.assertEqual(AsistenciaReunion.objects.count(), 0)
-        self.assertTrue(self.User.objects.filter(pk=self.socio_user.pk).exists())
-        self.assertTrue(self.User.objects.filter(pk=self.admin_user.pk).exists())
-
-    def test_limpieza_reuniones_solo_disponible_para_administrador(self):
-        """Protege la limpieza temporal con permisos de gestion de reuniones."""
-        reunion = Reunion.objects.create(
-            fecha=date(2026, 5, 20),
-            hora=time(18, 30),
-            locacion='Sede social',
-            creador=self.admin_user,
-        )
-        url = reverse('usuarios:limpiar_reuniones_prueba')
-
-        self.client.login(username='encargado', password='ClaveSegura123')
-        response = self.client.post(url)
-        self.assertRedirects(response, reverse('usuarios:dashboard'))
-
-        self.client.login(username='socio', password='ClaveSegura123')
-        response = self.client.post(url)
-        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
-
-        self.assertTrue(Reunion.objects.filter(pk=reunion.pk).exists())
 
     def test_listado_reuniones_muestra_registro_asistencia_para_activa(self):
         """Expone la accion de registro desde la reunion activa."""

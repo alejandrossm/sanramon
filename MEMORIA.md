@@ -26,7 +26,6 @@ Archivo para registrar detalles importantes que conviene conservar entre sesione
 
 - En una proxima version, ajustar en el listado de usuarios el boton de desactivacion del usuario autenticado: hoy puede verse como activo, pero debe mostrarse con estilo deshabilitado porque la propia cuenta no se puede desactivar.
 - Seguridad pendiente: endurecer HTTPS/cookies en produccion, activar `Force HTTPS` en PythonAnywhere, agregar proteccion anti fuerza bruta en login, bloquear comandos demo en produccion y evitar colisiones globales entre `username` y `email`.
-- El boton `Limpiar pruebas` del listado de reuniones es temporal. Debe eliminarse antes de produccion junto con la ruta `usuarios:limpiar_reuniones_prueba` y la vista `limpiar_reuniones_prueba`.
 
 ## Despliegue PythonAnywhere
 

@@ -13,7 +13,7 @@ from django.contrib.auth.views import (
 )
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
@@ -699,23 +699,6 @@ def listado_reuniones(request):
             'reunion_activa': reunion_activa,
         },
     )
-
-
-@require_POST
-@gestor_usuarios_required
-def limpiar_reuniones_prueba(request):
-    """Elimina reuniones y asistencias de reunion para pruebas operativas."""
-    with transaction.atomic():
-        total_asistencias = AsistenciaReunion.objects.count()
-        total_reuniones = Reunion.objects.count()
-        AsistenciaReunion.objects.all().delete()
-        Reunion.objects.all().delete()
-
-    messages.success(
-        request,
-        f'Se eliminaron {total_reuniones} reuniones y {total_asistencias} asistencias.',
-    )
-    return redirect('usuarios:listado_reuniones')
 
 
 @require_POST
