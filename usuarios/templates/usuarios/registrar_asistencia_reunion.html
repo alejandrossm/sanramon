@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% load crispy_forms_tags %}
+
+{% block title %}Registrar asistencia | Sistema San Ramon{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column flex-lg-row justify-content-between gap-3 align-items-lg-start mb-4">
+    <div class="d-flex align-items-center gap-3">
+        {% include "includes/icon.html" with name="clipboard-check" classes="fs-4 text-primary" %}
+        <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Asistencia</p>
+            <h1 class="h3 mb-1">Registrar asistencia</h1>
+            <p class="text-muted mb-0">
+                {{ reunion.fecha|date:"d-m-Y" }} a las {{ reunion.hora|time:"H:i" }} en {{ reunion.locacion }}.
+            </p>
+        </div>
+    </div>
+
+
+    <div class="d-flex flex-wrap gap-2 align-self-start">
+        <span class="badge text-bg-success">Activa</span>
+        <span class="badge text-bg-primary">Asistencias: {{ total_asistencias }}</span>
+        <a href="{% url 'usuarios:listado_reuniones' %}" class="btn btn-outline-secondary btn-sm">
+            {% include "includes/icon.html" with name="arrow-left" %}
+            <span>Volver</span>
+        </a>
+    </div>
+</div>
+<div class="row g-3 mb-4">
+    <div class="col-12">
+        <div class="d-flex flex-column gap-2">
+            <div class="d-flex align-items-center gap-2 text-primary">
+                {% include "includes/icon.html" with name="qr-code" classes="fs-5" %}
+                <span class="fw-semibold" data-rut-scan-status>Escaneo con lector QR activo</span>
+            </div>
+
+            <form method="post" class="m-0" data-rut-scan-form>
+                {% csrf_token %}
+                <input
+                    type="text"
+                    name="lectura_qr"
+                    id="id_lectura_qr_scanner"
+                    class="visually-hidden"
+                    autocomplete="off"
+                    tabindex="-1"
+                    data-rut-scan-input
+                >
+                <div class="form-check form-switch m-0">
+                    <input
+                        class="form-check-input"
+                        type="checkbox"
+                        role="switch"
+                        id="modo-lector-qr"
+                        data-rut-scan-toggle
+                        data-rut-scan-target="#id_lectura_qr_scanner"
+                        data-rut-scan-label="#modo-lector-qr-label"
+                    >
+                    <label
+                        class="form-check-label fw-semibold"
+                        for="modo-lector-qr"
+                        id="modo-lector-qr-label"
+                        data-rut-scan-toggle-label
+                    >
+                        Registro manual
+                    </label>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<div class="row g-3 mb-4">
+    <section class="col-12">
+        <div class="card shadow-sm border-0 p-4 h-100 opacity-50 pe-none" data-rut-manual-region aria-disabled="true">
+            <div class="mb-3">
+                <h4 class="h5 mb-0">Registro Manual</h4>
+            </div>
+
+            {% crispy form %}
+        </div>
+    </section>
+</div>
+
+<div class="table-responsive rounded overflow-hidden shadow-sm border bg-white">
+    <table class="table table-hover align-middle mb-0">
+        <thead>
+            <tr>
+                <th>RUT</th>
+                <th>Socio</th>
+                <th>Origen</th>
+                <th>Registrada por</th>
+                <th>Fecha registro</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for asistencia in asistencias %}
+            <tr>
+                <td class="fw-semibold">{{ asistencia.socio.rut }}</td>
+                <td>{{ asistencia.socio.nombre_completo }}</td>
+                <td>{{ asistencia.get_origen_display }}</td>
+                <td>
+                    {% if asistencia.registrada_por %}
+                    {{ asistencia.registrada_por.nombre_completo }}
+                    {% else %}
+                    <span class="text-muted">-</span>
+                    {% endif %}
+                </td>
+                <td>{{ asistencia.fecha_registro|date:"d-m-Y H:i" }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="5" class="text-center text-muted py-4">
+                    No hay asistencias registradas.
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

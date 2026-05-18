@@ -16,6 +16,12 @@
                 </div>
             </div>
             {% crispy form %}
+            <div class="text-center mt-3">
+                <a href="{% url 'usuarios:password_reset' %}" class="btn btn-link">
+                    {% include "includes/icon.html" with name="key" %}
+                    <span>Olvide mi contrasena</span>
+                </a>
+            </div>
         </section>
     </div>
 </div>

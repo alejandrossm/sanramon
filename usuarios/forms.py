@@ -3,16 +3,38 @@ import re
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Column, Layout, Row, Submit
 from django import forms
-from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm, UserCreationForm
+from django.contrib.auth.forms import (
+    AuthenticationForm,
+    PasswordChangeForm,
+    PasswordResetForm,
+    SetPasswordForm,
+    UserCreationForm,
+)
 from django.contrib.auth.password_validation import validate_password
+from django.utils import timezone
 
+from .identificacion import (
+    ORIGEN_QR_REGISTRO_CIVIL,
+    normalizar_rut,
+    parsear_lectura_rut,
+)
 from .models import (
+    AsistenciaReunion,
+    Reunion,
     TELEFONO_MOVIL_MENSAJE_CHILE,
     TELEFONO_MOVIL_PREFIJO_CHILE,
     TELEFONO_MOVIL_REGEX_CHILE,
     Usuario,
-    normalizar_rut,
     normalizar_telefono_movil,
+)
+from .permisos import (
+    PERM_ADMINISTRAR_PRIVILEGIOS,
+    ROLES_INTERNOS_GESTIONABLES,
+    ROL_SOCIO,
+    filtrar_choices_por_roles,
+    rol_es_socio,
+    rol_es_superadministrador,
+    usuario_tiene_permiso,
 )
 
 
@@ -83,6 +105,31 @@ class LoginForm(AuthenticationForm):
             'username',
             'password',
             Submit('submit', 'Ingresar', css_class='btn btn-primary w-100'),
+        )
+
+
+class RecuperarPasswordForm(PasswordResetForm):
+    """Formulario publico para solicitar enlace de recuperacion."""
+
+    email = forms.EmailField(
+        label='Correo electrónico',
+        widget=forms.EmailInput(
+            attrs={
+                'autocomplete': 'email',
+                'autofocus': True,
+                'placeholder': 'nombre@correo.cl',
+            }
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        """Configura crispy forms para el envio del enlace de recuperacion."""
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.layout = Layout(
+            'email',
+            Submit('submit', 'Enviar enlace', css_class='btn btn-primary w-100'),
         )
 
 
@@ -165,30 +212,22 @@ class UsuarioCreationForm(TelefonoMovilFormMixin, UserCreationForm):
         rol = self.cleaned_data['rol']
         if not self._actor_es_administrador():
             raise forms.ValidationError('No tienes permisos para registrar usuarios internos.')
-        if rol == Usuario.SOCIO:
+        if rol_es_socio(rol):
             raise forms.ValidationError('Usa el formulario de registro de socios.')
-        if rol == Usuario.SUPERADMINISTRADOR:
+        if rol_es_superadministrador(rol):
             raise forms.ValidationError('El superadministrador solo se administra desde Django admin.')
         return rol
 
     def _actor_es_administrador(self):
         """Indica si el actor puede administrar privilegios de alto nivel."""
-        return bool(
-            self.actor
-            and self.actor.is_authenticated
-            and (
-                self.actor.is_superuser
-                or getattr(self.actor, 'rol', None) == Usuario.ADMINISTRADOR
-            )
-        )
+        return usuario_tiene_permiso(self.actor, PERM_ADMINISTRAR_PRIVILEGIOS)
 
     def _limitar_roles_por_actor(self):
         """Limita el alta interna a roles administrativos y operativos."""
-        self.fields['rol'].choices = [
-            choice
-            for choice in self.fields['rol'].choices
-            if choice[0] in (Usuario.ADMINISTRADOR, Usuario.ENCARGADO_REGISTRO)
-        ]
+        self.fields['rol'].choices = filtrar_choices_por_roles(
+            self.fields['rol'].choices,
+            ROLES_INTERNOS_GESTIONABLES,
+        )
 
 
 class SocioCreationForm(TelefonoMovilFormMixin, forms.ModelForm):
@@ -278,6 +317,209 @@ class SocioCreationForm(TelefonoMovilFormMixin, forms.ModelForm):
         return socio
 
 
+class ReunionCreationForm(forms.ModelForm):
+    """Formulario para programar una nueva reunion."""
+
+    REUNION_DUPLICADA_MENSAJE = (
+        'Ya existe una reunion programada para la misma fecha y hora. '
+        'Ajusta la fecha u hora antes de guardar.'
+    )
+    REUNION_PASADA_HISTORICA_MENSAJE = (
+        'Las reuniones con fecha y hora anteriores al momento actual deben '
+        'registrarse como historicas.'
+    )
+    ESTADOS_CREACION = (
+        (Reunion.PROGRAMADA, 'Programada'),
+        (Reunion.HISTORICA, 'Histórica'),
+    )
+
+    class Meta:
+        """Campos editables al crear una reunion."""
+
+        model = Reunion
+        fields = ('fecha', 'hora', 'locacion', 'estado')
+        labels = {
+            'fecha': 'Fecha',
+            'hora': 'Hora',
+            'locacion': 'Locación',
+            'estado': 'Estado',
+        }
+        widgets = {
+            'fecha': forms.DateInput(attrs={'type': 'date'}),
+            'hora': forms.TimeInput(attrs={'type': 'time'}),
+            'locacion': forms.TextInput(attrs={'autocomplete': 'off'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        """Recibe al creador para asociarlo al guardar."""
+        self.creador = kwargs.pop('creador', None)
+        self.reunion_duplicada = False
+        self.reunion_pasada_requiere_historica = False
+        super().__init__(*args, **kwargs)
+        ahora = timezone.localtime()
+        self.fields['estado'].choices = self.ESTADOS_CREACION
+        self.fields['estado'].initial = Reunion.PROGRAMADA
+        self.fields['fecha'].widget.attrs.update(
+            {
+                'data-reunion-date': 'true',
+                'data-today': ahora.date().isoformat(),
+            }
+        )
+        self.fields['hora'].widget.attrs.update(
+            {
+                'data-reunion-time': 'true',
+                'data-current-time': ahora.strftime('%H:%M'),
+            }
+        )
+        self.fields['estado'].widget.attrs.update(
+            {
+                'data-reunion-status': 'true',
+                'data-historical-value': Reunion.HISTORICA,
+            }
+        )
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.layout = Layout(
+            Row(
+                Column('fecha', css_class='col-md-4'),
+                Column('hora', css_class='col-md-4'),
+                Column('estado', css_class='col-md-4'),
+            ),
+            Row(
+                Column('locacion', css_class='col-md-6'),
+            ),
+            Submit('submit', 'Guardar reunion', css_class='btn btn-primary'),
+        )
+
+    def clean(self):
+        """Valida reglas de fecha, estado y duplicidad antes de guardar."""
+        cleaned_data = super().clean()
+        fecha = cleaned_data.get('fecha')
+        hora = cleaned_data.get('hora')
+        estado = cleaned_data.get('estado')
+
+        if (
+            fecha
+            and hora
+            and self._reunion_es_pasada(fecha, hora)
+            and estado != Reunion.HISTORICA
+        ):
+            self.reunion_pasada_requiere_historica = True
+            raise forms.ValidationError(self.REUNION_PASADA_HISTORICA_MENSAJE)
+
+        if fecha and hora and Reunion.objects.filter(fecha=fecha, hora=hora).exists():
+            self.reunion_duplicada = True
+            raise forms.ValidationError(self.REUNION_DUPLICADA_MENSAJE)
+
+        return cleaned_data
+
+    def _reunion_es_pasada(self, fecha, hora):
+        """Compara fecha y hora de la reunion contra el momento local actual."""
+        ahora = timezone.localtime()
+        hora_actual = ahora.replace(second=0, microsecond=0).time()
+        return fecha < ahora.date() or (fecha == ahora.date() and hora < hora_actual)
+
+    def save(self, commit=True):
+        """Guarda la reunion con creador y estado validado por el formulario."""
+        reunion = super().save(commit=False)
+        reunion.creador = self.creador
+        if commit:
+            reunion.save()
+            self.save_m2m()
+        return reunion
+
+
+class RegistroAsistenciaRutForm(forms.Form):
+    """Formulario para registrar asistencia de un socio existente por RUT."""
+
+    rut = forms.CharField(
+        label='RUT',
+        required=False,
+        max_length=12,
+        widget=forms.TextInput(
+            attrs={
+                'placeholder': '12.345.678-9',
+                'autocomplete': 'off',
+                'inputmode': 'text',
+                'data-rut-manual-input': 'true',
+                'aria-disabled': 'true',
+                'disabled': 'disabled',
+                'readonly': 'readonly',
+                'tabindex': '-1',
+            }
+        ),
+    )
+    lectura_qr = forms.CharField(
+        required=False,
+        max_length=512,
+        widget=forms.HiddenInput(),
+    )
+
+    def __init__(self, *args, **kwargs):
+        """Recibe la reunion activa y el usuario que registra."""
+        self.reunion = kwargs.pop('reunion')
+        self.registrador = kwargs.pop('registrador')
+        self.socio = None
+        self.lectura_rut = None
+        super().__init__(*args, **kwargs)
+        marcar_campo_rut(self.fields['rut'])
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.layout = Layout(
+            Row(
+                Column('rut', css_class='col-md-8'),
+            ),
+            Submit(
+                'submit',
+                'Registrar por RUT',
+                css_class='btn btn-primary',
+                data_rut_manual_submit='true',
+                disabled='disabled',
+                aria_disabled='true',
+            ),
+        )
+
+    def clean(self):
+        """Valida que el RUT o QR corresponda a un socio existente."""
+        cleaned_data = super().clean()
+        entrada = cleaned_data.get('lectura_qr') or cleaned_data.get('rut')
+        lectura_rut = parsear_lectura_rut(entrada)
+        if not lectura_rut:
+            raise forms.ValidationError('Ingrese un RUT valido o escanee un QR con bloque RUN.')
+
+        rut = lectura_rut.rut
+        socio = Usuario.objects.filter(rut__iexact=rut, rol=Usuario.SOCIO).first()
+
+        if not socio:
+            raise forms.ValidationError('Solo se pueden registrar socios existentes.')
+
+        if not socio.is_active:
+            raise forms.ValidationError('El socio esta inactivo.')
+
+        if AsistenciaReunion.objects.filter(reunion=self.reunion, socio=socio).exists():
+            raise forms.ValidationError('El socio ya tiene asistencia registrada en esta reunion.')
+
+        self.socio = socio
+        self.lectura_rut = lectura_rut
+        cleaned_data['rut'] = rut
+        if self.reunion.estado != Reunion.ACTIVA:
+            raise forms.ValidationError('Solo se puede registrar asistencia en una reunion activa.')
+        return cleaned_data
+
+    def save(self):
+        """Crea el registro de asistencia presente segun el origen detectado."""
+        origen = AsistenciaReunion.ORIGEN_RUT
+        if self.lectura_rut and self.lectura_rut.origen == ORIGEN_QR_REGISTRO_CIVIL:
+            origen = AsistenciaReunion.ORIGEN_QR
+
+        return AsistenciaReunion.registrar_presente(
+            reunion=self.reunion,
+            socio=self.socio,
+            usuario=self.registrador,
+            origen=origen,
+        )
+
+
 class SocioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
     """Formulario específico para editar socios sin exponer rol ni password."""
 
@@ -359,10 +601,9 @@ class SocioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
         return normalizar_rut(self.cleaned_data['rut'])
 
     def save(self, commit=True):
-        """Actualiza el socio conservando siempre su rol de socio."""
+        """Actualiza el socio conservando siempre su rol y username."""
         socio = super().save(commit=False)
         socio.rol = Usuario.SOCIO
-        socio.username = socio.email
         if commit:
             socio.save()
             self.save_m2m()
@@ -389,7 +630,6 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
 
         model = Usuario
         fields = (
-            'username',
             'first_name',
             'last_name',
             'rut',
@@ -398,7 +638,6 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
             'rol',
         )
         labels = {
-            'username': 'Usuario',
             'first_name': 'Nombre',
             'last_name': 'Apellido',
             'email': 'Correo electrónico',
@@ -420,10 +659,6 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
         self.helper.form_method = 'post'
         self.helper.layout = Layout(
             Row(
-                Column('username', css_class='col-md-6'),
-                Column('email', css_class='col-md-6'),
-            ),
-            Row(
                 Column('first_name', css_class='col-md-6'),
                 Column('last_name', css_class='col-md-6'),
             ),
@@ -432,6 +667,7 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
                 Column('telefono_movil', css_class='col-md-6'),
             ),
             Row(
+                Column('email', css_class='col-md-6'),
                 Column('rol', css_class='col-md-6'),
             ),
             Row(
@@ -467,6 +703,9 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
     def clean(self):
         """Valida coincidencia y seguridad del password cuando se informa."""
         cleaned_data = super().clean()
+        if self.instance.pk and self.add_prefix('username') in self.data:
+            raise forms.ValidationError('El nombre de usuario no puede modificarse.')
+
         password1 = cleaned_data.get('password1')
         password2 = cleaned_data.get('password2')
 
@@ -481,11 +720,11 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
     def clean_rol(self):
         """Impide que actores no administradores asignen roles internos."""
         rol = self.cleaned_data['rol']
-        if rol == Usuario.SOCIO:
+        if rol_es_socio(rol):
             raise forms.ValidationError('Usa el formulario de registro de socios.')
-        if rol == Usuario.SUPERADMINISTRADOR:
+        if rol_es_superadministrador(rol):
             raise forms.ValidationError('El superadministrador solo se administra desde Django admin.')
-        if not self._actor_es_administrador() and rol != Usuario.SOCIO:
+        if not self._actor_es_administrador() and not rol_es_socio(rol):
             raise forms.ValidationError('Solo puedes asignar rol socio.')
         return rol
 
@@ -502,26 +741,18 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
 
     def _actor_es_administrador(self):
         """Indica si el actor puede editar privilegios administrativos."""
-        return bool(
-            self.actor
-            and self.actor.is_authenticated
-            and (
-                self.actor.is_superuser
-                or getattr(self.actor, 'rol', None) == Usuario.ADMINISTRADOR
-            )
-        )
+        return usuario_tiene_permiso(self.actor, PERM_ADMINISTRAR_PRIVILEGIOS)
 
     def _limitar_roles_por_actor(self):
         """Limita a rol socio para actores sin privilegios."""
         if self._actor_es_administrador():
-            roles_permitidos = (Usuario.ADMINISTRADOR, Usuario.ENCARGADO_REGISTRO)
+            roles_permitidos = ROLES_INTERNOS_GESTIONABLES
         else:
-            roles_permitidos = (Usuario.SOCIO,)
-        self.fields['rol'].choices = [
-            choice
-            for choice in self.fields['rol'].choices
-            if choice[0] in roles_permitidos
-        ]
+            roles_permitidos = (ROL_SOCIO,)
+        self.fields['rol'].choices = filtrar_choices_por_roles(
+            self.fields['rol'].choices,
+            roles_permitidos,
+        )
 
 
 class CambioPasswordForm(PasswordChangeForm):
@@ -552,4 +783,30 @@ class CambioPasswordForm(PasswordChangeForm):
                 Column('new_password2', css_class='col-md-6'),
             ),
             Submit('submit', 'Actualizar contraseña', css_class='btn btn-primary'),
+        )
+
+
+class RestablecerPasswordForm(SetPasswordForm):
+    """Formulario para definir una nueva contrasena desde un token valido."""
+
+    new_password1 = forms.CharField(
+        label='Nueva contraseña',
+        widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
+    )
+    new_password2 = forms.CharField(
+        label='Confirmar nueva contraseña',
+        widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        """Configura crispy forms para el restablecimiento publico."""
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.layout = Layout(
+            Row(
+                Column('new_password1', css_class='col-md-6'),
+                Column('new_password2', css_class='col-md-6'),
+            ),
+            Submit('submit', 'Guardar contraseña', css_class='btn btn-primary'),
         )

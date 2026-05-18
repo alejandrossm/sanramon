@@ -3,95 +3,128 @@ from functools import wraps
 from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.views import LoginView, LogoutView
+from django.contrib.auth.views import (
+    LoginView,
+    LogoutView,
+    PasswordResetCompleteView,
+    PasswordResetConfirmView,
+    PasswordResetDoneView,
+    PasswordResetView,
+)
+from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
+from django.db import IntegrityError
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.views.decorators.http import require_POST
 
+from .identificacion import parsear_lectura_rut
 from .forms import (
     CambioPasswordForm,
     LoginForm,
+    RecuperarPasswordForm,
+    RegistroAsistenciaRutForm,
+    ReunionCreationForm,
+    RestablecerPasswordForm,
     SocioCreationForm,
     SocioUpdateForm,
     UsuarioCreationForm,
     UsuarioUpdateForm,
 )
-from .models import Usuario
+from .models import AsistenciaReunion, Reunion, Usuario
+from .permisos import (
+    PERM_ACCEDER_ASISTENCIA,
+    PERM_ADMINISTRAR_PRIVILEGIOS,
+    PERM_EDITAR_SOCIOS,
+    PERM_ELIMINAR_SOCIOS,
+    PERM_ELIMINAR_USUARIOS,
+    PERM_GESTIONAR_USUARIOS,
+    PERM_REGISTRAR_SOCIOS,
+    PERM_REGISTRAR_USUARIOS,
+    ROLES_INTERNOS_GESTIONABLES,
+    filtrar_choices_por_roles,
+    rol_es_interno_gestionable,
+    usuario_es_socio,
+    usuario_tiene_permiso,
+)
 
 
 def es_administrador(user):
     """Determina si el usuario tiene privilegios administrativos completos."""
-    return user.is_authenticated and (
-        user.is_superuser or getattr(user, 'rol', None) == Usuario.ADMINISTRADOR
-    )
-
-
-def es_encargado_registro(user):
-    """Determina si el usuario tiene rol operativo de encargado de registro."""
-    return (
-        user.is_authenticated
-        and getattr(user, 'rol', None) == Usuario.ENCARGADO_REGISTRO
-        and not user.is_superuser
-    )
+    return usuario_tiene_permiso(user, PERM_ADMINISTRAR_PRIVILEGIOS)
 
 
 def es_socio(user):
     """Determina si el usuario debe quedar limitado al portal de socio."""
-    return (
-        user.is_authenticated
-        and getattr(user, 'rol', None) == Usuario.SOCIO
-        and not es_administrador(user)
-    )
+    return usuario_es_socio(user)
 
 
 def puede_gestionar_usuarios(user):
     """Indica si el usuario puede administrar usuarios sin restricciones."""
-    return es_administrador(user)
+    return usuario_tiene_permiso(user, PERM_GESTIONAR_USUARIOS)
 
 
 def puede_registrar_usuarios(user):
     """Indica si el usuario puede registrar cuentas internas."""
-    return es_administrador(user)
+    return usuario_tiene_permiso(user, PERM_REGISTRAR_USUARIOS)
 
 
 def puede_registrar_socios(user):
     """Indica si el usuario puede registrar cuentas de socio."""
-    return es_administrador(user)
+    return usuario_tiene_permiso(user, PERM_REGISTRAR_SOCIOS)
 
 
 def puede_editar_socios(user):
     """Indica si el usuario puede actualizar datos operativos de socios."""
-    return es_administrador(user)
+    return usuario_tiene_permiso(user, PERM_EDITAR_SOCIOS)
 
 
 def puede_acceder_asistencia(user):
     """Indica si el usuario puede entrar al modulo operativo de asistencia."""
-    return es_administrador(user) or es_encargado_registro(user)
+    return usuario_tiene_permiso(user, PERM_ACCEDER_ASISTENCIA)
 
 
 def puede_modificar_usuario(actor, usuario):
     """Valida si el actor puede editar o cambiar estado del usuario objetivo."""
-    return es_administrador(actor) and not usuario.is_superuser
+    return puede_gestionar_usuarios(actor) and not usuario.is_superuser
+
+
+def puede_eliminar_socios(user):
+    """Indica si el usuario puede eliminar socios."""
+    return usuario_tiene_permiso(user, PERM_ELIMINAR_SOCIOS)
 
 
 def puede_eliminar_usuario_interno(actor, usuario):
-    """Valida eliminación de administradores y encargados desde gestión interna."""
-    if not es_administrador(actor) or usuario.pk == actor.pk or usuario.is_superuser:
+    """Valida eliminacion de usuarios internos desde gestion propia."""
+    if (
+        not usuario_tiene_permiso(actor, PERM_ELIMINAR_USUARIOS)
+        or usuario.pk == actor.pk
+        or usuario.is_superuser
+    ):
         return False
-    return usuario.rol in (Usuario.ADMINISTRADOR, Usuario.ENCARGADO_REGISTRO)
+    return rol_es_interno_gestionable(usuario.rol)
 
 
 def obtener_valores_busqueda_rut(valor):
     """Genera variantes de busqueda para RUT con o sin puntos y guion."""
     valor = (valor or '').strip()
+    lectura_rut = parsear_lectura_rut(valor)
+    if lectura_rut:
+        valor = lectura_rut.rut
     sin_puntos = valor.replace('.', '').replace(' ', '').upper()
     solo_rut = ''.join(caracter for caracter in sin_puntos if caracter.isdigit() or caracter == 'K')
     variantes = [valor, sin_puntos]
     if '-' not in sin_puntos and len(solo_rut) > 1:
         variantes.append(f'{solo_rut[:-1]}-{solo_rut[-1]}')
     return [variante for variante in dict.fromkeys(variantes) if variante]
+
+
+def obtener_mensaje_validacion(error):
+    """Extrae un mensaje legible desde ValidationError de Django."""
+    if hasattr(error, 'message_dict'):
+        return next(iter(error.message_dict.values()))[0]
+    return error.messages[0] if error.messages else 'No fue posible completar la accion.'
 
 
 COLUMNAS_ORDENABLES_USUARIOS = [
@@ -115,11 +148,10 @@ COLUMNAS_ORDENABLES_SOCIOS = [
 ]
 
 
-ROLES_FILTRABLES_USUARIOS = [
-    choice
-    for choice in Usuario.ROLES
-    if choice[0] in (Usuario.ADMINISTRADOR, Usuario.ENCARGADO_REGISTRO)
-]
+ROLES_FILTRABLES_USUARIOS = filtrar_choices_por_roles(
+    Usuario.ROLES,
+    ROLES_INTERNOS_GESTIONABLES,
+)
 
 ESTADOS_FILTRABLES = [
     ('activo', 'Activo'),
@@ -318,6 +350,21 @@ def registro_usuarios_required(view_func):
     return wrapper
 
 
+def eliminacion_usuarios_required(view_func):
+    """Protege la eliminacion de usuarios internos mediante permiso explicito."""
+
+    @wraps(view_func)
+    @login_required
+    def wrapper(request, *args, **kwargs):
+        """Ejecuta la eliminacion o redirige si no esta autorizada."""
+        if usuario_tiene_permiso(request.user, PERM_ELIMINAR_USUARIOS):
+            return view_func(request, *args, **kwargs)
+        messages.error(request, 'No tienes permisos para eliminar usuarios.')
+        return redireccion_sin_permiso(request.user)
+
+    return wrapper
+
+
 def registro_socios_required(view_func):
     """Protege el registro de socios solo para administradores."""
 
@@ -348,8 +395,23 @@ def edicion_socios_required(view_func):
     return wrapper
 
 
+def eliminacion_socios_required(view_func):
+    """Protege la eliminacion de socios mediante permiso explicito."""
+
+    @wraps(view_func)
+    @login_required
+    def wrapper(request, *args, **kwargs):
+        """Ejecuta la eliminacion o redirige si no esta autorizada."""
+        if puede_eliminar_socios(request.user):
+            return view_func(request, *args, **kwargs)
+        messages.error(request, 'No tienes permisos para eliminar socios.')
+        return redireccion_sin_permiso(request.user)
+
+    return wrapper
+
+
 def asistencia_required(view_func):
-    """Protege vistas operativas de asistencia para administradores y encargados."""
+    """Protege vistas operativas de asistencia por permiso explicito."""
 
     @wraps(view_func)
     @login_required
@@ -381,6 +443,36 @@ class UsuarioLogoutView(LogoutView):
     """Vista de cierre de sesión que vuelve al login."""
 
     next_page = reverse_lazy('usuarios:login')
+
+
+class UsuarioPasswordResetView(PasswordResetView):
+    """Solicita un enlace de recuperacion de contrasena por correo."""
+
+    form_class = RecuperarPasswordForm
+    template_name = 'usuarios/password_reset_form.html'
+    email_template_name = 'usuarios/password_reset_email.html'
+    subject_template_name = 'usuarios/password_reset_subject.txt'
+    success_url = reverse_lazy('usuarios:password_reset_done')
+
+
+class UsuarioPasswordResetDoneView(PasswordResetDoneView):
+    """Confirma que la solicitud de recuperacion fue recibida."""
+
+    template_name = 'usuarios/password_reset_done.html'
+
+
+class UsuarioPasswordResetConfirmView(PasswordResetConfirmView):
+    """Permite guardar una nueva contrasena usando un token valido."""
+
+    form_class = RestablecerPasswordForm
+    template_name = 'usuarios/password_reset_confirm.html'
+    success_url = reverse_lazy('usuarios:password_reset_complete')
+
+
+class UsuarioPasswordResetCompleteView(PasswordResetCompleteView):
+    """Muestra el resultado final del restablecimiento de contrasena."""
+
+    template_name = 'usuarios/password_reset_complete.html'
 
 
 @login_required
@@ -506,11 +598,12 @@ def agregar_resumen_asistencia_socios(socios):
 
 
 def obtener_resumen_asistencia_socio(socio):
-    """Devuelve los contadores de asistencia usados por vistas y eliminación segura."""
+    """Devuelve los contadores de asistencia usados por vistas y eliminacion segura."""
+    asistencias = AsistenciaReunion.objects.filter(socio=socio)
     return {
-        'total_reuniones': 0,
-        'total_asistencias': 0,
-        'total_ausencias': 0,
+        'total_reuniones': asistencias.count(),
+        'total_asistencias': asistencias.filter(estado=AsistenciaReunion.PRESENTE).count(),
+        'total_ausencias': asistencias.filter(estado=AsistenciaReunion.AUSENTE).count(),
     }
 
 
@@ -568,6 +661,116 @@ def cambiar_mi_password(request):
         form = CambioPasswordForm(user=request.user)
 
     return render(request, 'usuarios/cambiar_mi_password.html', {'form': form})
+
+
+@gestor_usuarios_required
+def crear_reunion(request):
+    """Crea reuniones con estado inicial programada."""
+    if request.method == 'POST':
+        form = ReunionCreationForm(request.POST, creador=request.user)
+        if form.is_valid():
+            reunion = form.save()
+            messages.success(
+                request,
+                f'Reunion del {reunion.fecha:%d-%m-%Y} a las {reunion.hora:%H:%M} creada correctamente.',
+            )
+            return redirect('usuarios:crear_reunion')
+        if form.reunion_duplicada:
+            messages.warning(request, form.REUNION_DUPLICADA_MENSAJE)
+        if form.reunion_pasada_requiere_historica:
+            messages.warning(request, form.REUNION_PASADA_HISTORICA_MENSAJE)
+    else:
+        form = ReunionCreationForm(creador=request.user)
+
+    return render(request, 'usuarios/crear_reunion.html', {'form': form})
+
+
+@gestor_usuarios_required
+def listado_reuniones(request):
+    """Lista reuniones registradas y expone acciones operativas."""
+    reuniones = Reunion.objects.select_related('creador', 'activada_por')
+    reunion_activa = reuniones.filter(estado=Reunion.ACTIVA).first()
+
+    return render(
+        request,
+        'usuarios/listado_reuniones.html',
+        {
+            'reuniones': reuniones,
+            'reunion_activa': reunion_activa,
+        },
+    )
+
+
+@require_POST
+@gestor_usuarios_required
+def iniciar_reunion(request, pk):
+    """Activa una reunion programada si no existe otra activa."""
+    reunion = get_object_or_404(Reunion, pk=pk)
+
+    try:
+        reunion.iniciar(request.user)
+    except ValidationError as error:
+        messages.error(request, obtener_mensaje_validacion(error))
+    except IntegrityError:
+        messages.error(request, 'Ya existe una reunion activa.')
+    else:
+        messages.success(
+            request,
+            f'Reunion del {reunion.fecha:%d-%m-%Y} a las {reunion.hora:%H:%M} iniciada correctamente.',
+        )
+
+    return redirect('usuarios:listado_reuniones')
+
+
+@asistencia_required
+def registrar_asistencia_reunion(request, pk):
+    """Registra asistencia por RUT para una reunion activa."""
+    reunion = get_object_or_404(
+        Reunion.objects.select_related('activada_por'),
+        pk=pk,
+    )
+
+    if reunion.estado != Reunion.ACTIVA:
+        messages.error(request, 'Solo se puede registrar asistencia en una reunion activa.')
+        return redirect('usuarios:listado_socios_asistencia')
+
+    if request.method == 'POST':
+        form = RegistroAsistenciaRutForm(
+            request.POST,
+            reunion=reunion,
+            registrador=request.user,
+        )
+        if form.is_valid():
+            try:
+                asistencia = form.save()
+            except ValidationError as error:
+                form.add_error(None, obtener_mensaje_validacion(error))
+            except IntegrityError:
+                form.add_error('rut', 'El socio ya tiene asistencia registrada en esta reunion.')
+            else:
+                messages.success(
+                    request,
+                    f'Asistencia registrada para {asistencia.socio.nombre_completo}.',
+                )
+                return redirect('usuarios:registrar_asistencia_reunion', pk=reunion.pk)
+    else:
+        form = RegistroAsistenciaRutForm(reunion=reunion, registrador=request.user)
+
+    asistencias = reunion.asistencias.select_related('socio', 'registrada_por')[:20]
+    total_asistencias = reunion.asistencias.filter(
+        estado=AsistenciaReunion.PRESENTE,
+    ).count()
+
+    return render(
+        request,
+        'usuarios/registrar_asistencia_reunion.html',
+        {
+            'reunion': reunion,
+            'form': form,
+            'asistencias': asistencias,
+            'total_asistencias': total_asistencias,
+        },
+    )
 
 
 @gestor_usuarios_required
@@ -806,7 +1009,7 @@ def cambiar_estado_usuario(request, pk):
 
 
 @require_POST
-@gestor_usuarios_required
+@eliminacion_usuarios_required
 def eliminar_usuario(request, pk):
     """Elimina usuarios internos sin permitir autoeliminación."""
     usuario = get_object_or_404(Usuario, pk=pk)
@@ -818,7 +1021,7 @@ def eliminar_usuario(request, pk):
     if not puede_eliminar_usuario_interno(request.user, usuario):
         messages.error(
             request,
-            'Solo se pueden eliminar usuarios administradores o encargados de registro.',
+            'Solo se pueden eliminar usuarios internos.',
         )
         return redirect('usuarios:listado_usuarios')
 
@@ -829,7 +1032,7 @@ def eliminar_usuario(request, pk):
 
 
 @require_POST
-@gestor_usuarios_required
+@eliminacion_socios_required
 def eliminar_socio(request, pk):
     """Elimina socios solo cuando no tienen asistencias contabilizadas."""
     socio = get_object_or_404(Usuario, pk=pk, rol=Usuario.SOCIO)

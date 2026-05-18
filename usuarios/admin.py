@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
-from .models import Usuario
+from .models import AsistenciaReunion, Reunion, Usuario
 
 
 @admin.register(Usuario)
@@ -36,6 +36,52 @@ class UsuarioAdmin(UserAdmin):
     def get_readonly_fields(self, request, obj=None):
         """Bloquea cambios de rol y privilegios para cuentas de socio."""
         readonly_fields = list(super().get_readonly_fields(request, obj))
+        if obj:
+            readonly_fields.append('username')
         if obj and obj.rol == Usuario.SOCIO:
             readonly_fields.extend(('rol', 'is_staff', 'is_superuser'))
         return tuple(readonly_fields)
+
+
+@admin.register(Reunion)
+class ReunionAdmin(admin.ModelAdmin):
+    """Configuracion de reuniones dentro del admin de Django."""
+
+    list_display = (
+        'fecha',
+        'hora',
+        'locacion',
+        'estado',
+        'es_proxima',
+        'creador',
+        'activada_por',
+        'fecha_activacion',
+        'fecha_creacion',
+    )
+    list_filter = ('estado', 'es_proxima', 'fecha')
+    search_fields = ('locacion', 'creador__username', 'creador__email')
+    readonly_fields = ('fecha_creacion', 'fecha_activacion')
+    ordering = ('-fecha', '-fecha_creacion')
+
+
+@admin.register(AsistenciaReunion)
+class AsistenciaReunionAdmin(admin.ModelAdmin):
+    """Configuracion de asistencias de reuniones dentro del admin de Django."""
+
+    list_display = (
+        'reunion',
+        'socio',
+        'estado',
+        'origen',
+        'registrada_por',
+        'fecha_registro',
+    )
+    list_filter = ('estado', 'origen', 'reunion__fecha')
+    search_fields = (
+        'socio__rut',
+        'socio__first_name',
+        'socio__last_name',
+        'registrada_por__username',
+    )
+    readonly_fields = ('fecha_registro',)
+    ordering = ('-fecha_registro',)

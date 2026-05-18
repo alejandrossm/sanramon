@@ -1,22 +1,54 @@
+from datetime import date, datetime, time
 from io import StringIO
+from urllib.parse import urlparse
 from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.contrib.staticfiles import finders
+from django.core import mail
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.test import TestCase, override_settings
+from django.template.loader import render_to_string
 from django.urls import reverse
+from django.utils import timezone
 
 from .admin import UsuarioAdmin
+from .forms import ReunionCreationForm, UsuarioCreationForm, UsuarioUpdateForm
+from .identificacion import (
+    ORIGEN_QR_REGISTRO_CIVIL,
+    ORIGEN_RUT_MANUAL,
+    parsear_lectura_rut,
+)
+from .models import AsistenciaReunion, Reunion
+from .permisos import (
+    GRUPO_ADMINISTRADOR,
+    GRUPO_ENCARGADO_REGISTRO,
+    GRUPO_SOCIO,
+    PERM_ACCEDER_ASISTENCIA,
+    PERM_ADMINISTRAR_PRIVILEGIOS,
+    PERM_GESTIONAR_USUARIOS,
+    ROLES_INTERNOS_GESTIONABLES,
+)
 from .views import (
+    ROLES_FILTRABLES_USUARIOS,
     obtener_indicador_asistencia,
     obtener_resumen_estado_asistencia_socios,
+    puede_acceder_asistencia,
+    puede_eliminar_socio_seguro,
+    puede_gestionar_usuarios,
+    puede_registrar_socios,
+    puede_registrar_usuarios,
+    obtener_resumen_asistencia_socio,
 )
 
 
-@override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
+@override_settings(
+    PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'],
+    EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+)
 class UsuariosModuloTests(TestCase):
     """Pruebas de autenticacion, roles, permisos y gestion de usuarios."""
 
@@ -54,6 +86,310 @@ class UsuariosModuloTests(TestCase):
             rol=self.User.ENCARGADO_REGISTRO,
         )
 
+    def test_permisos_base_estan_asignados_a_grupos_operativos(self):
+        """Crea grupos equivalentes a roles sin acoplar permisos al codigo."""
+        grupo_admin = Group.objects.get(name=GRUPO_ADMINISTRADOR)
+        grupo_encargado = Group.objects.get(name=GRUPO_ENCARGADO_REGISTRO)
+        grupo_socio = Group.objects.get(name=GRUPO_SOCIO)
+
+        self.assertTrue(
+            grupo_admin.permissions.filter(
+                codename=PERM_GESTIONAR_USUARIOS,
+            ).exists()
+        )
+        self.assertTrue(
+            grupo_admin.permissions.filter(
+                codename=PERM_ADMINISTRAR_PRIVILEGIOS,
+            ).exists()
+        )
+        self.assertTrue(
+            grupo_encargado.permissions.filter(
+                codename=PERM_ACCEDER_ASISTENCIA,
+            ).exists()
+        )
+        self.assertFalse(
+            grupo_encargado.permissions.filter(
+                codename=PERM_GESTIONAR_USUARIOS,
+            ).exists()
+        )
+        self.assertEqual(grupo_socio.permissions.count(), 0)
+
+    def test_usuario_sincroniza_grupo_operativo_segun_rol(self):
+        """Mantiene grupos Django alineados con el rol operativo vigente."""
+        self.assertTrue(
+            self.admin_user.groups.filter(name=GRUPO_ADMINISTRADOR).exists()
+        )
+        self.assertTrue(
+            self.encargado_user.groups.filter(name=GRUPO_ENCARGADO_REGISTRO).exists()
+        )
+        self.assertTrue(
+            self.socio_user.groups.filter(name=GRUPO_SOCIO).exists()
+        )
+
+        self.encargado_user.rol = self.User.ADMINISTRADOR
+        self.encargado_user.save(update_fields=['rol'])
+
+        self.assertTrue(
+            self.encargado_user.groups.filter(name=GRUPO_ADMINISTRADOR).exists()
+        )
+        self.assertFalse(
+            self.encargado_user.groups.filter(name=GRUPO_ENCARGADO_REGISTRO).exists()
+        )
+
+    def test_permisos_operativos_respetan_roles_vigentes(self):
+        """Mantiene las reglas actuales sobre la capa de permisos Django."""
+        self.assertTrue(puede_gestionar_usuarios(self.admin_user))
+        self.assertTrue(puede_registrar_usuarios(self.admin_user))
+        self.assertTrue(puede_registrar_socios(self.admin_user))
+        self.assertTrue(puede_acceder_asistencia(self.admin_user))
+
+        self.assertFalse(puede_gestionar_usuarios(self.encargado_user))
+        self.assertFalse(puede_registrar_usuarios(self.encargado_user))
+        self.assertFalse(puede_registrar_socios(self.encargado_user))
+        self.assertTrue(puede_acceder_asistencia(self.encargado_user))
+
+        self.assertFalse(puede_gestionar_usuarios(self.socio_user))
+        self.assertFalse(puede_registrar_usuarios(self.socio_user))
+        self.assertFalse(puede_registrar_socios(self.socio_user))
+        self.assertFalse(puede_acceder_asistencia(self.socio_user))
+
+    def test_reunion_se_crea_programada_con_creador(self):
+        """Persiste los datos base de una reunion programada."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+
+        self.assertEqual(reunion.estado, Reunion.PROGRAMADA)
+        self.assertFalse(reunion.es_proxima)
+        self.assertEqual(reunion.creador, self.admin_user)
+        self.assertEqual(str(reunion), '2026-05-20 18:30 - Sede social')
+
+    def test_formulario_reunion_exige_fecha_hora_y_locacion(self):
+        """Valida los campos obligatorios antes de guardar."""
+        form = ReunionCreationForm(data={}, creador=self.admin_user)
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('fecha', form.errors)
+        self.assertIn('hora', form.errors)
+        self.assertIn('locacion', form.errors)
+
+    @patch('usuarios.forms.timezone.localtime', return_value=datetime(2026, 5, 14, 12, 0))
+    def test_formulario_reunion_alerta_fecha_hora_duplicada(self, _localtime):
+        """Bloquea reuniones con fecha y hora ya registradas."""
+        Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+
+        form = ReunionCreationForm(
+            data={
+                'fecha': '2026-05-20',
+                'hora': '18:30',
+                'locacion': 'Sede norte',
+                'estado': Reunion.PROGRAMADA,
+            },
+            creador=self.admin_user,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertTrue(form.reunion_duplicada)
+        self.assertIn(
+            ReunionCreationForm.REUNION_DUPLICADA_MENSAJE,
+            form.non_field_errors(),
+        )
+
+    @patch('usuarios.forms.timezone.localtime', return_value=datetime(2026, 5, 14, 12, 0))
+    def test_formulario_reunion_pasada_debe_ser_historica(self, _localtime):
+        """Obliga a registrar como historicas las reuniones anteriores a ahora."""
+        form = ReunionCreationForm(
+            data={
+                'fecha': '2026-05-13',
+                'hora': '18:30',
+                'locacion': 'Sede social',
+                'estado': Reunion.PROGRAMADA,
+            },
+            creador=self.admin_user,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertTrue(form.reunion_pasada_requiere_historica)
+        self.assertIn(
+            ReunionCreationForm.REUNION_PASADA_HISTORICA_MENSAJE,
+            form.non_field_errors(),
+        )
+
+        form = ReunionCreationForm(
+            data={
+                'fecha': '2026-05-13',
+                'hora': '18:30',
+                'locacion': 'Sede social',
+                'estado': Reunion.HISTORICA,
+            },
+            creador=self.admin_user,
+        )
+
+        self.assertTrue(form.is_valid())
+
+    @patch('usuarios.forms.timezone.localtime', return_value=datetime(2026, 5, 14, 12, 0))
+    def test_formulario_reunion_hoy_con_hora_pasada_debe_ser_historica(self, _localtime):
+        """Considera historicas las reuniones de hoy cuando la hora ya paso."""
+        form = ReunionCreationForm(
+            data={
+                'fecha': '2026-05-14',
+                'hora': '11:30',
+                'locacion': 'Sede social',
+                'estado': Reunion.PROGRAMADA,
+            },
+            creador=self.admin_user,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertTrue(form.reunion_pasada_requiere_historica)
+        self.assertIn(
+            ReunionCreationForm.REUNION_PASADA_HISTORICA_MENSAJE,
+            form.non_field_errors(),
+        )
+
+        form = ReunionCreationForm(
+            data={
+                'fecha': '2026-05-14',
+                'hora': '12:30',
+                'locacion': 'Sede social',
+                'estado': Reunion.PROGRAMADA,
+            },
+            creador=self.admin_user,
+        )
+
+        self.assertTrue(form.is_valid())
+
+    def test_formulario_reunion_permite_programada_o_historica(self):
+        """Limita los estados disponibles al crear reuniones."""
+        form = ReunionCreationForm(creador=self.admin_user)
+
+        self.assertEqual(
+            list(form.fields['estado'].choices),
+            [
+                (Reunion.PROGRAMADA, 'Programada'),
+                (Reunion.HISTORICA, 'Histórica'),
+            ],
+        )
+
+        form = ReunionCreationForm(
+            data={
+                'fecha': '2026-05-20',
+                'hora': '18:30',
+                'locacion': 'Sede social',
+                'estado': Reunion.HISTORICA,
+            },
+            creador=self.admin_user,
+        )
+
+        self.assertTrue(form.is_valid())
+        reunion = form.save()
+        self.assertEqual(reunion.estado, Reunion.HISTORICA)
+
+    def test_reunion_historica_no_se_inicia_ni_finaliza(self):
+        """Reserva reuniones historicas para carga posterior y eliminacion segura."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+
+        self.assertTrue(reunion.es_historica())
+        self.assertFalse(reunion.puede_iniciarse())
+        self.assertFalse(reunion.puede_finalizarse())
+        self.assertTrue(reunion.puede_eliminarse())
+
+    @patch('usuarios.models.timezone.now')
+    def test_reunion_programada_se_inicia_con_usuario_y_fecha(self, now_mock):
+        """Cambia una reunion programada a activa registrando responsable."""
+        momento = datetime(2026, 5, 20, 18, 35, tzinfo=timezone.get_current_timezone())
+        now_mock.return_value = momento
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+
+        reunion.iniciar(self.admin_user)
+        reunion.refresh_from_db()
+
+        self.assertEqual(reunion.estado, Reunion.ACTIVA)
+        self.assertEqual(reunion.activada_por, self.admin_user)
+        self.assertEqual(reunion.fecha_activacion, momento)
+        self.assertTrue(reunion.puede_finalizarse())
+
+    def test_reunion_no_inicia_si_no_esta_programada(self):
+        """Impide activar reuniones historicas o en estados no iniciables."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+
+        with self.assertRaises(ValidationError):
+            reunion.iniciar(self.admin_user)
+
+        reunion.refresh_from_db()
+        self.assertEqual(reunion.estado, Reunion.HISTORICA)
+
+    def test_reunion_no_inicia_si_ya_existe_otra_activa(self):
+        """Mantiene una unica reunion activa en el sistema."""
+        activa = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        activa.iniciar(self.admin_user)
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 21),
+            hora=time(18, 30),
+            locacion='Sede norte',
+            creador=self.admin_user,
+        )
+
+        with self.assertRaises(ValidationError):
+            reunion.iniciar(self.admin_user)
+
+        reunion.refresh_from_db()
+        self.assertEqual(reunion.estado, Reunion.PROGRAMADA)
+        self.assertEqual(Reunion.objects.filter(estado=Reunion.ACTIVA).count(), 1)
+
+    def test_roles_internos_gestionables_alimentan_formularios_y_filtros(self):
+        """Centraliza roles internos usados por formularios y filtros."""
+        roles_esperados = {
+            self.User.ADMINISTRADOR,
+            self.User.ENCARGADO_REGISTRO,
+        }
+        self.assertEqual(set(ROLES_INTERNOS_GESTIONABLES), roles_esperados)
+        form_creacion = UsuarioCreationForm(actor=self.admin_user)
+        form_edicion = UsuarioUpdateForm(instance=self.encargado_user, actor=self.admin_user)
+
+        self.assertEqual(
+            {valor for valor, _label in form_creacion.fields['rol'].choices},
+            roles_esperados,
+        )
+        self.assertEqual(
+            {valor for valor, _label in form_edicion.fields['rol'].choices},
+            roles_esperados,
+        )
+        self.assertEqual(
+            {valor for valor, _label in ROLES_FILTRABLES_USUARIOS},
+            roles_esperados,
+        )
+
     def test_login_permite_correo_electronico(self):
         """Permite iniciar sesion usando email como identificador."""
         response = self.client.post(
@@ -61,6 +397,69 @@ class UsuariosModuloTests(TestCase):
             {'username': 'admin@example.com', 'password': 'ClaveSegura123'},
         )
         self.assertRedirects(response, reverse('usuarios:dashboard'))
+
+    def test_login_muestra_link_de_recuperacion_password(self):
+        """Expone el acceso publico para recuperar contrasena."""
+        response = self.client.get(reverse('usuarios:login'))
+
+        self.assertContains(response, reverse('usuarios:password_reset'))
+        self.assertContains(response, 'Olvide mi contrasena')
+
+    def test_recuperacion_password_muestra_link_a_home(self):
+        """Permite volver a home desde el flujo publico de recuperacion."""
+        response = self.client.get(reverse('usuarios:password_reset'))
+
+        self.assertContains(response, reverse('usuarios:home'))
+        self.assertContains(response, 'Volver a home')
+
+        response = self.client.get(
+            reverse(
+                'usuarios:password_reset_confirm',
+                kwargs={'uidb64': 'uid-invalido', 'token': 'token-invalido'},
+            )
+        )
+
+        self.assertContains(response, reverse('usuarios:home'))
+        self.assertContains(response, 'Volver a home')
+
+    def test_recuperacion_password_envia_correo_y_actualiza_password(self):
+        """Envia el token por correo y permite guardar una nueva contrasena."""
+        response = self.client.post(
+            reverse('usuarios:password_reset'),
+            {'email': 'admin@example.com'},
+        )
+
+        self.assertRedirects(response, reverse('usuarios:password_reset_done'))
+        self.assertEqual(len(mail.outbox), 1)
+        mensaje = mail.outbox[0]
+        self.assertEqual(mensaje.to, ['admin@example.com'])
+        asunto_esperado = ''.join(
+            render_to_string('usuarios/password_reset_subject.txt').splitlines()
+        )
+        self.assertEqual(mensaje.subject, asunto_esperado)
+
+        enlace = next(
+            linea.strip()
+            for linea in mensaje.body.splitlines()
+            if 'recuperar-contrasena' in linea
+        )
+        ruta_reset = urlparse(enlace).path
+
+        response = self.client.get(ruta_reset)
+        self.assertEqual(response.status_code, 302)
+        ruta_confirmacion = response['Location']
+
+        response = self.client.post(
+            ruta_confirmacion,
+            {
+                'new_password1': 'ClaveNuevaSegura123',
+                'new_password2': 'ClaveNuevaSegura123',
+            },
+        )
+
+        self.assertRedirects(response, reverse('usuarios:password_reset_complete'))
+        self.admin_user.refresh_from_db()
+        self.assertTrue(self.admin_user.check_password('ClaveNuevaSegura123'))
 
     def test_socio_no_accede_a_gestion_de_usuarios(self):
         """Redirige al socio cuando intenta entrar a gestion de usuarios."""
@@ -137,6 +536,9 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'vendor/bootstrap/bootstrap.bundle.min.js')
         self.assertContains(response, 'vendor/sweetalert2/sweetalert2.all.min.js')
         self.assertContains(response, 'vendor/chart.js/chart.min.js')
+        self.assertContains(response, 'js/app.js')
+        self.assertContains(response, 'js/dashboard.js')
+        self.assertNotContains(response, 'js/reuniones.js')
         self.assertContains(response, 'data-sidebar-toggle')
         self.assertContains(response, 'aria-controls="sidebar-panel"')
 
@@ -148,6 +550,9 @@ class UsuariosModuloTests(TestCase):
             'vendor/bootstrap/bootstrap.bundle.min.js',
             'vendor/sweetalert2/sweetalert2.all.min.js',
             'vendor/chart.js/chart.min.js',
+            'js/app.js',
+            'js/dashboard.js',
+            'js/reuniones.js',
         ]
         for ruta in rutas_estaticas:
             with self.subTest(ruta=ruta):
@@ -197,6 +602,8 @@ class UsuariosModuloTests(TestCase):
         self.assertNotContains(response, 'Listado socios')
         self.assertNotContains(response, 'Registrar socio')
         self.assertNotContains(response, 'Listado asistencia')
+        self.assertNotContains(response, 'Reuniones')
+        self.assertNotContains(response, 'Crear reuni')
 
     def test_menu_lateral_admin_agrupa_usuarios_y_socios(self):
         """Agrupa acciones administrativas de usuarios y socios en el sidebar."""
@@ -207,7 +614,494 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Listado socios')
         self.assertContains(response, 'Registrar socio')
         self.assertContains(response, 'Listado asistencia')
+        self.assertContains(response, 'Reuniones')
+        self.assertContains(response, 'Crear reuni')
+        self.assertContains(response, reverse('usuarios:crear_reunion'))
+        self.assertContains(response, 'Listado reuniones')
+        self.assertContains(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'bi-list-ul')
+        self.assertLess(
+            response.content.decode().index('Crear reuni'),
+            response.content.decode().index('Listado reuniones'),
+        )
         self.assertNotContains(response, '<p class="sidebar-section-title">Asistencia</p>', html=True)
+
+    @patch('usuarios.forms.timezone.localtime', return_value=datetime(2026, 5, 14, 12, 0))
+    def test_crear_reunion_solo_disponible_para_administrador(self, _localtime):
+        """Protege la entrada inicial de creacion de reuniones."""
+        url = reverse('usuarios:crear_reunion')
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Crear reuni')
+        self.assertNotContains(response, 'Control de reuniones programadas y activas.')
+        self.assertNotContains(response, '<th>FECHA</th>', html=True)
+        self.assertNotContains(response, '/reuniones/1/iniciar/')
+        self.assertContains(response, 'name="fecha"')
+        self.assertContains(response, 'data-reunion-date="true"')
+        self.assertContains(response, 'data-today="2026-05-14"')
+        self.assertContains(response, 'name="hora"')
+        self.assertContains(response, 'type="time"')
+        self.assertContains(response, 'data-reunion-time="true"')
+        self.assertContains(response, 'data-current-time="12:00"')
+        self.assertContains(response, 'name="locacion"')
+        self.assertContains(response, 'Locaci')
+        self.assertContains(response, 'name="estado"')
+        self.assertContains(response, 'data-reunion-status="true"')
+        self.assertContains(response, 'data-historical-value="HISTORICA"')
+        self.assertContains(response, 'js/reuniones.js')
+        self.assertContains(response, 'Hist')
+
+        response = self.client.post(
+            url,
+            {
+                'fecha': '2026-05-20',
+                'hora': '18:30',
+                'locacion': 'Sede social',
+                'estado': Reunion.PROGRAMADA,
+            },
+            follow=True,
+        )
+        self.assertRedirects(response, url)
+        self.assertContains(response, 'creada correctamente')
+        reunion = Reunion.objects.get(locacion='Sede social')
+        self.assertEqual(reunion.creador, self.admin_user)
+        self.assertEqual(reunion.estado, Reunion.PROGRAMADA)
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(url)
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+
+        self.client.login(username='socio', password='ClaveSegura123')
+        response = self.client.get(url)
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+
+    @patch('usuarios.forms.timezone.localtime', return_value=datetime(2026, 5, 14, 12, 0))
+    def test_crear_reunion_muestra_alerta_si_fecha_hora_duplicada(self, _localtime):
+        """Informa al administrador cuando intenta duplicar una reunion."""
+        url = reverse('usuarios:crear_reunion')
+        Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            url,
+            {
+                'fecha': '2026-05-20',
+                'hora': '18:30',
+                'locacion': 'Sede norte',
+                'estado': Reunion.PROGRAMADA,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, ReunionCreationForm.REUNION_DUPLICADA_MENSAJE)
+        self.assertContains(response, 'data-message-level="warning"')
+        self.assertEqual(Reunion.objects.count(), 1)
+
+    @patch('usuarios.forms.timezone.localtime', return_value=datetime(2026, 5, 14, 12, 0))
+    def test_crear_reunion_muestra_alerta_si_reunion_pasada_no_es_historica(self, _localtime):
+        """Alerta cuando una reunion anterior al momento actual no se marca historica."""
+        url = reverse('usuarios:crear_reunion')
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            url,
+            {
+                'fecha': '2026-05-14',
+                'hora': '11:30',
+                'locacion': 'Sede social',
+                'estado': Reunion.PROGRAMADA,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, ReunionCreationForm.REUNION_PASADA_HISTORICA_MENSAJE)
+        self.assertContains(response, 'data-message-level="warning"')
+        self.assertEqual(Reunion.objects.count(), 0)
+
+    @patch('usuarios.models.timezone.now')
+    def test_administrador_inicia_reunion_programada(self, now_mock):
+        """Permite habilitar asistencia cambiando la reunion a activa."""
+        momento = datetime(2026, 5, 20, 18, 35, tzinfo=timezone.get_current_timezone())
+        now_mock.return_value = momento
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'Listado reuniones')
+        self.assertContains(response, reverse('usuarios:iniciar_reunion', args=[reunion.pk]))
+        self.assertContains(response, 'Iniciar')
+
+        response = self.client.post(
+            reverse('usuarios:iniciar_reunion', args=[reunion.pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'iniciada correctamente')
+        self.assertContains(response, 'Activa')
+        reunion.refresh_from_db()
+        self.assertEqual(reunion.estado, Reunion.ACTIVA)
+        self.assertEqual(reunion.activada_por, self.admin_user)
+        self.assertEqual(reunion.fecha_activacion, momento)
+
+    def test_iniciar_reunion_bloquea_si_ya_existe_activa(self):
+        """Evita iniciar una segunda reunion cuando ya hay una activa."""
+        activa = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        activa.iniciar(self.admin_user)
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 21),
+            hora=time(18, 30),
+            locacion='Sede norte',
+            creador=self.admin_user,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:iniciar_reunion', args=[reunion.pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'Ya existe una reunion activa.')
+        reunion.refresh_from_db()
+        self.assertEqual(reunion.estado, Reunion.PROGRAMADA)
+        self.assertEqual(Reunion.objects.filter(estado=Reunion.ACTIVA).count(), 1)
+
+    def test_iniciar_reunion_bloquea_reunion_historica(self):
+        """Impide iniciar reuniones historicas desde la vista."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:iniciar_reunion', args=[reunion.pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'Solo se pueden iniciar reuniones programadas.')
+        reunion.refresh_from_db()
+        self.assertEqual(reunion.estado, Reunion.HISTORICA)
+
+    def test_listado_reuniones_solo_disponible_para_administrador(self):
+        """Protege el listado operativo de reuniones."""
+        url = reverse('usuarios:listado_reuniones')
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Listado reuniones')
+        self.assertContains(response, 'No hay reuniones registradas.')
+        self.assertContains(response, reverse('usuarios:crear_reunion'))
+        self.assertNotContains(response, 'Limpiar pruebas')
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(url)
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+
+        self.client.login(username='socio', password='ClaveSegura123')
+        response = self.client.get(url)
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+
+    def test_iniciar_reunion_solo_disponible_para_administrador(self):
+        """Protege la accion de inicio con los mismos permisos de reuniones."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        url = reverse('usuarios:iniciar_reunion', args=[reunion.pk])
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(url)
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+
+        self.client.login(username='socio', password='ClaveSegura123')
+        response = self.client.post(url)
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+
+        reunion.refresh_from_db()
+        self.assertEqual(reunion.estado, Reunion.PROGRAMADA)
+
+    def test_listado_reuniones_muestra_registro_asistencia_para_activa(self):
+        """Expone la accion de registro desde la reunion activa."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+        url_registro = reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk])
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_reuniones'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, url_registro)
+        self.assertContains(response, 'Registrar asistencia')
+
+    def test_registro_asistencia_reunion_muestra_rut_y_qr_operativo(self):
+        """Muestra la vista de registro con RUT manual y scanner QR operativo."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'Scanner QR')
+        self.assertContains(response, 'Escaneo con lector QR activo')
+        self.assertContains(response, 'form-switch')
+        self.assertContains(response, 'role="switch"')
+        self.assertContains(response, 'Registro manual')
+        self.assertContains(response, 'data-rut-scan-toggle')
+        self.assertContains(response, 'data-rut-scan-target="#id_lectura_qr_scanner"')
+        self.assertContains(response, 'data-rut-scan-input')
+        self.assertContains(response, 'name="lectura_qr"')
+        self.assertContains(response, 'data-rut-manual-region')
+        self.assertContains(response, 'aria-disabled="true"')
+        self.assertContains(response, 'pe-none')
+        self.assertContains(response, 'Registro Manual')
+        self.assertContains(response, 'data-rut-format="true"')
+        self.assertContains(response, 'data-rut-manual-input="true"')
+        self.assertContains(response, 'readonly="readonly"')
+        self.assertContains(response, 'tabindex="-1"')
+        self.assertContains(response, 'data-rut-manual-submit="true"')
+        self.assertContains(response, 'disabled="disabled"')
+        self.assertContains(response, 'Registrar por RUT')
+        self.assertContains(response, reverse('usuarios:listado_reuniones'))
+
+    def test_parser_reutilizable_extrae_rut_manual_o_run_qr(self):
+        """Normaliza RUT manual y payload QR con el mismo contrato."""
+        lectura_manual = parsear_lectura_rut('22.222.222-2')
+        lectura_qr = parsear_lectura_rut(
+            "httpsÑ--portal.sidiv.registrocivil.cl-docstatus_RUN¿14333689'1/type¿CEDULA"
+        )
+
+        self.assertEqual(lectura_manual.rut, '22222222-2')
+        self.assertEqual(lectura_manual.origen, ORIGEN_RUT_MANUAL)
+        self.assertEqual(lectura_qr.rut, '14333689-1')
+        self.assertEqual(lectura_qr.origen, ORIGEN_QR_REGISTRO_CIVIL)
+
+    def test_encargado_registra_asistencia_por_rut(self):
+        """Crea asistencia presente para un socio existente en reunion activa."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
+            {'rut': '22.222.222-2'},
+            follow=True,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
+        )
+        self.assertContains(response, 'Asistencia registrada para Socio Prueba.')
+        asistencia = AsistenciaReunion.objects.get(reunion=reunion, socio=self.socio_user)
+        self.assertEqual(asistencia.estado, AsistenciaReunion.PRESENTE)
+        self.assertEqual(asistencia.origen, AsistenciaReunion.ORIGEN_RUT)
+        self.assertEqual(asistencia.registrada_por, self.encargado_user)
+
+    def test_encargado_registra_asistencia_por_qr_con_bloque_run(self):
+        """Crea asistencia presente usando el RUN incluido en el payload QR."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+        payload_qr = (
+            "httpsÑ--portal.sidiv.registrocivil.cl-docstatus_RUN¿22222222'2/"
+            'type¿CEDULA/serial¿513275009/mrz¿513275009077100902710095'
+        )
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
+            {'lectura_qr': payload_qr},
+            follow=True,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
+        )
+        self.assertContains(response, 'Asistencia registrada para Socio Prueba.')
+        asistencia = AsistenciaReunion.objects.get(reunion=reunion, socio=self.socio_user)
+        self.assertEqual(asistencia.estado, AsistenciaReunion.PRESENTE)
+        self.assertEqual(asistencia.origen, AsistenciaReunion.ORIGEN_QR)
+        self.assertEqual(asistencia.registrada_por, self.encargado_user)
+
+    def test_registro_asistencia_rechaza_rut_no_existente(self):
+        """No permite registrar asistencia a socios inexistentes."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
+            {'rut': '99.999.999-9'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Solo se pueden registrar socios existentes.')
+        self.assertEqual(AsistenciaReunion.objects.count(), 0)
+
+    def test_registro_asistencia_rechaza_duplicada(self):
+        """Mantiene una sola asistencia por socio y reunion."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+        AsistenciaReunion.registrar_presente(
+            reunion=reunion,
+            socio=self.socio_user,
+            usuario=self.encargado_user,
+            origen=AsistenciaReunion.ORIGEN_RUT,
+        )
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
+            {'rut': '22.222.222-2'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'El socio ya tiene asistencia registrada en esta reunion.')
+        self.assertEqual(AsistenciaReunion.objects.count(), 1)
+
+    def test_registro_asistencia_rechaza_socio_inactivo(self):
+        """Impide registrar asistencia presente a socios inactivos."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+        self.socio_user.is_active = False
+        self.socio_user.save(update_fields=['is_active'])
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
+            {'rut': '22.222.222-2'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'El socio esta inactivo.')
+        self.assertEqual(AsistenciaReunion.objects.count(), 0)
+
+    def test_registro_asistencia_requiere_reunion_activa(self):
+        """Bloquea el registro si la reunion no esta activa."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_socios_asistencia'))
+        self.assertContains(response, 'Solo se puede registrar asistencia en una reunion activa.')
+
+    def test_registro_asistencia_solo_disponible_para_permiso_asistencia(self):
+        """Protege el registro para socios sin permiso operativo."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+
+        self.client.login(username='socio', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
+        )
+
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+
+    def test_resumen_asistencia_socio_usa_registros_reales(self):
+        """Cuenta asistencias reales para indicadores y eliminacion segura."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+        AsistenciaReunion.registrar_presente(
+            reunion=reunion,
+            socio=self.socio_user,
+            usuario=self.encargado_user,
+            origen=AsistenciaReunion.ORIGEN_RUT,
+        )
+
+        resumen = obtener_resumen_asistencia_socio(self.socio_user)
+
+        self.assertEqual(
+            resumen,
+            {
+                'total_reuniones': 1,
+                'total_asistencias': 1,
+                'total_ausencias': 0,
+            },
+        )
+        self.assertFalse(puede_eliminar_socio_seguro(self.socio_user))
 
     def test_administrador_accede_a_asistencia_y_ve_solo_socios(self):
         """Permite al administrador ver el listado operativo de socios."""
@@ -963,6 +1857,15 @@ class UsuariosModuloTests(TestCase):
         self.client.login(username='admin', password='ClaveSegura123')
         response = self.client.get(reverse('usuarios:editar_usuario', args=[self.encargado_user.pk]))
         self.assertEqual(response.status_code, 200)
+        self.assertNotIn('username', response.context['form'].fields)
+        self.assertNotContains(response, 'name="username"')
+        self.assertContains(
+            response,
+            '<strong class="fs-5 text-body">encargado</strong>',
+            html=True,
+        )
+        self.assertNotContains(response, '<p class="h4 mb-0">encargado</p>', html=True)
+        self.assertNotContains(response, 'conservar trazabilidad')
         self.assertNotContains(response, 'name="is_active"')
         self.assertNotContains(response, 'Usuario activo')
         self.assertNotContains(response, 'value="SOCIO"')
@@ -992,9 +1895,9 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(usuario.rut, '33333333-3')
         self.assertEqual(usuario.telefono_movil, '+56933333333')
         self.assertContains(response, 'Usuario encargado_nuevo creado correctamente.')
-        self.assertContains(response, 'Operación completada')
-        self.assertContains(response, "confirmButtonText: 'Aceptar'")
-        self.assertNotContains(response, 'toast: true')
+        self.assertContains(response, 'data-app-message')
+        self.assertContains(response, 'data-message-level="success"')
+        self.assertContains(response, 'js/app.js')
 
     def test_registro_usuario_interno_no_ofrece_rol_socio(self):
         """Reserva el formulario interno para administradores y encargados."""
@@ -1255,7 +2158,6 @@ class UsuariosModuloTests(TestCase):
         response = self.client.post(
             reverse('usuarios:editar_usuario', args=[self.encargado_user.pk]),
             {
-                'username': 'encargado',
                 'email': 'ENCARGADO.ACTUALIZADO@EXAMPLE.COM',
                 'first_name': 'Encargado',
                 'last_name': 'Actualizado',
@@ -1271,6 +2173,28 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(self.encargado_user.rut, '44444444-4')
         self.assertEqual(self.encargado_user.telefono_movil, '+56955555555')
         self.assertEqual(self.encargado_user.rol, self.User.ADMINISTRADOR)
+        self.assertEqual(self.encargado_user.username, 'encargado')
+
+    def test_edicion_usuario_rechaza_cambio_de_username_manipulado(self):
+        """Rechaza el POST manipulado antes de mostrar exito."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:editar_usuario', args=[self.encargado_user.pk]),
+            {
+                'username': 'encargado_editado',
+                'email': 'encargado@example.com',
+                'first_name': 'Encargado',
+                'last_name': 'Registro',
+                'rut': '44.444.444-4',
+                'telefono_movil': '+56944444444',
+                'rol': self.User.ENCARGADO_REGISTRO,
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'El nombre de usuario no puede modificarse.')
+        self.assertNotContains(response, 'Usuario actualizado correctamente.')
+        self.encargado_user.refresh_from_db()
+        self.assertEqual(self.encargado_user.username, 'encargado')
 
     def test_editar_usuario_redirige_socios_a_formulario_especifico(self):
         """Evita editar socios desde el formulario de usuarios internos."""
@@ -1279,7 +2203,7 @@ class UsuariosModuloTests(TestCase):
         self.assertRedirects(response, reverse('usuarios:editar_socio', args=[self.socio_user.pk]))
 
     def test_administrador_edita_socio_sin_cambiar_perfil(self):
-        """Mantiene a los socios con rol socio y username basado en correo."""
+        """Mantiene a los socios con rol y username inmutables."""
         self.client.login(username='admin', password='ClaveSegura123')
         response = self.client.post(
             reverse('usuarios:editar_socio', args=[self.socio_user.pk]),
@@ -1295,7 +2219,7 @@ class UsuariosModuloTests(TestCase):
         self.assertRedirects(response, reverse('usuarios:listado_socios'))
         self.socio_user.refresh_from_db()
         self.assertEqual(self.socio_user.email, 'socio.admin@example.com')
-        self.assertEqual(self.socio_user.username, 'socio.admin@example.com')
+        self.assertEqual(self.socio_user.username, 'socio')
         self.assertEqual(self.socio_user.rut, '22222222-2')
         self.assertEqual(self.socio_user.telefono_movil, '+56977777777')
         self.assertEqual(self.socio_user.rol, self.User.SOCIO)
@@ -1331,15 +2255,34 @@ class UsuariosModuloTests(TestCase):
         self.encargado_user.refresh_from_db()
         self.assertEqual(self.encargado_user.rol, self.User.ENCARGADO_REGISTRO)
 
+    def test_modelo_impide_modificar_username(self):
+        """Protege trazabilidad de logs aunque se intente cambiar fuera de vistas."""
+        self.encargado_user.username = 'encargado_editado'
+
+        with self.assertRaises(ValidationError):
+            self.encargado_user.save()
+
+        self.encargado_user.refresh_from_db()
+        self.assertEqual(self.encargado_user.username, 'encargado')
+
     def test_admin_deja_campos_sensibles_de_socio_solo_lectura(self):
         """Cierra el bypass del admin Django para cuentas de socio existentes."""
         usuario_admin = UsuarioAdmin(self.User, AdminSite())
 
         readonly_fields = usuario_admin.get_readonly_fields(None, obj=self.socio_user)
 
+        self.assertIn('username', readonly_fields)
         self.assertIn('rol', readonly_fields)
         self.assertIn('is_staff', readonly_fields)
         self.assertIn('is_superuser', readonly_fields)
+
+    def test_admin_deja_username_solo_lectura_en_usuarios_existentes(self):
+        """Evita renombrar cuentas internas desde el admin Django."""
+        usuario_admin = UsuarioAdmin(self.User, AdminSite())
+
+        readonly_fields = usuario_admin.get_readonly_fields(None, obj=self.encargado_user)
+
+        self.assertIn('username', readonly_fields)
 
     def test_create_superuser_usa_rol_superadministrador_por_defecto(self):
         """Separa superusuarios de los administradores del sistema web."""
@@ -1483,7 +2426,6 @@ class UsuariosModuloTests(TestCase):
         response = self.client.post(
             reverse('usuarios:editar_usuario', args=[self.encargado_user.pk]),
             {
-                'username': 'encargado',
                 'email': 'encargado@example.com',
                 'first_name': 'Encargado',
                 'last_name': 'Registro',
@@ -1506,7 +2448,6 @@ class UsuariosModuloTests(TestCase):
         response = self.client.post(
             reverse('usuarios:editar_usuario', args=[self.encargado_user.pk]),
             {
-                'username': 'encargado',
                 'email': 'encargado@example.com',
                 'first_name': 'Encargado',
                 'last_name': 'Registro',
@@ -1594,7 +2535,7 @@ class UsuariosModuloTests(TestCase):
         self.assertTrue(self.User.objects.filter(pk=self.socio_user.pk).exists())
         self.assertContains(
             response,
-            'Solo se pueden eliminar usuarios administradores o encargados de registro.',
+            'Solo se pueden eliminar usuarios internos.',
         )
 
     def test_encargado_no_puede_eliminar_usuarios_internos(self):

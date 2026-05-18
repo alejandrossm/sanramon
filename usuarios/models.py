@@ -1,7 +1,20 @@
+from django.conf import settings
 from django.contrib.auth.models import AbstractUser, UserManager
 from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import models
+from django.utils import timezone
+
+from .identificacion import normalizar_rut
+from .permisos import (
+    GRUPO_POR_ROL,
+    GRUPOS_OPERATIVOS,
+    PERMISOS_USUARIO,
+    ROL_ADMINISTRADOR,
+    ROL_ENCARGADO_REGISTRO,
+    ROL_SOCIO,
+    ROL_SUPERADMINISTRADOR,
+)
 
 
 class UsuarioManager(UserManager):
@@ -11,19 +24,6 @@ class UsuarioManager(UserManager):
         """Crea superusuarios con el rol reservado para el admin de Django."""
         extra_fields.setdefault('rol', self.model.SUPERADMINISTRADOR)
         return super().create_superuser(username, email, password, **extra_fields)
-
-
-def normalizar_rut(rut):
-    """Normaliza el RUT al formato cuerpo-digito, sin puntos."""
-    valor = ''.join(
-        caracter
-        for caracter in (rut or '').upper()
-        if caracter not in '.-' and not caracter.isspace()
-    )
-    if len(valor) <= 1:
-        return valor
-    return f'{valor[:-1]}-{valor[-1]}'
-
 
 TELEFONO_MOVIL_PREFIJO_CHILE = '+56'
 TELEFONO_MOVIL_REGEX_CHILE = r'^\+56\d{9}$'
@@ -50,10 +50,10 @@ def normalizar_telefono_movil(telefono):
 class Usuario(AbstractUser):
     """Usuario principal del sistema con RUT, correo único y rol operativo."""
 
-    ADMINISTRADOR = 'ADMINISTRADOR'
-    ENCARGADO_REGISTRO = 'ENCARGADO_REGISTRO'
-    SUPERADMINISTRADOR = 'SUPERADMINISTRADOR'
-    SOCIO = 'SOCIO'
+    ADMINISTRADOR = ROL_ADMINISTRADOR
+    ENCARGADO_REGISTRO = ROL_ENCARGADO_REGISTRO
+    SUPERADMINISTRADOR = ROL_SUPERADMINISTRADOR
+    SOCIO = ROL_SOCIO
 
     ROLES = [
         (ADMINISTRADOR, 'Administrador'),
@@ -99,6 +99,7 @@ class Usuario(AbstractUser):
         ordering = ['last_name', 'first_name', 'username']
         verbose_name = 'usuario'
         verbose_name_plural = 'usuarios'
+        permissions = PERMISOS_USUARIO
         constraints = [
             models.CheckConstraint(
                 condition=(
@@ -166,9 +167,16 @@ class Usuario(AbstractUser):
             errores['is_staff'] = 'Un superadministrador debe tener acceso staff.'
 
         if self.pk:
-            rol_original = (
-                type(self).objects.filter(pk=self.pk).values_list('rol', flat=True).first()
+            usuario_original = (
+                type(self).objects
+                .filter(pk=self.pk)
+                .values('rol', 'username')
+                .first()
             )
+            rol_original = usuario_original['rol'] if usuario_original else None
+            username_original = usuario_original['username'] if usuario_original else None
+            if username_original and self.username != username_original:
+                errores['username'] = 'El nombre de usuario no puede modificarse.'
             if rol_original == self.SOCIO and self.rol != self.SOCIO:
                 errores['rol'] = 'Un socio no puede cambiar a un rol interno.'
             elif rol_original != self.SOCIO and self.rol == self.SOCIO:
@@ -184,3 +192,235 @@ class Usuario(AbstractUser):
         self.telefono_movil = normalizar_telefono_movil(self.telefono_movil)
         self.full_clean()
         super().save(*args, **kwargs)
+        self.sincronizar_grupo_operativo()
+
+    def sincronizar_grupo_operativo(self):
+        """Mantiene el grupo Django equivalente al rol operativo actual."""
+        if not self.pk:
+            return
+
+        from django.contrib.auth.models import Group
+
+        grupos = list(Group.objects.filter(name__in=GRUPOS_OPERATIVOS))
+        if not grupos:
+            return
+
+        grupo_destino = GRUPO_POR_ROL.get(self.rol)
+        grupos_por_nombre = {grupo.name: grupo for grupo in grupos}
+        grupos_a_remover = [
+            grupo
+            for grupo in grupos
+            if grupo.name != grupo_destino
+        ]
+        if grupos_a_remover:
+            self.groups.remove(*grupos_a_remover)
+
+        if grupo_destino and grupo_destino in grupos_por_nombre:
+            self.groups.add(grupos_por_nombre[grupo_destino])
+
+
+class Reunion(models.Model):
+    """Reunion programada para gestionar asistencia de socios."""
+
+    PROGRAMADA = 'PROGRAMADA'
+    ACTIVA = 'ACTIVA'
+    FINALIZADA = 'FINALIZADA'
+    CANCELADA = 'CANCELADA'
+    HISTORICA = 'HISTORICA'
+
+    ESTADOS = [
+        (PROGRAMADA, 'Programada'),
+        (ACTIVA, 'Activa'),
+        (FINALIZADA, 'Finalizada'),
+        (CANCELADA, 'Cancelada'),
+        (HISTORICA, 'Histórica'),
+    ]
+
+    fecha = models.DateField()
+    hora = models.TimeField()
+    locacion = models.CharField(max_length=150)
+    creador = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='reuniones_creadas',
+    )
+    estado = models.CharField(max_length=12, choices=ESTADOS, default=PROGRAMADA)
+    es_proxima = models.BooleanField(default=False)
+    activada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='reuniones_activadas',
+    )
+    fecha_activacion = models.DateTimeField(blank=True, null=True)
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        """Orden y nombres legibles del modelo en Django."""
+
+        ordering = ['-fecha', '-hora', '-fecha_creacion']
+        verbose_name = 'reunión'
+        verbose_name_plural = 'reuniones'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['estado'],
+                condition=models.Q(estado='ACTIVA'),
+                name='solo_una_reunion_activa',
+            ),
+        ]
+
+    def __str__(self):
+        """Representa la reunion por fecha, hora y locacion."""
+        return f'{self.fecha} {self.hora:%H:%M} - {self.locacion}'
+
+    def clean(self):
+        """Normaliza datos minimos antes de guardar."""
+        super().clean()
+        self.locacion = (self.locacion or '').strip()
+        if not self.locacion:
+            raise ValidationError({'locacion': 'La locación es obligatoria.'})
+
+    def save(self, *args, **kwargs):
+        """Valida la reunion antes de persistirla."""
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def es_historica(self):
+        """Indica si la reunion corresponde a carga historica posterior."""
+        return self.estado == self.HISTORICA
+
+    def puede_iniciarse(self):
+        """Solo las reuniones programadas pueden pasar a activa."""
+        return self.estado == self.PROGRAMADA
+
+    def iniciar(self, usuario):
+        """Activa una reunion programada y registra el responsable."""
+        if not self.puede_iniciarse():
+            raise ValidationError({'estado': 'Solo se pueden iniciar reuniones programadas.'})
+
+        if type(self).objects.filter(estado=self.ACTIVA).exclude(pk=self.pk).exists():
+            raise ValidationError({'estado': 'Ya existe una reunion activa.'})
+
+        self.estado = self.ACTIVA
+        self.activada_por = usuario
+        self.fecha_activacion = timezone.now()
+        self.save(update_fields=['estado', 'activada_por', 'fecha_activacion'])
+
+    def puede_finalizarse(self):
+        """Solo las reuniones activas pueden finalizarse."""
+        return self.estado == self.ACTIVA
+
+    def tiene_datos_registrados(self):
+        """Indica si la reunion ya tiene asistencia registrada."""
+        return self.asistencias.exists()
+
+    def puede_eliminarse(self):
+        """Las reuniones historicas se eliminan solo si no tienen datos registrados."""
+        if self.es_historica():
+            return not self.tiene_datos_registrados()
+        return True
+
+
+class AsistenciaReunion(models.Model):
+    """Registro de asistencia de un socio en una reunion."""
+
+    PRESENTE = 'PRESENTE'
+    AUSENTE = 'AUSENTE'
+
+    ESTADOS = [
+        (PRESENTE, 'Presente'),
+        (AUSENTE, 'Ausente'),
+    ]
+
+    ORIGEN_RUT = 'RUT'
+    ORIGEN_QR = 'QR'
+    ORIGEN_MANUAL = 'MANUAL'
+    ORIGEN_AUTOMATICO = 'AUTOMATICO'
+
+    ORIGENES = [
+        (ORIGEN_RUT, 'RUT'),
+        (ORIGEN_QR, 'QR'),
+        (ORIGEN_MANUAL, 'Manual'),
+        (ORIGEN_AUTOMATICO, 'Automatico'),
+    ]
+
+    reunion = models.ForeignKey(
+        Reunion,
+        on_delete=models.PROTECT,
+        related_name='asistencias',
+    )
+    socio = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='asistencias_reunion',
+    )
+    estado = models.CharField(max_length=10, choices=ESTADOS, default=PRESENTE)
+    origen = models.CharField(max_length=10, choices=ORIGENES)
+    registrada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='asistencias_registradas',
+    )
+    fecha_registro = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        """Orden e invariantes del registro de asistencia."""
+
+        ordering = ['-fecha_registro']
+        verbose_name = 'asistencia de reunion'
+        verbose_name_plural = 'asistencias de reuniones'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['reunion', 'socio'],
+                name='asistencia_unica_por_socio_reunion',
+            ),
+        ]
+
+    def __str__(self):
+        """Representa la asistencia por reunion y socio."""
+        return f'{self.reunion} - {self.socio.nombre_completo}'
+
+    def clean(self):
+        """Valida que la asistencia corresponda a un socio valido."""
+        super().clean()
+        errores = {}
+
+        if self.socio_id and self.socio.rol != Usuario.SOCIO:
+            errores['socio'] = 'Solo se pueden registrar socios.'
+
+        if self.estado == self.PRESENTE and self.socio_id and not self.socio.is_active:
+            errores['socio'] = 'El socio esta inactivo.'
+
+        if errores:
+            raise ValidationError(errores)
+
+    def save(self, *args, **kwargs):
+        """Valida la asistencia antes de persistirla."""
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def registrar_presente(cls, reunion, socio, usuario, origen):
+        """Registra un socio presente en una reunion activa."""
+        if reunion.estado != Reunion.ACTIVA:
+            raise ValidationError({'reunion': 'Solo se puede registrar asistencia en una reunion activa.'})
+
+        if socio.rol != Usuario.SOCIO:
+            raise ValidationError({'socio': 'Solo se pueden registrar socios existentes.'})
+
+        if not socio.is_active:
+            raise ValidationError({'socio': 'El socio esta inactivo.'})
+
+        if cls.objects.filter(reunion=reunion, socio=socio).exists():
+            raise ValidationError({'socio': 'El socio ya tiene asistencia registrada en esta reunion.'})
+
+        return cls.objects.create(
+            reunion=reunion,
+            socio=socio,
+            estado=cls.PRESENTE,
+            origen=origen,
+            registrada_por=usuario,
+        )

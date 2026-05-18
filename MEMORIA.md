@@ -19,6 +19,7 @@ Archivo para registrar detalles importantes que conviene conservar entre sesione
 - En columnas de eliminacion controladas por switch, mostrar los iconos muted cuando la eliminacion este desactivada; al activarla, usar danger para los eliminables y outline para los no eliminables.
 - La carpeta `usuarios/management/` contiene comandos auxiliares de desarrollo/pruebas y no es necesaria para el funcionamiento normal en produccion.
 - El rol `ADMINISTRADOR` corresponde solo al sistema web. Las cuentas que entran al admin de Django deben ser `is_staff=True`, `is_superuser=True` y usar el rol reservado `SUPERADMINISTRADOR`; no se listan ni se gestionan desde el listado web de usuarios.
+- La recuperacion de contrasena por correo aplica por ahora solo a usuarios internos activos con contrasena utilizable: administradores y encargados. Los socios no recuperan contrasena en esta etapa porque se crean sin contrasena utilizable; evaluar activacion/recuperacion para socios como caracteristica futura.
 - Las lecciones aprendidas reutilizables quedan documentadas en `docs/LECCIONES_APRENDIDAS.md`.
 
 ## Pendientes
