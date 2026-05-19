@@ -262,6 +262,15 @@ class Reunion(models.Model):
         related_name='reuniones_finalizadas',
     )
     fecha_finalizacion = models.DateTimeField(blank=True, null=True)
+    cancelada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='reuniones_canceladas',
+    )
+    fecha_cancelacion = models.DateTimeField(blank=True, null=True)
+    motivo_cancelacion = models.TextField(blank=True)
     fecha_creacion = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -319,6 +328,10 @@ class Reunion(models.Model):
         """Solo las reuniones activas pueden finalizarse."""
         return self.estado == self.ACTIVA
 
+    def puede_cancelarse(self):
+        """Solo las reuniones programadas o activas pueden cancelarse."""
+        return self.estado in {self.PROGRAMADA, self.ACTIVA}
+
     @transaction.atomic
     def finalizar(self, usuario):
         """Finaliza una reunion activa marcando ausentes automaticamente."""
@@ -357,6 +370,32 @@ class Reunion(models.Model):
                 self.fecha.year,
             ),
         }
+
+    @transaction.atomic
+    def cancelar(self, usuario, motivo):
+        """Cancela una reunion y elimina sus asistencias para no contabilizarlas."""
+        if not self.puede_cancelarse():
+            raise ValidationError({'estado': 'Solo se pueden cancelar reuniones programadas o activas.'})
+
+        motivo_normalizado = (motivo or '').strip()
+        if not motivo_normalizado:
+            raise ValidationError({'motivo_cancelacion': 'El motivo de cancelacion es obligatorio.'})
+
+        asistencias_eliminadas, _detalle = self.asistencias.all().delete()
+        self.estado = self.CANCELADA
+        self.cancelada_por = usuario
+        self.fecha_cancelacion = timezone.now()
+        self.motivo_cancelacion = motivo_normalizado
+        self.save(
+            update_fields=[
+                'estado',
+                'cancelada_por',
+                'fecha_cancelacion',
+                'motivo_cancelacion',
+            ]
+        )
+
+        return {'asistencias_eliminadas': asistencias_eliminadas}
 
     def tiene_datos_registrados(self):
         """Indica si la reunion ya tiene asistencia registrada."""

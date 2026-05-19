@@ -16,7 +16,12 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .admin import UsuarioAdmin
-from .forms import ReunionCreationForm, UsuarioCreationForm, UsuarioUpdateForm
+from .forms import (
+    ReunionCancelacionForm,
+    ReunionCreationForm,
+    UsuarioCreationForm,
+    UsuarioUpdateForm,
+)
 from .identificacion import (
     ORIGEN_QR_REGISTRO_CIVIL,
     ORIGEN_RUT_MANUAL,
@@ -315,6 +320,16 @@ class UsuariosModuloTests(TestCase):
         reunion = form.save()
         self.assertEqual(reunion.estado, Reunion.HISTORICA)
 
+    def test_formulario_cancelacion_exige_motivo(self):
+        """Valida que el motivo de cancelacion tenga contenido real."""
+        form_vacio = ReunionCancelacionForm(data={'motivo_cancelacion': '   '})
+        form_valido = ReunionCancelacionForm(data={'motivo_cancelacion': 'Cambio de agenda'})
+
+        self.assertFalse(form_vacio.is_valid())
+        self.assertIn('motivo_cancelacion', form_vacio.errors)
+        self.assertTrue(form_valido.is_valid())
+        self.assertEqual(form_valido.cleaned_data['motivo_cancelacion'], 'Cambio de agenda')
+
     def test_reunion_historica_no_se_inicia_ni_finaliza(self):
         """Reserva reuniones historicas para carga posterior y eliminacion segura."""
         reunion = Reunion.objects.create(
@@ -513,6 +528,69 @@ class UsuariosModuloTests(TestCase):
         self.assertFalse(
             AsistenciaReunion.objects.filter(reunion=reunion).exists()
         )
+
+    @patch('usuarios.models.timezone.now')
+    def test_reunion_activa_se_cancela_con_motivo_y_elimina_asistencias(self, now_mock):
+        """Cancela una reunion activa sin dejar asistencias contabilizables."""
+        momento = datetime(2026, 5, 20, 19, 0, tzinfo=timezone.get_current_timezone())
+        now_mock.return_value = momento
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+        AsistenciaReunion.registrar_presente(
+            reunion=reunion,
+            socio=self.socio_user,
+            usuario=self.encargado_user,
+            origen=AsistenciaReunion.ORIGEN_RUT,
+        )
+
+        resultado = reunion.cancelar(self.admin_user, '  Corte de energia  ')
+        reunion.refresh_from_db()
+
+        self.assertEqual(reunion.estado, Reunion.CANCELADA)
+        self.assertEqual(reunion.cancelada_por, self.admin_user)
+        self.assertEqual(reunion.fecha_cancelacion, momento)
+        self.assertEqual(reunion.motivo_cancelacion, 'Corte de energia')
+        self.assertEqual(resultado['asistencias_eliminadas'], 1)
+        self.assertFalse(AsistenciaReunion.objects.filter(reunion=reunion).exists())
+        self.assertFalse(Reunion.objects.filter(estado=Reunion.ACTIVA).exists())
+
+    def test_reunion_cancelacion_requiere_motivo(self):
+        """Impide cancelar sin motivo y conserva el estado original."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+
+        with self.assertRaises(ValidationError):
+            reunion.cancelar(self.admin_user, '   ')
+
+        reunion.refresh_from_db()
+        self.assertEqual(reunion.estado, Reunion.PROGRAMADA)
+        self.assertIsNone(reunion.cancelada_por)
+        self.assertEqual(reunion.motivo_cancelacion, '')
+
+    def test_reunion_no_cancela_si_estado_no_permitido(self):
+        """Impide cancelar reuniones historicas o cerradas."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+
+        with self.assertRaises(ValidationError):
+            reunion.cancelar(self.admin_user, 'Registro erroneo')
+
+        reunion.refresh_from_db()
+        self.assertEqual(reunion.estado, Reunion.HISTORICA)
 
     def test_roles_internos_gestionables_alimentan_formularios_y_filtros(self):
         """Centraliza roles internos usados por formularios y filtros."""
@@ -1266,6 +1344,121 @@ class UsuariosModuloTests(TestCase):
 
         reunion.refresh_from_db()
         self.assertEqual(reunion.estado, Reunion.ACTIVA)
+
+    @patch('usuarios.models.timezone.now')
+    def test_administrador_cancela_reunion_activa_con_motivo(self, now_mock):
+        """Permite cancelar una reunion activa registrando auditoria basica."""
+        momento = datetime(2026, 5, 20, 19, 0, tzinfo=timezone.get_current_timezone())
+        now_mock.return_value = momento
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+        AsistenciaReunion.registrar_presente(
+            reunion=reunion,
+            socio=self.socio_user,
+            usuario=self.encargado_user,
+            origen=AsistenciaReunion.ORIGEN_RUT,
+        )
+        url_cancelar = reverse('usuarios:cancelar_reunion', args=[reunion.pk])
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, url_cancelar)
+        self.assertContains(response, 'Cancelar')
+
+        response = self.client.get(url_cancelar)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Cancelar reuni')
+        self.assertContains(response, 'motivo_cancelacion')
+
+        response = self.client.post(
+            url_cancelar,
+            {'motivo_cancelacion': '  Corte de energia  '},
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'cancelada correctamente')
+        self.assertContains(response, 'Asistencias eliminadas: 1.')
+        self.assertContains(response, 'Cancelada')
+        self.assertContains(response, self.admin_user.nombre_completo)
+        reunion.refresh_from_db()
+        self.assertEqual(reunion.estado, Reunion.CANCELADA)
+        self.assertEqual(reunion.cancelada_por, self.admin_user)
+        self.assertEqual(reunion.fecha_cancelacion, momento)
+        self.assertEqual(reunion.motivo_cancelacion, 'Corte de energia')
+        self.assertFalse(AsistenciaReunion.objects.filter(reunion=reunion).exists())
+
+    def test_cancelar_reunion_requiere_motivo(self):
+        """Mantiene la reunion sin cambios cuando falta el motivo."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:cancelar_reunion', args=[reunion.pk]),
+            {'motivo_cancelacion': '   '},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Este campo es obligatorio.')
+        reunion.refresh_from_db()
+        self.assertEqual(reunion.estado, Reunion.PROGRAMADA)
+        self.assertIsNone(reunion.cancelada_por)
+
+    def test_cancelar_reunion_bloquea_estado_no_permitido(self):
+        """Rechaza cancelaciones de reuniones que ya no estan abiertas."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:cancelar_reunion', args=[reunion.pk]),
+            {'motivo_cancelacion': 'Carga erronea'},
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'Solo se pueden cancelar reuniones programadas o activas.')
+        reunion.refresh_from_db()
+        self.assertEqual(reunion.estado, Reunion.HISTORICA)
+        self.assertIsNone(reunion.cancelada_por)
+
+    def test_cancelar_reunion_solo_disponible_para_administrador(self):
+        """Protege la cancelacion de reuniones para usuarios sin permisos."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+        url = reverse('usuarios:cancelar_reunion', args=[reunion.pk])
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(url, {'motivo_cancelacion': 'Sin quorum'})
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+
+        self.client.login(username='socio', password='ClaveSegura123')
+        response = self.client.post(url, {'motivo_cancelacion': 'Sin quorum'})
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+
+        reunion.refresh_from_db()
+        self.assertEqual(reunion.estado, Reunion.ACTIVA)
+        self.assertIsNone(reunion.cancelada_por)
 
     def test_listado_reuniones_muestra_registro_asistencia_para_activa(self):
         """Expone la accion de registro desde la reunion activa."""

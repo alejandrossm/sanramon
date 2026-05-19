@@ -429,6 +429,39 @@ class ReunionCreationForm(forms.ModelForm):
         return reunion
 
 
+class ReunionCancelacionForm(forms.Form):
+    """Formulario para registrar el motivo obligatorio de cancelacion."""
+
+    motivo_cancelacion = forms.CharField(
+        label='Motivo de cancelacion',
+        required=True,
+        max_length=500,
+        widget=forms.Textarea(
+            attrs={
+                'rows': 4,
+                'autocomplete': 'off',
+            }
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        """Configura layout consistente con formularios operativos."""
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.layout = Layout(
+            'motivo_cancelacion',
+            Submit('submit', 'Cancelar reunion', css_class='btn btn-danger'),
+        )
+
+    def clean_motivo_cancelacion(self):
+        """Normaliza y exige un motivo no vacio."""
+        motivo = (self.cleaned_data['motivo_cancelacion'] or '').strip()
+        if not motivo:
+            raise forms.ValidationError('El motivo de cancelacion es obligatorio.')
+        return motivo
+
+
 class RegistroAsistenciaRutForm(forms.Form):
     """Formulario para registrar asistencia de un socio existente por RUT."""
 

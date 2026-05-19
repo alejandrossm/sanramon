@@ -25,6 +25,7 @@ from .forms import (
     LoginForm,
     RecuperarPasswordForm,
     RegistroAsistenciaRutForm,
+    ReunionCancelacionForm,
     ReunionCreationForm,
     RestablecerPasswordForm,
     SocioCreationForm,
@@ -727,6 +728,7 @@ def listado_reuniones(request):
         'creador',
         'activada_por',
         'finalizada_por',
+        'cancelada_por',
     )
     reunion_activa = reuniones_base.filter(estado=Reunion.ACTIVA).first()
     anios_reuniones = [
@@ -800,6 +802,54 @@ def finalizar_reunion(request, pk):
         )
 
     return redirect('usuarios:listado_reuniones')
+
+
+@gestor_usuarios_required
+def cancelar_reunion(request, pk):
+    """Cancela una reunion programada o activa con motivo obligatorio."""
+    reunion = get_object_or_404(
+        Reunion.objects.select_related('cancelada_por'),
+        pk=pk,
+    )
+
+    if not reunion.puede_cancelarse():
+        messages.error(
+            request,
+            'Solo se pueden cancelar reuniones programadas o activas.',
+        )
+        return redirect('usuarios:listado_reuniones')
+
+    if request.method == 'POST':
+        form = ReunionCancelacionForm(request.POST)
+        if form.is_valid():
+            try:
+                resultado = reunion.cancelar(
+                    request.user,
+                    form.cleaned_data['motivo_cancelacion'],
+                )
+            except ValidationError as error:
+                form.add_error(None, obtener_mensaje_validacion(error))
+            else:
+                messages.success(
+                    request,
+                    (
+                        f'Reunion del {reunion.fecha:%d-%m-%Y} a las {reunion.hora:%H:%M} '
+                        f'cancelada correctamente. Asistencias eliminadas: '
+                        f'{resultado["asistencias_eliminadas"]}.'
+                    ),
+                )
+                return redirect('usuarios:listado_reuniones')
+    else:
+        form = ReunionCancelacionForm()
+
+    return render(
+        request,
+        'usuarios/cancelar_reunion.html',
+        {
+            'form': form,
+            'reunion': reunion,
+        },
+    )
 
 
 @require_POST
