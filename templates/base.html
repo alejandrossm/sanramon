@@ -73,7 +73,7 @@
                         {% endif %}
                     {% endif %}
 
-                    {% if nav_puede_gestionar_usuarios or nav_puede_registrar_socios or nav_puede_acceder_asistencia %}
+                    {% if nav_puede_gestionar_usuarios or nav_puede_registrar_socios %}
                         <p class="sidebar-section-title text-uppercase fw-bold small mb-1 mt-3 px-3">Socios</p>
                         {% if nav_puede_gestionar_usuarios %}
                             <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:listado_socios' %}">
@@ -87,12 +87,18 @@
                                 <span>Registrar socio</span>
                             </a>
                         {% endif %}
-                        {% if nav_puede_acceder_asistencia %}
-                            <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:listado_socios_asistencia' %}">
-                                {% include "includes/icon.html" with name="clipboard-check" classes="sidebar-icon flex-shrink-0" %}
-                                <span>Listado asistencia</span>
-                            </a>
-                        {% endif %}
+                    {% endif %}
+
+                    {% if nav_puede_acceder_asistencia %}
+                        <p class="sidebar-section-title text-uppercase fw-bold small mb-1 mt-3 px-3">Asistencias</p>
+                        <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:registrar_asistencia_activa' %}">
+                            {% include "includes/icon.html" with name="qr-code" classes="sidebar-icon flex-shrink-0" %}
+                            <span>Registrar asistencia</span>
+                        </a>
+                        <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:listado_socios_asistencia' %}">
+                            {% include "includes/icon.html" with name="clipboard-check" classes="sidebar-icon flex-shrink-0" %}
+                            <span>Listado asistencia</span>
+                        </a>
                     {% endif %}
 
                     {% if nav_puede_gestionar_usuarios %}

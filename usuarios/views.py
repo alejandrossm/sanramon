@@ -822,6 +822,22 @@ def eliminar_reunion(request, pk):
 
 
 @asistencia_required
+def registrar_asistencia_activa(request):
+    """Redirige al registro de asistencia de la reunion activa."""
+    reunion = Reunion.objects.filter(estado=Reunion.ACTIVA).first()
+    if not reunion:
+        messages.warning(
+            request,
+            (
+                'No hay reuniones activas. '
+                'El registro de asistencia funciona solo al existir reuniones activas.'
+            ),
+        )
+        return redirect('usuarios:listado_socios_asistencia')
+    return redirect('usuarios:registrar_asistencia_reunion', pk=reunion.pk)
+
+
+@asistencia_required
 def registrar_asistencia_reunion(request, pk):
     """Registra asistencia por RUT para una reunion activa."""
     reunion = get_object_or_404(

@@ -148,3 +148,4 @@
 - Crear reporte exportable a Excel con todas las reuniones.
 - Soportar reuniones en estado `historica` para registrar asistencias posteriores mediante carga masiva CSV u otro mecanismo operativo.
 - Definir permisos y flujo para carga historica: administrador o socio podran registrar asistencia historica mediante CSV u otro mecanismo validado.
+- Implementar el desbloqueo administrativo con motivo obligatorio, usuario responsable y fecha de desbloqueo.

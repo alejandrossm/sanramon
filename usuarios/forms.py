@@ -499,6 +499,9 @@ class RegistroAsistenciaRutForm(forms.Form):
         if AsistenciaReunion.objects.filter(reunion=self.reunion, socio=socio).exists():
             raise forms.ValidationError('El socio ya tiene asistencia registrada en esta reunion.')
 
+        if AsistenciaReunion.socio_esta_bloqueado(socio):
+            raise forms.ValidationError(AsistenciaReunion.MENSAJE_SOCIO_BLOQUEADO)
+
         self.socio = socio
         self.lectura_rut = lectura_rut
         cleaned_data['rut'] = rut

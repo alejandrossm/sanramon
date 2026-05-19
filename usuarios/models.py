@@ -372,6 +372,11 @@ class AsistenciaReunion(models.Model):
 
     PRESENTE = 'PRESENTE'
     AUSENTE = 'AUSENTE'
+    INASISTENCIAS_PARA_BLOQUEO = 2
+    MENSAJE_SOCIO_BLOQUEADO = (
+        'El socio esta bloqueado por inasistencias. '
+        'Debe ser desbloqueado por un administrador antes de registrar asistencia.'
+    )
 
     ESTADOS = [
         (PRESENTE, 'Presente'),
@@ -439,6 +444,14 @@ class AsistenciaReunion(models.Model):
         if self.estado == self.PRESENTE and self.socio_id and not self.socio.is_active:
             errores['socio'] = 'El socio esta inactivo.'
 
+        if (
+            self.estado == self.PRESENTE
+            and self.socio_id
+            and not self.pk
+            and type(self).socio_esta_bloqueado(self.socio)
+        ):
+            errores['socio'] = self.MENSAJE_SOCIO_BLOQUEADO
+
         if errores:
             raise ValidationError(errores)
 
@@ -460,6 +473,19 @@ class AsistenciaReunion(models.Model):
         }
 
     @classmethod
+    def contar_inasistencias_socio(cls, socio):
+        """Cuenta las ausencias registradas de un socio."""
+        return cls.objects.filter(
+            socio=socio,
+            estado=cls.AUSENTE,
+        ).count()
+
+    @classmethod
+    def socio_esta_bloqueado(cls, socio):
+        """Indica si el socio alcanzo el umbral operativo de bloqueo."""
+        return cls.contar_inasistencias_socio(socio) >= cls.INASISTENCIAS_PARA_BLOQUEO
+
+    @classmethod
     def registrar_presente(cls, reunion, socio, usuario, origen):
         """Registra un socio presente en una reunion activa."""
         if reunion.estado != Reunion.ACTIVA:
@@ -473,6 +499,9 @@ class AsistenciaReunion(models.Model):
 
         if cls.objects.filter(reunion=reunion, socio=socio).exists():
             raise ValidationError({'socio': 'El socio ya tiene asistencia registrada en esta reunion.'})
+
+        if cls.socio_esta_bloqueado(socio):
+            raise ValidationError({'socio': cls.MENSAJE_SOCIO_BLOQUEADO})
 
         return cls.objects.create(
             reunion=reunion,

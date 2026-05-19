@@ -34,6 +34,8 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
   - Rojo: bloqueado por dos inasistencias.
 - [x] Agregar un campo de telefono movil a usuarios y socios para registrar un numero de contacto operativo.
 - [ ] Definir si en una version futura los socios podran activar cuenta o recuperar contrasena propia. Por ahora no aplica: los socios se crean sin contrasena utilizable y no reciben correo de recuperacion.
+- [x] Implementar bloqueo operativo de socios por inasistencias: un socio con 2 o mas ausencias no puede registrar nuevas asistencias.
+- [ ] Agregar flujo de desbloqueo administrativo de socios bloqueados, con motivo obligatorio, usuario responsable y fecha de desbloqueo.
 
 ## Pendientes por definir
 
