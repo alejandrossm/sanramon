@@ -14,7 +14,7 @@ from django.contrib.auth.views import (
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import IntegrityError
-from django.db.models import Count, Q
+from django.db.models import Count, ExpressionWrapper, F, IntegerField, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.views.decorators.http import require_POST
@@ -22,6 +22,7 @@ from django.views.decorators.http import require_POST
 from .identificacion import parsear_lectura_rut
 from .forms import (
     CambioPasswordForm,
+    JustificacionInasistenciaForm,
     LoginForm,
     RecuperarPasswordForm,
     RegistroAsistenciaRutForm,
@@ -33,7 +34,7 @@ from .forms import (
     UsuarioCreationForm,
     UsuarioUpdateForm,
 )
-from .models import AsistenciaReunion, Reunion, Usuario
+from .models import AsistenciaReunion, DesbloqueoSocio, Reunion, Usuario
 from .permisos import (
     PERM_ACCEDER_ASISTENCIA,
     PERM_ADMINISTRAR_PRIVILEGIOS,
@@ -294,9 +295,10 @@ def obtener_resumen_estado_asistencia_socios():
 
     socios = anotar_resumen_asistencia_socios(socios)
     for socio in socios:
-        if socio.total_ausencias >= 2:
+        total_efectivas = getattr(socio, 'total_ausencias_efectivas', socio.total_ausencias)
+        if total_efectivas >= 2:
             bloqueados += 1
-        elif socio.total_ausencias == 1:
+        elif total_efectivas == 1:
             en_riesgo += 1
         else:
             sin_falta += 1
@@ -577,6 +579,7 @@ def listado_socios_asistencia(request):
             'socios_inactivos': total_socios - socios_activos,
             'puede_registrar_socios': puede_registrar_socios(request.user),
             'puede_editar_socios': puede_editar_socios(request.user),
+            'puede_justificar_inasistencias': puede_gestionar_usuarios(request.user),
         },
     )
 
@@ -590,7 +593,15 @@ def agregar_resumen_asistencia_socios(socios):
             socio.total_reuniones = resumen['total_reuniones']
             socio.total_asistencias = resumen['total_asistencias']
             socio.total_ausencias = resumen['total_ausencias']
-        socio.indicador_asistencia = obtener_indicador_asistencia(socio.total_ausencias)
+            socio.total_justificaciones = DesbloqueoSocio.objects.filter(socio=socio).count()
+        if not hasattr(socio, 'total_ausencias_efectivas'):
+            socio.total_ausencias_efectivas = max(
+                socio.total_ausencias - getattr(socio, 'total_justificaciones', 0),
+                0,
+            )
+        socio.indicador_asistencia = obtener_indicador_asistencia(
+            socio.total_ausencias_efectivas,
+        )
         socio.puede_eliminar_seguro = not resumen_tiene_asistencias_contabilizadas(
             {
                 'total_reuniones': socio.total_reuniones,
@@ -605,26 +616,36 @@ def agregar_resumen_asistencia_socios(socios):
 def anotar_resumen_asistencia_socios(socios):
     """Agrega contadores de asistencia al queryset en una consulta agrupada."""
     return socios.annotate(
-        total_reuniones=Count('asistencias_reunion'),
+        total_reuniones=Count('asistencias_reunion', distinct=True),
         total_asistencias=Count(
             'asistencias_reunion',
             filter=Q(asistencias_reunion__estado=AsistenciaReunion.PRESENTE),
+            distinct=True,
         ),
         total_ausencias=Count(
             'asistencias_reunion',
             filter=Q(asistencias_reunion__estado=AsistenciaReunion.AUSENTE),
+            distinct=True,
         ),
+        total_justificaciones=Count('desbloqueos_asistencia', distinct=True),
+    ).annotate(
+        total_ausencias_efectivas=ExpressionWrapper(
+            F('total_ausencias') - F('total_justificaciones'),
+            output_field=IntegerField(),
+        )
     )
 
 
 def filtrar_socios_por_indicador_asistencia(socios, indicador):
     """Filtra un queryset anotado segun el indicador visual de asistencia."""
     if indicador == 'sin_ausencias':
-        return socios.filter(total_ausencias=0)
+        return socios.filter(total_ausencias_efectivas__lte=0)
     if indicador == 'una_inasistencia':
-        return socios.filter(total_ausencias=1)
+        return socios.filter(total_ausencias_efectivas=1)
     if indicador == 'bloqueado':
-        return socios.filter(total_ausencias__gte=2)
+        return socios.filter(
+            total_ausencias_efectivas__gte=AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO
+        )
     return socios
 
 
@@ -1148,6 +1169,54 @@ def editar_socio(request, pk):
         request,
         'usuarios/editar_socio.html',
         {'form': form, 'socio': socio},
+    )
+
+
+@gestor_usuarios_required
+def justificar_inasistencia(request, pk):
+    """Registra una justificacion administrativa para un socio bloqueado."""
+    socio = get_object_or_404(Usuario, pk=pk, rol=Usuario.SOCIO)
+
+    if not AsistenciaReunion.socio_esta_bloqueado(socio):
+        messages.error(request, 'El socio no esta bloqueado por inasistencias.')
+        return redirect('usuarios:listado_socios_asistencia')
+
+    if request.method == 'POST':
+        form = JustificacionInasistenciaForm(
+            request.POST,
+            socio=socio,
+            usuario=request.user,
+        )
+        if form.is_valid():
+            try:
+                justificacion = form.save()
+            except ValidationError as error:
+                form.add_error(None, obtener_mensaje_validacion(error))
+            else:
+                inasistencias_efectivas = (
+                    AsistenciaReunion.contar_inasistencias_efectivas_socio(socio)
+                )
+                messages.success(
+                    request,
+                    (
+                        f'Inasistencia de {socio.nombre_completo} justificada correctamente. '
+                        f'Inasistencias registradas: '
+                        f'{justificacion.inasistencias_al_desbloquear}. '
+                        f'Inasistencias efectivas: {inasistencias_efectivas}.'
+                    ),
+                )
+                return redirect('usuarios:listado_socios_asistencia')
+    else:
+        form = JustificacionInasistenciaForm(socio=socio, usuario=request.user)
+
+    return render(
+        request,
+        'usuarios/justificar_inasistencia.html',
+        {
+            'form': form,
+            'socio': socio,
+            'total_inasistencias': AsistenciaReunion.contar_inasistencias_socio(socio),
+        },
     )
 
 

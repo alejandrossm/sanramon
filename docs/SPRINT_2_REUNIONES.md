@@ -72,11 +72,11 @@
    - El socio se bloquea automaticamente al llegar a 2 inasistencias anuales.
    - Un socio bloqueado no puede registrar asistencia.
 
-8. HU-11 - Desbloquear socio
-   - Solo administrador puede desbloquear socios.
-   - El motivo de desbloqueo es obligatorio.
-   - El desbloqueo queda registrado con usuario, fecha y motivo.
-   - El socio queda habilitado para registrar asistencia si esta activo.
+8. HU-11 - Justificar inasistencia
+   - Solo administrador puede justificar inasistencias de socios bloqueados.
+   - El motivo de justificacion es obligatorio.
+   - La justificacion queda registrada con usuario, fecha y motivo.
+   - El socio queda con una inasistencia efectiva y puede registrar asistencia si esta activo.
 
 9. HU-03 - Complemento sprint 2 de socio inactivo
    - El socio inactivo no puede registrar asistencia.
@@ -148,4 +148,3 @@
 - Crear reporte exportable a Excel con todas las reuniones.
 - Soportar reuniones en estado `historica` para registrar asistencias posteriores mediante carga masiva CSV u otro mecanismo operativo.
 - Definir permisos y flujo para carga historica: administrador o socio podran registrar asistencia historica mediante CSV u otro mecanismo validado.
-- Implementar el desbloqueo administrativo con motivo obligatorio, usuario responsable y fecha de desbloqueo.

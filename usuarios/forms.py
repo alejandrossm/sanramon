@@ -20,6 +20,7 @@ from .identificacion import (
 )
 from .models import (
     AsistenciaReunion,
+    DesbloqueoSocio,
     Reunion,
     TELEFONO_MOVIL_MENSAJE_CHILE,
     TELEFONO_MOVIL_PREFIJO_CHILE,
@@ -460,6 +461,60 @@ class ReunionCancelacionForm(forms.Form):
         if not motivo:
             raise forms.ValidationError('El motivo de cancelacion es obligatorio.')
         return motivo
+
+
+class JustificacionInasistenciaForm(forms.Form):
+    """Formulario para registrar el motivo obligatorio de justificacion."""
+
+    motivo = forms.CharField(
+        label='Motivo de justificacion',
+        required=True,
+        max_length=500,
+        widget=forms.Textarea(
+            attrs={
+                'rows': 4,
+                'autocomplete': 'off',
+            }
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        """Recibe el socio y responsable de la justificacion."""
+        self.socio = kwargs.pop('socio')
+        self.usuario = kwargs.pop('usuario')
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.layout = Layout(
+            'motivo',
+            Submit('submit', 'Justificar inasistencia', css_class='btn btn-primary'),
+        )
+
+    def clean_motivo(self):
+        """Normaliza y exige un motivo no vacio."""
+        motivo = (self.cleaned_data['motivo'] or '').strip()
+        if not motivo:
+            raise forms.ValidationError('El motivo de justificacion es obligatorio.')
+        return motivo
+
+    def clean(self):
+        """Evita registrar justificaciones para socios no bloqueados."""
+        cleaned_data = super().clean()
+        if self.errors:
+            return cleaned_data
+
+        if not AsistenciaReunion.socio_esta_bloqueado(self.socio):
+            raise forms.ValidationError('El socio no esta bloqueado por inasistencias.')
+
+        return cleaned_data
+
+    def save(self):
+        """Crea el registro administrativo de justificacion."""
+        return DesbloqueoSocio.registrar(
+            socio=self.socio,
+            usuario=self.usuario,
+            motivo=self.cleaned_data['motivo'],
+        )
 
 
 class RegistroAsistenciaRutForm(forms.Form):

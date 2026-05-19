@@ -414,7 +414,7 @@ class AsistenciaReunion(models.Model):
     INASISTENCIAS_PARA_BLOQUEO = 2
     MENSAJE_SOCIO_BLOQUEADO = (
         'El socio esta bloqueado por inasistencias. '
-        'Debe ser desbloqueado por un administrador antes de registrar asistencia.'
+        'Debe tener una inasistencia justificada por un administrador antes de registrar asistencia.'
     )
 
     ESTADOS = [
@@ -520,9 +520,16 @@ class AsistenciaReunion(models.Model):
         ).count()
 
     @classmethod
+    def contar_inasistencias_efectivas_socio(cls, socio):
+        """Cuenta ausencias aplicando justificaciones administrativas."""
+        total_inasistencias = cls.contar_inasistencias_socio(socio)
+        total_justificaciones = DesbloqueoSocio.objects.filter(socio=socio).count()
+        return max(total_inasistencias - total_justificaciones, 0)
+
+    @classmethod
     def socio_esta_bloqueado(cls, socio):
         """Indica si el socio alcanzo el umbral operativo de bloqueo."""
-        return cls.contar_inasistencias_socio(socio) >= cls.INASISTENCIAS_PARA_BLOQUEO
+        return cls.contar_inasistencias_efectivas_socio(socio) >= cls.INASISTENCIAS_PARA_BLOQUEO
 
     @classmethod
     def registrar_presente(cls, reunion, socio, usuario, origen):
@@ -548,4 +555,76 @@ class AsistenciaReunion(models.Model):
             estado=cls.PRESENTE,
             origen=origen,
             registrada_por=usuario,
+        )
+
+
+class DesbloqueoSocio(models.Model):
+    """Registro administrativo que justifica una inasistencia de un socio."""
+
+    socio = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='desbloqueos_asistencia',
+        verbose_name='socio',
+    )
+    motivo = models.TextField()
+    desbloqueado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='desbloqueos_socios_realizados',
+        verbose_name='justificado por',
+    )
+    fecha_desbloqueo = models.DateTimeField(
+        'fecha de justificacion',
+        default=timezone.now,
+    )
+    inasistencias_al_desbloquear = models.PositiveIntegerField(
+        'inasistencias al justificar',
+    )
+
+    class Meta:
+        """Orden e invariantes del historial de justificaciones."""
+
+        ordering = ['-fecha_desbloqueo']
+        verbose_name = 'justificacion de inasistencia'
+        verbose_name_plural = 'justificaciones de inasistencias'
+
+    def __str__(self):
+        """Representa la justificacion por socio y fecha."""
+        return f'{self.socio.nombre_completo} - {self.fecha_desbloqueo:%d-%m-%Y %H:%M}'
+
+    def clean(self):
+        """Valida que la justificacion sea para un socio con motivo real."""
+        super().clean()
+        errores = {}
+
+        if self.socio_id and self.socio.rol != Usuario.SOCIO:
+            errores['socio'] = 'Solo se pueden justificar inasistencias de socios.'
+
+        self.motivo = (self.motivo or '').strip()
+        if not self.motivo:
+            errores['motivo'] = 'El motivo de justificacion es obligatorio.'
+
+        if errores:
+            raise ValidationError(errores)
+
+    def save(self, *args, **kwargs):
+        """Valida la justificacion antes de persistirla."""
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def registrar(cls, socio, usuario, motivo):
+        """Justifica una inasistencia si el socio esta bloqueado."""
+        total_inasistencias = AsistenciaReunion.contar_inasistencias_socio(socio)
+        total_efectivas = AsistenciaReunion.contar_inasistencias_efectivas_socio(socio)
+        if total_efectivas < AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO:
+            raise ValidationError({'socio': 'El socio no esta bloqueado por inasistencias.'})
+
+        return cls.objects.create(
+            socio=socio,
+            motivo=motivo,
+            desbloqueado_por=usuario,
+            fecha_desbloqueo=timezone.now(),
+            inasistencias_al_desbloquear=total_inasistencias,
         )

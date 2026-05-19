@@ -17,6 +17,7 @@ from django.utils import timezone
 
 from .admin import UsuarioAdmin
 from .forms import (
+    JustificacionInasistenciaForm,
     ReunionCancelacionForm,
     ReunionCreationForm,
     UsuarioCreationForm,
@@ -27,7 +28,7 @@ from .identificacion import (
     ORIGEN_RUT_MANUAL,
     parsear_lectura_rut,
 )
-from .models import AsistenciaReunion, Reunion
+from .models import AsistenciaReunion, DesbloqueoSocio, Reunion
 from .permisos import (
     GRUPO_ADMINISTRADOR,
     GRUPO_ENCARGADO_REGISTRO,
@@ -329,6 +330,45 @@ class UsuariosModuloTests(TestCase):
         self.assertIn('motivo_cancelacion', form_vacio.errors)
         self.assertTrue(form_valido.is_valid())
         self.assertEqual(form_valido.cleaned_data['motivo_cancelacion'], 'Cambio de agenda')
+
+    def test_formulario_justificacion_exige_motivo_y_socio_bloqueado(self):
+        """Valida motivo y condicion de bloqueo antes de justificar."""
+        form_no_bloqueado = JustificacionInasistenciaForm(
+            data={'motivo': 'Revision administrativa'},
+            socio=self.socio_user,
+            usuario=self.admin_user,
+        )
+        self.assertFalse(form_no_bloqueado.is_valid())
+        self.assertIn(
+            'El socio no esta bloqueado por inasistencias.',
+            form_no_bloqueado.non_field_errors(),
+        )
+
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 27),
+        )
+        form_vacio = JustificacionInasistenciaForm(
+            data={'motivo': '   '},
+            socio=self.socio_user,
+            usuario=self.admin_user,
+        )
+        form_valido = JustificacionInasistenciaForm(
+            data={'motivo': 'Compromiso firmado'},
+            socio=self.socio_user,
+            usuario=self.admin_user,
+        )
+
+        self.assertFalse(form_vacio.is_valid())
+        self.assertIn('motivo', form_vacio.errors)
+        self.assertTrue(form_valido.is_valid())
+        self.assertEqual(form_valido.cleaned_data['motivo'], 'Compromiso firmado')
 
     def test_reunion_historica_no_se_inicia_ni_finaliza(self):
         """Reserva reuniones historicas para carga posterior y eliminacion segura."""
@@ -1764,6 +1804,104 @@ class UsuariosModuloTests(TestCase):
             ).exists()
         )
 
+    @patch('usuarios.models.timezone.now')
+    def test_modelo_justifica_inasistencia_con_motivo_responsable_y_fecha(self, now_mock):
+        """Registra una justificacion sin borrar ausencias historicas."""
+        momento = datetime(2026, 5, 30, 12, 0, tzinfo=timezone.get_current_timezone())
+        now_mock.return_value = momento
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 27),
+        )
+        self.assertTrue(AsistenciaReunion.socio_esta_bloqueado(self.socio_user))
+
+        justificacion = DesbloqueoSocio.registrar(
+            socio=self.socio_user,
+            usuario=self.admin_user,
+            motivo='  Compromiso firmado  ',
+        )
+
+        self.assertEqual(justificacion.socio, self.socio_user)
+        self.assertEqual(justificacion.desbloqueado_por, self.admin_user)
+        self.assertEqual(justificacion.fecha_desbloqueo, momento)
+        self.assertEqual(justificacion.motivo, 'Compromiso firmado')
+        self.assertEqual(justificacion.inasistencias_al_desbloquear, 2)
+        self.assertEqual(
+            AsistenciaReunion.contar_inasistencias_efectivas_socio(self.socio_user),
+            1,
+        )
+        self.assertFalse(AsistenciaReunion.socio_esta_bloqueado(self.socio_user))
+
+    def test_modelo_justificacion_vuelve_a_bloquear_con_nueva_ausencia(self):
+        """Una ausencia posterior vuelve a dejar al socio bloqueado."""
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 27),
+        )
+        DesbloqueoSocio.registrar(
+            socio=self.socio_user,
+            usuario=self.admin_user,
+            motivo='Compromiso firmado',
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 6, 3),
+        )
+
+        self.assertEqual(
+            AsistenciaReunion.contar_inasistencias_efectivas_socio(self.socio_user),
+            2,
+        )
+        self.assertTrue(AsistenciaReunion.socio_esta_bloqueado(self.socio_user))
+
+    def test_modelo_permite_registrar_asistencia_de_socio_justificado_activo(self):
+        """Permite asistencia posterior si el socio esta activo y justificado."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 6, 10),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 27),
+        )
+        DesbloqueoSocio.registrar(
+            socio=self.socio_user,
+            usuario=self.admin_user,
+            motivo='Compromiso firmado',
+        )
+
+        asistencia = AsistenciaReunion.registrar_presente(
+            reunion=reunion,
+            socio=self.socio_user,
+            usuario=self.encargado_user,
+            origen=AsistenciaReunion.ORIGEN_RUT,
+        )
+
+        self.assertEqual(asistencia.estado, AsistenciaReunion.PRESENTE)
+        self.assertEqual(asistencia.socio, self.socio_user)
+
     def test_registro_asistencia_requiere_reunion_activa(self):
         """Bloquea el registro si la reunion no esta activa."""
         reunion = Reunion.objects.create(
@@ -1981,6 +2119,58 @@ class UsuariosModuloTests(TestCase):
         self.assertNotContains(response, socio_riesgo.email)
         self.assertNotContains(response, 'socio@example.com')
 
+    def test_listado_asistencia_filtra_socios_justificados_como_una_inasistencia(self):
+        """Muestra socios justificados como una inasistencia efectiva."""
+        socio_bloqueado = self.User.objects.create_user(
+            username='bloq.filtro',
+            email='bloq.filtro@example.com',
+            password='ClaveSegura123',
+            first_name='Bloqueado',
+            last_name='Filtro',
+            rut='88.333.333-3',
+            rol=self.User.SOCIO,
+        )
+        socio_justificado = self.User.objects.create_user(
+            username='justificado.filtro',
+            email='justificado.filtro@example.com',
+            password='ClaveSegura123',
+            first_name='Justificado',
+            last_name='Filtro',
+            rut='88.444.444-4',
+            rol=self.User.SOCIO,
+        )
+        for socio in (socio_bloqueado, socio_justificado):
+            self.registrar_asistencia_historica(
+                socio,
+                AsistenciaReunion.AUSENTE,
+                date(2026, 5, 20),
+            )
+            self.registrar_asistencia_historica(
+                socio,
+                AsistenciaReunion.AUSENTE,
+                date(2026, 5, 27),
+            )
+        DesbloqueoSocio.registrar(
+            socio=socio_justificado,
+            usuario=self.admin_user,
+            motivo='Compromiso firmado',
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:listado_socios_asistencia'),
+            {'indicador': 'bloqueado'},
+        )
+        self.assertContains(response, socio_bloqueado.email)
+        self.assertNotContains(response, socio_justificado.email)
+
+        response = self.client.get(
+            reverse('usuarios:listado_socios_asistencia'),
+            {'indicador': 'una_inasistencia'},
+        )
+        self.assertContains(response, socio_justificado.email)
+        self.assertNotContains(response, socio_bloqueado.email)
+
     def test_listado_asistencia_tiene_lista_responsiva_para_movil(self):
         """Replica el formato responsivo usado por los listados administrativos."""
         self.client.login(username='admin', password='ClaveSegura123')
@@ -2109,6 +2299,31 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(totales['Sin falta'], 1)
         self.assertEqual(totales['En riesgo'], 1)
         self.assertEqual(totales['Bloqueados por inasistencia'], 1)
+
+    def test_resumen_estado_asistencia_socios_cuenta_justificados_en_riesgo(self):
+        """Cuenta al socio justificado como una inasistencia efectiva."""
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 27),
+        )
+        DesbloqueoSocio.registrar(
+            socio=self.socio_user,
+            usuario=self.admin_user,
+            motivo='Compromiso firmado',
+        )
+
+        resumen = obtener_resumen_estado_asistencia_socios()
+
+        totales = {item['label']: item['total'] for item in resumen['items']}
+        self.assertEqual(totales['Bloqueados por inasistencia'], 0)
+        self.assertEqual(totales['En riesgo'], 1)
+        self.assertNotIn('Desbloqueados', totales)
 
     def test_listado_usuarios_incluye_confirmacion_para_cambiar_estado(self):
         """Agrega confirmacion visual al cambio de estado de usuarios."""
@@ -2507,6 +2722,110 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'title="Bloqueado"')
         self.assertContains(response, 'aria-label="Estado de asistencia: Bloqueado"')
         self.assertContains(response, 'bi-x-circle')
+
+    def test_administrador_justifica_inasistencia_de_socio_bloqueado(self):
+        """Permite justificar desde acciones del listado de asistencia."""
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 27),
+        )
+        url_justificar = reverse('usuarios:justificar_inasistencia', args=[self.socio_user.pk])
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_socios'))
+        self.assertNotContains(response, url_justificar)
+
+        response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
+        self.assertContains(response, url_justificar)
+        self.assertContains(response, 'aria-label="Justificar inasistencia"')
+
+        response = self.client.get(url_justificar)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Justificar inasistencia')
+        self.assertContains(response, 'motivo')
+
+        response = self.client.post(
+            url_justificar,
+            {'motivo': 'Compromiso firmado'},
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_socios_asistencia'))
+        self.assertContains(response, 'justificada correctamente')
+        self.assertContains(response, 'text-bg-warning')
+        self.assertContains(response, 'Una inasistencia')
+        self.assertFalse(AsistenciaReunion.socio_esta_bloqueado(self.socio_user))
+        justificacion = DesbloqueoSocio.objects.get(socio=self.socio_user)
+        self.assertEqual(justificacion.desbloqueado_por, self.admin_user)
+        self.assertEqual(justificacion.motivo, 'Compromiso firmado')
+        self.assertEqual(justificacion.inasistencias_al_desbloquear, 2)
+
+    def test_justificar_inasistencia_requiere_motivo(self):
+        """Mantiene bloqueado al socio cuando falta el motivo."""
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 27),
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:justificar_inasistencia', args=[self.socio_user.pk]),
+            {'motivo': '   '},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Este campo es obligatorio.')
+        self.assertTrue(AsistenciaReunion.socio_esta_bloqueado(self.socio_user))
+        self.assertFalse(DesbloqueoSocio.objects.filter(socio=self.socio_user).exists())
+
+    def test_justificar_inasistencia_bloquea_si_no_tiene_bloqueo(self):
+        """Evita justificar socios que no cumplen la regla de bloqueo."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:justificar_inasistencia', args=[self.socio_user.pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_socios_asistencia'))
+        self.assertContains(response, 'El socio no esta bloqueado por inasistencias.')
+        self.assertFalse(DesbloqueoSocio.objects.filter(socio=self.socio_user).exists())
+
+    def test_justificar_inasistencia_solo_disponible_para_administrador(self):
+        """Protege la justificacion de inasistencias para usuarios no autorizados."""
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 27),
+        )
+        url = reverse('usuarios:justificar_inasistencia', args=[self.socio_user.pk])
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.post(url, {'motivo': 'Compromiso firmado'})
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+
+        self.client.login(username='socio', password='ClaveSegura123')
+        response = self.client.post(url, {'motivo': 'Compromiso firmado'})
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+
+        self.assertTrue(AsistenciaReunion.socio_esta_bloqueado(self.socio_user))
+        self.assertFalse(DesbloqueoSocio.objects.filter(socio=self.socio_user).exists())
 
     def test_listado_socios_paginacion_conserva_filtros(self):
         """Mantiene los filtros activos al navegar paginas de socios."""

@@ -166,15 +166,7 @@
                         {% endif %}
                     </td>
                     <td class="text-end">
-                        <button
-                            type="button"
-                            class="btn btn-outline-secondary btn-sm px-4"
-                            title="Gestionar estado"
-                            aria-label="Gestionar estado"
-                            disabled
-                        >
-                            {% include "includes/icon.html" with name="activity" %}
-                        </button>
+                        {% include "usuarios/includes/acciones_asistencia_socio.html" %}
                     </td>
                 </tr>
             {% empty %}
@@ -200,15 +192,7 @@
                     <div class="text-muted small text-break">{{ socio.first_name }} {{ socio.last_name }}</div>
                 </div>
                 <div class="flex-shrink-0">
-                    <button
-                        type="button"
-                        class="btn btn-outline-secondary btn-sm px-4"
-                        title="Gestionar estado"
-                        aria-label="Gestionar estado"
-                        disabled
-                    >
-                        {% include "includes/icon.html" with name="activity" %}
-                    </button>
+                    {% include "usuarios/includes/acciones_asistencia_socio.html" %}
                 </div>
             </div>
 

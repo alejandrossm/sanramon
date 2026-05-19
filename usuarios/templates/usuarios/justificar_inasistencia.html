@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% load crispy_forms_tags %}
+
+{% block title %}Justificar inasistencia | Sistema San Ramon{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-start mb-4">
+    <div class="d-flex align-items-center gap-3">
+        {% include "includes/icon.html" with name="check-circle" classes="fs-4 text-primary" %}
+        <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Asistencia</p>
+            <h1 class="h3 mb-1">Justificar inasistencia</h1>
+            <p class="text-muted mb-0">
+                {{ socio.nombre_completo }} - {{ socio.rut }}.
+            </p>
+        </div>
+    </div>
+
+    <a href="{% url 'usuarios:listado_socios_asistencia' %}" class="btn btn-outline-secondary align-self-start">
+        {% include "includes/icon.html" with name="arrow-left" %}
+        <span>Volver</span>
+    </a>
+</div>
+
+<div class="alert alert-warning" role="alert">
+    El socio registra {{ total_inasistencias }} inasistencias. La justificacion descuenta una inasistencia efectiva y deja constancia del motivo administrativo.
+</div>
+
+<section class="card shadow-sm border-0 p-4">
+    {% crispy form %}
+</section>
+{% endblock %}

@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
-from .models import AsistenciaReunion, Reunion, Usuario
+from .models import AsistenciaReunion, DesbloqueoSocio, Reunion, Usuario
 
 
 @admin.register(Usuario)
@@ -99,3 +99,25 @@ class AsistenciaReunionAdmin(admin.ModelAdmin):
     )
     readonly_fields = ('fecha_registro',)
     ordering = ('-fecha_registro',)
+
+
+@admin.register(DesbloqueoSocio)
+class DesbloqueoSocioAdmin(admin.ModelAdmin):
+    """Configuracion del historial de justificaciones de inasistencia."""
+
+    list_display = (
+        'socio',
+        'desbloqueado_por',
+        'fecha_desbloqueo',
+        'inasistencias_al_desbloquear',
+    )
+    list_filter = ('fecha_desbloqueo',)
+    search_fields = (
+        'socio__rut',
+        'socio__first_name',
+        'socio__last_name',
+        'desbloqueado_por__username',
+        'motivo',
+    )
+    readonly_fields = ('fecha_desbloqueo',)
+    ordering = ('-fecha_desbloqueo',)
