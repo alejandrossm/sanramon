@@ -12,11 +12,11 @@
         {% csrf_token %}
         <button
             type="submit"
-            class="btn btn-outline-danger btn-sm"
+            class="btn btn-danger btn-sm"
             title="Eliminar socio"
             aria-label="Eliminar socio"
         >
-            {% include "includes/icon.html" with name="trash-2" %}
+            {% include "includes/icon.html" with name="trash-fill" %}
         </button>
     </form>
 {% else %}

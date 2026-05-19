@@ -34,6 +34,8 @@ from .permisos import (
 )
 from .views import (
     ROLES_FILTRABLES_USUARIOS,
+    agregar_resumen_asistencia_socios,
+    anotar_resumen_asistencia_socios,
     obtener_indicador_asistencia,
     obtener_resumen_estado_asistencia_socios,
     puede_acceder_asistencia,
@@ -84,6 +86,26 @@ class UsuariosModuloTests(TestCase):
             rut='44.444.444-4',
             telefono_movil='+56944444444',
             rol=self.User.ENCARGADO_REGISTRO,
+        )
+
+    def registrar_asistencia_historica(self, socio, estado, fecha):
+        """Crea un registro historico de asistencia para pruebas de resumen."""
+        reunion = Reunion.objects.create(
+            fecha=fecha,
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+            estado=Reunion.FINALIZADA,
+        )
+        origen = AsistenciaReunion.ORIGEN_RUT
+        if estado == AsistenciaReunion.AUSENTE:
+            origen = AsistenciaReunion.ORIGEN_AUTOMATICO
+        return AsistenciaReunion.objects.create(
+            reunion=reunion,
+            socio=socio,
+            estado=estado,
+            origen=origen,
+            registrada_por=self.admin_user,
         )
 
     def test_permisos_base_estan_asignados_a_grupos_operativos(self):
@@ -1440,6 +1462,46 @@ class UsuariosModuloTests(TestCase):
         )
         self.assertFalse(puede_eliminar_socio_seguro(self.socio_user))
 
+    def test_resumen_asistencia_socios_anotado_no_consulta_por_socio(self):
+        """Agrega resumenes de asistencia en lote para evitar N+1 consultas."""
+        socio_ausente = self.User.objects.create_user(
+            username='ausente.resumen',
+            email='ausente.resumen@example.com',
+            password='ClaveSegura123',
+            first_name='Ausente',
+            last_name='Resumen',
+            rut='77.222.222-2',
+            rol=self.User.SOCIO,
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.PRESENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            socio_ausente,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 21),
+        )
+        socios = anotar_resumen_asistencia_socios(
+            self.User.objects.filter(rol=self.User.SOCIO).order_by('pk')
+        )
+
+        with self.assertNumQueries(1):
+            socios_resumidos = agregar_resumen_asistencia_socios(socios)
+
+        resumenes = {
+            socio.pk: (
+                socio.total_reuniones,
+                socio.total_asistencias,
+                socio.total_ausencias,
+                socio.indicador_asistencia['key'],
+            )
+            for socio in socios_resumidos
+        }
+        self.assertEqual(resumenes[self.socio_user.pk], (1, 1, 0, 'sin_ausencias'))
+        self.assertEqual(resumenes[socio_ausente.pk], (1, 0, 1, 'una_inasistencia'))
+
     def test_administrador_accede_a_asistencia_y_ve_solo_socios(self):
         """Permite al administrador ver el listado operativo de socios."""
         self.client.login(username='admin', password='ClaveSegura123')
@@ -1522,26 +1584,27 @@ class UsuariosModuloTests(TestCase):
             rut='88.222.222-2',
             rol=self.User.SOCIO,
         )
-        ausencias_por_pk = {
-            self.socio_user.pk: 0,
-            socio_riesgo.pk: 1,
-            socio_bloqueado.pk: 2,
-        }
-
-        def resumen_mock(socio):
-            total_ausencias = ausencias_por_pk[socio.pk]
-            return {
-                'total_reuniones': 2,
-                'total_asistencias': 2 - total_ausencias,
-                'total_ausencias': total_ausencias,
-            }
+        self.registrar_asistencia_historica(
+            socio_riesgo,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            socio_bloqueado,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 21),
+        )
+        self.registrar_asistencia_historica(
+            socio_bloqueado,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 22),
+        )
 
         self.client.login(username='admin', password='ClaveSegura123')
-        with patch('usuarios.views.obtener_resumen_asistencia_socio', resumen_mock):
-            response = self.client.get(
-                reverse('usuarios:listado_socios_asistencia'),
-                {'indicador': 'bloqueado'},
-            )
+        response = self.client.get(
+            reverse('usuarios:listado_socios_asistencia'),
+            {'indicador': 'bloqueado'},
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(
@@ -1657,22 +1720,23 @@ class UsuariosModuloTests(TestCase):
             rut='66.666.666-6',
             rol=self.User.SOCIO,
         )
+        self.registrar_asistencia_historica(
+            socio_riesgo,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            socio_bloqueado,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 21),
+        )
+        self.registrar_asistencia_historica(
+            socio_bloqueado,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 22),
+        )
 
-        ausencias_por_pk = {
-            self.socio_user.pk: 0,
-            socio_riesgo.pk: 1,
-            socio_bloqueado.pk: 2,
-        }
-
-        def resumen_mock(socio):
-            return {
-                'total_reuniones': 2,
-                'total_asistencias': 2 - ausencias_por_pk[socio.pk],
-                'total_ausencias': ausencias_por_pk[socio.pk],
-            }
-
-        with patch('usuarios.views.obtener_resumen_asistencia_socio', resumen_mock):
-            resumen = obtener_resumen_estado_asistencia_socios()
+        resumen = obtener_resumen_estado_asistencia_socios()
 
         totales = {item['label']: item['total'] for item in resumen['items']}
         self.assertEqual(resumen['total'], 3)
@@ -1960,6 +2024,8 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'data-confirm-title="Desactivar socio"')
         self.assertContains(response, reverse('usuarios:eliminar_socio', args=[self.socio_user.pk]))
         self.assertContains(response, 'data-confirm-title="Eliminar socio"')
+        self.assertContains(response, 'class="btn btn-danger btn-sm"')
+        self.assertContains(response, 'bi-trash-fill')
         self.assertNotContains(response, 'admin@example.com')
         self.assertNotContains(response, 'encargado@example.com')
 
@@ -2055,29 +2121,23 @@ class UsuariosModuloTests(TestCase):
         """Expone iconos de estado de asistencia en el listado administrativo."""
         self.client.login(username='admin', password='ClaveSegura123')
 
-        with patch(
-            'usuarios.views.obtener_resumen_asistencia_socio',
-            return_value={
-                'total_reuniones': 1,
-                'total_asistencias': 0,
-                'total_ausencias': 1,
-            },
-        ):
-            response = self.client.get(reverse('usuarios:listado_socios'))
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        response = self.client.get(reverse('usuarios:listado_socios'))
 
         self.assertContains(response, 'title="Una inasistencia"')
         self.assertContains(response, 'aria-label="Estado de asistencia: Una inasistencia"')
         self.assertContains(response, 'bi-exclamation-triangle')
 
-        with patch(
-            'usuarios.views.obtener_resumen_asistencia_socio',
-            return_value={
-                'total_reuniones': 2,
-                'total_asistencias': 0,
-                'total_ausencias': 2,
-            },
-        ):
-            response = self.client.get(reverse('usuarios:listado_socios'))
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 21),
+        )
+        response = self.client.get(reverse('usuarios:listado_socios'))
 
         self.assertContains(response, 'title="Bloqueado"')
         self.assertContains(response, 'aria-label="Estado de asistencia: Bloqueado"')
@@ -2950,17 +3010,16 @@ class UsuariosModuloTests(TestCase):
     def test_administrador_no_elimina_socio_con_asistencias_contabilizadas(self):
         """Bloquea la eliminacion cuando el socio tiene historial operativo."""
         self.client.login(username='admin', password='ClaveSegura123')
-        resumen = {
-            'total_reuniones': 1,
-            'total_asistencias': 1,
-            'total_ausencias': 0,
-        }
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.PRESENTE,
+            date(2026, 5, 20),
+        )
 
-        with patch('usuarios.views.obtener_resumen_asistencia_socio', return_value=resumen):
-            response = self.client.post(
-                reverse('usuarios:eliminar_socio', args=[self.socio_user.pk]),
-                follow=True,
-            )
+        response = self.client.post(
+            reverse('usuarios:eliminar_socio', args=[self.socio_user.pk]),
+            follow=True,
+        )
 
         self.assertRedirects(response, reverse('usuarios:listado_socios'))
         self.assertTrue(self.User.objects.filter(pk=self.socio_user.pk).exists())
@@ -2969,14 +3028,13 @@ class UsuariosModuloTests(TestCase):
     def test_listado_socios_bloquea_boton_eliminar_con_asistencias(self):
         """Muestra eliminacion deshabilitada si el socio ya tiene asistencias."""
         self.client.login(username='admin', password='ClaveSegura123')
-        resumen = {
-            'total_reuniones': 1,
-            'total_asistencias': 0,
-            'total_ausencias': 1,
-        }
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
 
-        with patch('usuarios.views.obtener_resumen_asistencia_socio', return_value=resumen):
-            response = self.client.get(reverse('usuarios:listado_socios'))
+        response = self.client.get(reverse('usuarios:listado_socios'))
 
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, reverse('usuarios:eliminar_socio', args=[self.socio_user.pk]))

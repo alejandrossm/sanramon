@@ -14,7 +14,7 @@ from django.contrib.auth.views import (
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import IntegrityError
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.views.decorators.http import require_POST
@@ -264,6 +264,8 @@ def aplicar_filtros_orden_socios(request, socios, columnas_ordenables):
             if campo != campo_base
         ]
         socios = socios.order_by(campo_orden, *campos_secundarios)
+    else:
+        socios = socios.order_by('last_name', 'first_name', 'username', 'pk')
 
     return {
         'socios': socios,
@@ -289,12 +291,11 @@ def obtener_resumen_estado_asistencia_socios():
     en_riesgo = 0
     bloqueados = 0
 
+    socios = anotar_resumen_asistencia_socios(socios)
     for socio in socios:
-        resumen = obtener_resumen_asistencia_socio(socio)
-        total_ausencias = resumen['total_ausencias']
-        if total_ausencias >= 2:
+        if socio.total_ausencias >= 2:
             bloqueados += 1
-        elif total_ausencias == 1:
+        elif socio.total_ausencias == 1:
             en_riesgo += 1
         else:
             sin_falta += 1
@@ -539,17 +540,13 @@ def listado_socios_asistencia(request):
     filtros['indicador'] = indicador_actual
     socios_filtrados_por_indicador = bool(indicador_actual)
 
+    socios = anotar_resumen_asistencia_socios(socios)
     if socios_filtrados_por_indicador:
-        socios = [
-            socio
-            for socio in agregar_resumen_asistencia_socios(socios)
-            if socio.indicador_asistencia['key'] == indicador_actual
-        ]
+        socios = filtrar_socios_por_indicador_asistencia(socios, indicador_actual)
 
     paginator = Paginator(socios, 50)
     page_obj = paginator.get_page(request.GET.get('page'))
-    if not socios_filtrados_por_indicador:
-        page_obj.object_list = agregar_resumen_asistencia_socios(page_obj.object_list)
+    page_obj.object_list = agregar_resumen_asistencia_socios(page_obj.object_list)
     pagination_params = request.GET.copy()
     if 'page' in pagination_params:
         del pagination_params['page']
@@ -584,27 +581,65 @@ def listado_socios_asistencia(request):
 
 
 def agregar_resumen_asistencia_socios(socios):
-    """Agrega contadores base hasta integrar reuniones y asistencias reales."""
+    """Agrega indicadores derivados de contadores de asistencia anotados."""
     socios_resumidos = []
     for socio in socios:
-        resumen = obtener_resumen_asistencia_socio(socio)
-        socio.total_reuniones = resumen['total_reuniones']
-        socio.total_asistencias = resumen['total_asistencias']
-        socio.total_ausencias = resumen['total_ausencias']
+        if not hasattr(socio, 'total_reuniones'):
+            resumen = obtener_resumen_asistencia_socio(socio)
+            socio.total_reuniones = resumen['total_reuniones']
+            socio.total_asistencias = resumen['total_asistencias']
+            socio.total_ausencias = resumen['total_ausencias']
         socio.indicador_asistencia = obtener_indicador_asistencia(socio.total_ausencias)
-        socio.puede_eliminar_seguro = not resumen_tiene_asistencias_contabilizadas(resumen)
+        socio.puede_eliminar_seguro = not resumen_tiene_asistencias_contabilizadas(
+            {
+                'total_reuniones': socio.total_reuniones,
+                'total_asistencias': socio.total_asistencias,
+                'total_ausencias': socio.total_ausencias,
+            }
+        )
         socios_resumidos.append(socio)
     return socios_resumidos
 
 
+def anotar_resumen_asistencia_socios(socios):
+    """Agrega contadores de asistencia al queryset en una consulta agrupada."""
+    return socios.annotate(
+        total_reuniones=Count('asistencias_reunion'),
+        total_asistencias=Count(
+            'asistencias_reunion',
+            filter=Q(asistencias_reunion__estado=AsistenciaReunion.PRESENTE),
+        ),
+        total_ausencias=Count(
+            'asistencias_reunion',
+            filter=Q(asistencias_reunion__estado=AsistenciaReunion.AUSENTE),
+        ),
+    )
+
+
+def filtrar_socios_por_indicador_asistencia(socios, indicador):
+    """Filtra un queryset anotado segun el indicador visual de asistencia."""
+    if indicador == 'sin_ausencias':
+        return socios.filter(total_ausencias=0)
+    if indicador == 'una_inasistencia':
+        return socios.filter(total_ausencias=1)
+    if indicador == 'bloqueado':
+        return socios.filter(total_ausencias__gte=2)
+    return socios
+
+
 def obtener_resumen_asistencia_socio(socio):
     """Devuelve los contadores de asistencia usados por vistas y eliminacion segura."""
-    asistencias = AsistenciaReunion.objects.filter(socio=socio)
-    return {
-        'total_reuniones': asistencias.count(),
-        'total_asistencias': asistencias.filter(estado=AsistenciaReunion.PRESENTE).count(),
-        'total_ausencias': asistencias.filter(estado=AsistenciaReunion.AUSENTE).count(),
-    }
+    return AsistenciaReunion.objects.filter(socio=socio).aggregate(
+        total_reuniones=Count('pk'),
+        total_asistencias=Count(
+            'pk',
+            filter=Q(estado=AsistenciaReunion.PRESENTE),
+        ),
+        total_ausencias=Count(
+            'pk',
+            filter=Q(estado=AsistenciaReunion.AUSENTE),
+        ),
+    )
 
 
 def resumen_tiene_asistencias_contabilizadas(resumen):
@@ -928,6 +963,7 @@ def listado_socios(request):
         COLUMNAS_ORDENABLES_SOCIOS,
     )
     socios = consulta['socios']
+    socios = anotar_resumen_asistencia_socios(socios)
     paginator = Paginator(socios, 50)
     page_obj = paginator.get_page(request.GET.get('page'))
     page_obj.object_list = agregar_resumen_asistencia_socios(page_obj.object_list)
