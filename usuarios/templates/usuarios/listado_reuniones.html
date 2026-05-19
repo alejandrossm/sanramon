@@ -64,6 +64,7 @@
                 <th>ESTADO</th>
                 <th>ACTIVADA POR</th>
                 <th>FINALIZADA POR</th>
+                <th>CANCELADA POR</th>
                 <th class="text-end">Acciones</th>
             </tr>
         </thead>
@@ -90,13 +91,26 @@
                             <span class="text-muted">-</span>
                         {% endif %}
                     </td>
+                    <td>
+                        {% if reunion.cancelada_por %}
+                            <span
+                                {% if reunion.motivo_cancelacion %}
+                                    title="{{ reunion.motivo_cancelacion }}"
+                                {% endif %}
+                            >
+                                {{ reunion.cancelada_por.nombre_completo }}
+                            </span>
+                        {% else %}
+                            <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
                     <td class="text-end">
                         {% include "usuarios/includes/acciones_reunion.html" %}
                     </td>
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="7" class="text-center text-muted py-4">
+                    <td colspan="8" class="text-center text-muted py-4">
                         No hay reuniones registradas.
                     </td>
                 </tr>
@@ -137,6 +151,17 @@
                 <dd class="col-7 mb-0 text-break">
                     {% if reunion.finalizada_por %}
                         {{ reunion.finalizada_por.nombre_completo }}
+                    {% else %}
+                        <span class="text-muted">-</span>
+                    {% endif %}
+                </dd>
+                <dt class="col-5 text-muted fw-semibold">CANCELADA POR</dt>
+                <dd class="col-7 mb-0 text-break">
+                    {% if reunion.cancelada_por %}
+                        {{ reunion.cancelada_por.nombre_completo }}
+                        {% if reunion.motivo_cancelacion %}
+                            <span class="d-block text-muted">Motivo: {{ reunion.motivo_cancelacion }}</span>
+                        {% endif %}
                     {% else %}
                         <span class="text-muted">-</span>
                     {% endif %}
