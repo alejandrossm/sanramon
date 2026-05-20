@@ -14,7 +14,7 @@ from django.contrib.auth.views import (
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import IntegrityError
-from django.db.models import Count, ExpressionWrapper, F, IntegerField, Q
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.views.decorators.http import require_POST
@@ -584,6 +584,83 @@ def listado_socios_asistencia(request):
     )
 
 
+@asistencia_required
+def detalle_asistencia_socio(request, pk):
+    """Muestra resumen operativo y justificaciones de un socio."""
+    socio = get_object_or_404(Usuario, pk=pk, rol=Usuario.SOCIO)
+    socio = agregar_resumen_asistencia_socios([socio])[0]
+    justificaciones = obtener_justificaciones_base().filter(socio=socio)
+    ausencias_pendientes = AsistenciaReunion.obtener_ausencias_justificables(socio)
+
+    return render(
+        request,
+        'usuarios/detalle_asistencia_socio.html',
+        {
+            'socio': socio,
+            'justificaciones': justificaciones,
+            'ausencias_pendientes': ausencias_pendientes,
+            'puede_justificar_inasistencias': puede_gestionar_usuarios(request.user),
+        },
+    )
+
+
+@gestor_usuarios_required
+def listado_justificaciones(request):
+    """Lista general de justificaciones para auditoria operativa."""
+    justificaciones = obtener_justificaciones_base()
+    filtros = {
+        'rut': request.GET.get('rut', '').strip(),
+        'nombre': request.GET.get('nombre', '').strip(),
+        'apellido': request.GET.get('apellido', '').strip(),
+        'motivo': request.GET.get('motivo', '').strip(),
+    }
+
+    if filtros['rut']:
+        filtro_rut = Q()
+        for valor_rut in obtener_valores_busqueda_rut(filtros['rut']):
+            filtro_rut |= Q(socio__rut__icontains=valor_rut)
+        justificaciones = justificaciones.filter(filtro_rut)
+    if filtros['nombre']:
+        justificaciones = justificaciones.filter(
+            socio__first_name__icontains=filtros['nombre'],
+        )
+    if filtros['apellido']:
+        justificaciones = justificaciones.filter(
+            socio__last_name__icontains=filtros['apellido'],
+        )
+    if filtros['motivo']:
+        justificaciones = justificaciones.filter(motivo__icontains=filtros['motivo'])
+
+    paginator = Paginator(justificaciones, 50)
+    page_obj = paginator.get_page(request.GET.get('page'))
+    pagination_params = request.GET.copy()
+    if 'page' in pagination_params:
+        del pagination_params['page']
+
+    return render(
+        request,
+        'usuarios/listado_justificaciones.html',
+        {
+            'justificaciones': page_obj,
+            'page_obj': page_obj,
+            'page_numbers': paginator.get_elided_page_range(page_obj.number),
+            'pagination_ellipsis': Paginator.ELLIPSIS,
+            'pagination_query': pagination_params.urlencode(),
+            'filtros': filtros,
+            'filtros_activos': any(filtros.values()),
+        },
+    )
+
+
+def obtener_justificaciones_base():
+    """Query base con relaciones necesarias para vistas de auditoria."""
+    return DesbloqueoSocio.objects.select_related(
+        'socio',
+        'desbloqueado_por',
+        'asistencia__reunion',
+    )
+
+
 def agregar_resumen_asistencia_socios(socios):
     """Agrega indicadores derivados de contadores de asistencia anotados."""
     socios_resumidos = []
@@ -595,9 +672,8 @@ def agregar_resumen_asistencia_socios(socios):
             socio.total_ausencias = resumen['total_ausencias']
             socio.total_justificaciones = DesbloqueoSocio.objects.filter(socio=socio).count()
         if not hasattr(socio, 'total_ausencias_efectivas'):
-            socio.total_ausencias_efectivas = max(
-                socio.total_ausencias - getattr(socio, 'total_justificaciones', 0),
-                0,
+            socio.total_ausencias_efectivas = (
+                AsistenciaReunion.contar_inasistencias_efectivas_socio(socio)
             )
         socio.indicador_asistencia = obtener_indicador_asistencia(
             socio.total_ausencias_efectivas,
@@ -628,11 +704,14 @@ def anotar_resumen_asistencia_socios(socios):
             distinct=True,
         ),
         total_justificaciones=Count('desbloqueos_asistencia', distinct=True),
-    ).annotate(
-        total_ausencias_efectivas=ExpressionWrapper(
-            F('total_ausencias') - F('total_justificaciones'),
-            output_field=IntegerField(),
-        )
+        total_ausencias_efectivas=Count(
+            'asistencias_reunion',
+            filter=Q(
+                asistencias_reunion__estado=AsistenciaReunion.AUSENTE,
+                asistencias_reunion__justificacion__isnull=True,
+            ),
+            distinct=True,
+        ),
     )
 
 
@@ -1207,7 +1286,21 @@ def justificar_inasistencia(request, pk):
                 )
                 return redirect('usuarios:listado_socios_asistencia')
     else:
-        form = JustificacionInasistenciaForm(socio=socio, usuario=request.user)
+        initial = {}
+        asistencia_id = request.GET.get('asistencia')
+        if asistencia_id:
+            asistencia = (
+                AsistenciaReunion.obtener_ausencias_justificables(socio)
+                .filter(pk=asistencia_id)
+                .first()
+            )
+            if asistencia:
+                initial['asistencia'] = asistencia
+        form = JustificacionInasistenciaForm(
+            socio=socio,
+            usuario=request.user,
+            initial=initial,
+        )
 
     return render(
         request,
@@ -1216,6 +1309,9 @@ def justificar_inasistencia(request, pk):
             'form': form,
             'socio': socio,
             'total_inasistencias': AsistenciaReunion.contar_inasistencias_socio(socio),
+            'total_inasistencias_efectivas': (
+                AsistenciaReunion.contar_inasistencias_efectivas_socio(socio)
+            ),
         },
     )
 

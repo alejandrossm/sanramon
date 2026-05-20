@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+
+{% block title %}Detalle de asistencia | Sistema San Ramon{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-start mb-4">
+    <div class="d-flex align-items-center gap-3">
+        {% include "includes/icon.html" with name="eye" classes="fs-4 text-primary" %}
+        <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Asistencia</p>
+            <h1 class="h3 mb-1">{{ socio.nombre_completo }}</h1>
+            <p class="text-muted mb-0">Detalle del socio - {{ socio.rut }}</p>
+        </div>
+    </div>
+    <div class="d-flex flex-wrap gap-2 align-self-start">
+        {% if puede_justificar_inasistencias and socio.indicador_asistencia.key == 'bloqueado' %}
+            <a href="{% url 'usuarios:justificar_inasistencia' socio.pk %}" class="btn btn-primary">
+                {% include "includes/icon.html" with name="check-circle" %}
+                <span>Justificar inasistencia</span>
+            </a>
+        {% endif %}
+        <a href="{% url 'usuarios:listado_socios_asistencia' %}" class="btn btn-outline-secondary">
+            {% include "includes/icon.html" with name="arrow-left" %}
+            <span>Volver</span>
+        </a>
+    </div>
+</div>
+
+<section class="row g-3 mb-4" aria-label="Resumen de asistencia del socio">
+    <div class="col-6 col-lg-2">
+        <div class="border rounded bg-white p-3 h-100">
+            <span class="d-block text-muted small fw-semibold">Reuniones</span>
+            <strong class="fs-4">{{ socio.total_reuniones }}</strong>
+        </div>
+    </div>
+    <div class="col-6 col-lg-2">
+        <div class="border rounded bg-white p-3 h-100">
+            <span class="d-block text-muted small fw-semibold">Asistencias</span>
+            <strong class="fs-4">{{ socio.total_asistencias }}</strong>
+        </div>
+    </div>
+    <div class="col-6 col-lg-2">
+        <div class="border rounded bg-white p-3 h-100">
+            <span class="d-block text-muted small fw-semibold">Ausencias</span>
+            <strong class="fs-4">{{ socio.total_ausencias }}</strong>
+        </div>
+    </div>
+    <div class="col-6 col-lg-2">
+        <div class="border rounded bg-white p-3 h-100">
+            <span class="d-block text-muted small fw-semibold">Justificaciones</span>
+            <strong class="fs-4">{{ socio.total_justificaciones }}</strong>
+        </div>
+    </div>
+    <div class="col-12 col-lg-4">
+        <div class="border rounded bg-white p-3 h-100">
+            <span class="d-block text-muted small fw-semibold">Estado operativo</span>
+            <span class="badge {{ socio.indicador_asistencia.badge_class }}">{{ socio.indicador_asistencia.label }}</span>
+        </div>
+    </div>
+</section>
+
+<section class="mb-4">
+    <div class="d-flex align-items-center justify-content-between gap-3 mb-2">
+        <h2 class="h5 mb-0">Justificaciones</h2>
+        <span class="badge text-bg-secondary">{{ socio.total_justificaciones }}</span>
+    </div>
+    <div class="table-responsive rounded overflow-hidden shadow-sm border bg-white">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>Reuni&oacute;n</th>
+                    <th>Motivo</th>
+                    <th>Justificado por</th>
+                    <th>Fecha de justificaci&oacute;n</th>
+                    <th class="text-center">Inasistencias al justificar</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for justificacion in justificaciones %}
+                    <tr>
+                        <td>
+                            <span class="d-block fw-semibold">{{ justificacion.asistencia.reunion.fecha|date:"d-m-Y" }} {{ justificacion.asistencia.reunion.hora|time:"H:i" }}</span>
+                            <span class="d-block text-muted small">{{ justificacion.asistencia.reunion.locacion }}</span>
+                        </td>
+                        <td class="text-break">{{ justificacion.motivo }}</td>
+                        <td>{{ justificacion.desbloqueado_por.nombre_completo }}</td>
+                        <td>{{ justificacion.fecha_desbloqueo|date:"d-m-Y H:i" }}</td>
+                        <td class="text-center">{{ justificacion.inasistencias_al_desbloquear }}</td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="5" class="text-center text-muted py-4">No hay justificaciones registradas para este socio.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section>
+    <div class="d-flex align-items-center justify-content-between gap-3 mb-2">
+        <h2 class="h5 mb-0">Ausencias pendientes de justificaci&oacute;n</h2>
+        <span class="badge text-bg-secondary">{{ socio.total_ausencias_efectivas }}</span>
+    </div>
+    <div class="table-responsive rounded overflow-hidden shadow-sm border bg-white">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>Reuni&oacute;n</th>
+                    <th>Origen</th>
+                    <th>Fecha de registro</th>
+                    <th class="text-end">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ausencia in ausencias_pendientes %}
+                    <tr>
+                        <td>
+                            <span class="d-block fw-semibold">{{ ausencia.reunion.fecha|date:"d-m-Y" }} {{ ausencia.reunion.hora|time:"H:i" }}</span>
+                            <span class="d-block text-muted small">{{ ausencia.reunion.locacion }}</span>
+                        </td>
+                        <td>{{ ausencia.get_origen_display }}</td>
+                        <td>{{ ausencia.fecha_registro|date:"d-m-Y H:i" }}</td>
+                        <td class="text-end">
+                            {% if puede_justificar_inasistencias and socio.indicador_asistencia.key == 'bloqueado' %}
+                                <a
+                                    href="{% url 'usuarios:justificar_inasistencia' socio.pk %}?asistencia={{ ausencia.pk }}"
+                                    class="btn btn-outline-primary btn-sm"
+                                    title="Justificar esta inasistencia"
+                                    aria-label="Justificar esta inasistencia"
+                                >
+                                    {% include "includes/icon.html" with name="check-circle" %}
+                                </a>
+                            {% elif puede_justificar_inasistencias %}
+                                <span class="d-inline-block" title="El socio no est&aacute; bloqueado">
+                                    <button
+                                        type="button"
+                                        class="btn btn-outline-secondary btn-sm"
+                                        aria-label="El socio no est&aacute; bloqueado"
+                                        disabled
+                                    >
+                                        {% include "includes/icon.html" with name="activity" %}
+                                    </button>
+                                </span>
+                            {% else %}
+                                <span class="d-inline-block" title="Sin acceso a esta funcionalidad">
+                                    <button
+                                        type="button"
+                                        class="btn btn-outline-secondary text-muted btn-sm"
+                                        aria-label="Sin acceso a esta funcionalidad"
+                                        disabled
+                                    >
+                                        {% include "includes/icon.html" with name="lock" %}
+                                    </button>
+                                </span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="4" class="text-center text-muted py-4">No hay ausencias pendientes de justificar.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

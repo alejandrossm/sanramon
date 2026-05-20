@@ -466,6 +466,12 @@ class ReunionCancelacionForm(forms.Form):
 class JustificacionInasistenciaForm(forms.Form):
     """Formulario para registrar el motivo obligatorio de justificacion."""
 
+    asistencia = forms.ModelChoiceField(
+        label='Reunion a justificar',
+        queryset=AsistenciaReunion.objects.none(),
+        empty_label='Seleccione una reunion',
+        required=True,
+    )
     motivo = forms.CharField(
         label='Motivo de justificacion',
         required=True,
@@ -483,11 +489,24 @@ class JustificacionInasistenciaForm(forms.Form):
         self.socio = kwargs.pop('socio')
         self.usuario = kwargs.pop('usuario')
         super().__init__(*args, **kwargs)
+        self.fields['asistencia'].queryset = (
+            AsistenciaReunion.obtener_ausencias_justificables(self.socio)
+        )
+        self.fields['asistencia'].label_from_instance = self.etiquetar_asistencia
         self.helper = FormHelper()
         self.helper.form_method = 'post'
         self.helper.layout = Layout(
+            'asistencia',
             'motivo',
             Submit('submit', 'Justificar inasistencia', css_class='btn btn-primary'),
+        )
+
+    @staticmethod
+    def etiquetar_asistencia(asistencia):
+        """Muestra fecha, hora y locacion de la reunion ausente."""
+        return (
+            f'{asistencia.reunion.fecha:%d-%m-%Y} '
+            f'{asistencia.reunion.hora:%H:%M} - {asistencia.reunion.locacion}'
         )
 
     def clean_motivo(self):
@@ -506,6 +525,12 @@ class JustificacionInasistenciaForm(forms.Form):
         if not AsistenciaReunion.socio_esta_bloqueado(self.socio):
             raise forms.ValidationError('El socio no esta bloqueado por inasistencias.')
 
+        asistencia = cleaned_data.get('asistencia')
+        if asistencia and asistencia.socio_id != self.socio.pk:
+            self.add_error('asistencia', 'La inasistencia debe pertenecer al socio justificado.')
+        if asistencia and asistencia.estado != AsistenciaReunion.AUSENTE:
+            self.add_error('asistencia', 'Solo se pueden justificar ausencias.')
+
         return cleaned_data
 
     def save(self):
@@ -514,6 +539,7 @@ class JustificacionInasistenciaForm(forms.Form):
             socio=self.socio,
             usuario=self.usuario,
             motivo=self.cleaned_data['motivo'],
+            asistencia=self.cleaned_data['asistencia'],
         )
 
 

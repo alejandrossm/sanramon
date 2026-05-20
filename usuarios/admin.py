@@ -107,15 +107,18 @@ class DesbloqueoSocioAdmin(admin.ModelAdmin):
 
     list_display = (
         'socio',
+        'asistencia',
         'desbloqueado_por',
         'fecha_desbloqueo',
         'inasistencias_al_desbloquear',
+        'motivo',
     )
-    list_filter = ('fecha_desbloqueo',)
+    list_filter = ('fecha_desbloqueo', 'asistencia__reunion__fecha')
     search_fields = (
         'socio__rut',
         'socio__first_name',
         'socio__last_name',
+        'asistencia__reunion__locacion',
         'desbloqueado_por__username',
         'motivo',
     )

@@ -36,7 +36,7 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
 - [ ] Definir si en una version futura los socios podran activar cuenta o recuperar contrasena propia. Por ahora no aplica: los socios se crean sin contrasena utilizable y no reciben correo de recuperacion.
 - [x] Implementar bloqueo operativo de socios por inasistencias: un socio con 2 o mas ausencias no puede registrar nuevas asistencias.
 - [x] Agregar flujo de justificacion administrativa de inasistencias de socios bloqueados, con motivo obligatorio, usuario responsable y fecha.
-- [ ] Mostrar la causa de las justificaciones de inasistencia en una vista operativa o historica, para que el administrador pueda revisar el motivo registrado.
+- [x] Mostrar la causa de las justificaciones de inasistencia en una vista operativa o historica, para que el administrador pueda revisar el motivo registrado.
 
 ## Pendientes por definir
 

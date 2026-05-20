@@ -521,10 +521,21 @@ class AsistenciaReunion(models.Model):
 
     @classmethod
     def contar_inasistencias_efectivas_socio(cls, socio):
-        """Cuenta ausencias aplicando justificaciones administrativas."""
-        total_inasistencias = cls.contar_inasistencias_socio(socio)
-        total_justificaciones = DesbloqueoSocio.objects.filter(socio=socio).count()
-        return max(total_inasistencias - total_justificaciones, 0)
+        """Cuenta ausencias sin justificacion administrativa asociada."""
+        return cls.obtener_ausencias_justificables(socio).count()
+
+    @classmethod
+    def obtener_ausencias_justificables(cls, socio):
+        """Lista ausencias del socio que todavia pueden justificarse."""
+        return cls.objects.filter(
+            socio=socio,
+            estado=cls.AUSENTE,
+            justificacion__isnull=True,
+        ).select_related('reunion').order_by(
+            'reunion__fecha',
+            'reunion__hora',
+            'fecha_registro',
+        )
 
     @classmethod
     def socio_esta_bloqueado(cls, socio):
@@ -567,6 +578,12 @@ class DesbloqueoSocio(models.Model):
         related_name='desbloqueos_asistencia',
         verbose_name='socio',
     )
+    asistencia = models.OneToOneField(
+        AsistenciaReunion,
+        on_delete=models.PROTECT,
+        related_name='justificacion',
+        verbose_name='inasistencia justificada',
+    )
     motivo = models.TextField()
     desbloqueado_por = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -601,6 +618,12 @@ class DesbloqueoSocio(models.Model):
         if self.socio_id and self.socio.rol != Usuario.SOCIO:
             errores['socio'] = 'Solo se pueden justificar inasistencias de socios.'
 
+        if self.asistencia_id:
+            if self.asistencia.estado != AsistenciaReunion.AUSENTE:
+                errores['asistencia'] = 'Solo se pueden justificar ausencias.'
+            if self.socio_id and self.asistencia.socio_id != self.socio_id:
+                errores['asistencia'] = 'La inasistencia debe pertenecer al socio justificado.'
+
         self.motivo = (self.motivo or '').strip()
         if not self.motivo:
             errores['motivo'] = 'El motivo de justificacion es obligatorio.'
@@ -614,15 +637,24 @@ class DesbloqueoSocio(models.Model):
         super().save(*args, **kwargs)
 
     @classmethod
-    def registrar(cls, socio, usuario, motivo):
+    def registrar(cls, socio, usuario, motivo, asistencia):
         """Justifica una inasistencia si el socio esta bloqueado."""
         total_inasistencias = AsistenciaReunion.contar_inasistencias_socio(socio)
         total_efectivas = AsistenciaReunion.contar_inasistencias_efectivas_socio(socio)
         if total_efectivas < AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO:
             raise ValidationError({'socio': 'El socio no esta bloqueado por inasistencias.'})
+        if asistencia is None:
+            raise ValidationError({'asistencia': 'Debe seleccionar una inasistencia.'})
+        if asistencia.socio_id != socio.pk:
+            raise ValidationError({'asistencia': 'La inasistencia debe pertenecer al socio justificado.'})
+        if asistencia.estado != AsistenciaReunion.AUSENTE:
+            raise ValidationError({'asistencia': 'Solo se pueden justificar ausencias.'})
+        if cls.objects.filter(asistencia=asistencia).exists():
+            raise ValidationError({'asistencia': 'La inasistencia seleccionada ya fue justificada.'})
 
         return cls.objects.create(
             socio=socio,
+            asistencia=asistencia,
             motivo=motivo,
             desbloqueado_por=usuario,
             fecha_desbloqueo=timezone.now(),

@@ -334,8 +334,16 @@ class UsuariosModuloTests(TestCase):
 
     def test_formulario_justificacion_exige_motivo_y_socio_bloqueado(self):
         """Valida motivo y condicion de bloqueo antes de justificar."""
+        ausencia_justificada = self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
         form_no_bloqueado = JustificacionInasistenciaForm(
-            data={'motivo': 'Revision administrativa'},
+            data={
+                'asistencia': ausencia_justificada.pk,
+                'motivo': 'Revision administrativa',
+            },
             socio=self.socio_user,
             usuario=self.admin_user,
         )
@@ -348,20 +356,18 @@ class UsuariosModuloTests(TestCase):
         self.registrar_asistencia_historica(
             self.socio_user,
             AsistenciaReunion.AUSENTE,
-            date(2026, 5, 20),
-        )
-        self.registrar_asistencia_historica(
-            self.socio_user,
-            AsistenciaReunion.AUSENTE,
             date(2026, 5, 27),
         )
         form_vacio = JustificacionInasistenciaForm(
-            data={'motivo': '   '},
+            data={'asistencia': ausencia_justificada.pk, 'motivo': '   '},
             socio=self.socio_user,
             usuario=self.admin_user,
         )
         form_valido = JustificacionInasistenciaForm(
-            data={'motivo': 'Compromiso firmado'},
+            data={
+                'asistencia': ausencia_justificada.pk,
+                'motivo': 'Compromiso firmado',
+            },
             socio=self.socio_user,
             usuario=self.admin_user,
         )
@@ -369,6 +375,7 @@ class UsuariosModuloTests(TestCase):
         self.assertFalse(form_vacio.is_valid())
         self.assertIn('motivo', form_vacio.errors)
         self.assertTrue(form_valido.is_valid())
+        self.assertEqual(form_valido.cleaned_data['asistencia'], ausencia_justificada)
         self.assertEqual(form_valido.cleaned_data['motivo'], 'Compromiso firmado')
 
     def test_reunion_historica_no_se_inicia_ni_finaliza(self):
@@ -858,6 +865,8 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Registrar asistencia')
         self.assertContains(response, reverse('usuarios:registrar_asistencia_activa'))
         self.assertContains(response, 'Listado asistencia')
+        self.assertNotContains(response, 'Justificaciones')
+        self.assertNotContains(response, reverse('usuarios:listado_justificaciones'))
         self.assertNotContains(
             response,
             '<p class="sidebar-section-title text-uppercase fw-bold small mb-1 mt-3 px-3">Socios</p>',
@@ -939,6 +948,8 @@ class UsuariosModuloTests(TestCase):
         )
         self.assertContains(response, 'Registrar asistencia')
         self.assertContains(response, 'Listado asistencia')
+        self.assertContains(response, 'Justificaciones')
+        self.assertContains(response, reverse('usuarios:listado_justificaciones'))
         self.assertContains(response, 'Reuniones')
         self.assertContains(response, 'Crear reuni')
         self.assertContains(response, reverse('usuarios:crear_reunion'))
@@ -1810,7 +1821,7 @@ class UsuariosModuloTests(TestCase):
         """Registra una justificacion sin borrar ausencias historicas."""
         momento = datetime(2026, 5, 30, 12, 0, tzinfo=timezone.get_current_timezone())
         now_mock.return_value = momento
-        self.registrar_asistencia_historica(
+        ausencia_justificada = self.registrar_asistencia_historica(
             self.socio_user,
             AsistenciaReunion.AUSENTE,
             date(2026, 5, 20),
@@ -1826,9 +1837,11 @@ class UsuariosModuloTests(TestCase):
             socio=self.socio_user,
             usuario=self.admin_user,
             motivo='  Compromiso firmado  ',
+            asistencia=ausencia_justificada,
         )
 
         self.assertEqual(justificacion.socio, self.socio_user)
+        self.assertEqual(justificacion.asistencia, ausencia_justificada)
         self.assertEqual(justificacion.desbloqueado_por, self.admin_user)
         self.assertEqual(justificacion.fecha_desbloqueo, momento)
         self.assertEqual(justificacion.motivo, 'Compromiso firmado')
@@ -1841,7 +1854,7 @@ class UsuariosModuloTests(TestCase):
 
     def test_modelo_justificacion_vuelve_a_bloquear_con_nueva_ausencia(self):
         """Una ausencia posterior vuelve a dejar al socio bloqueado."""
-        self.registrar_asistencia_historica(
+        ausencia_justificada = self.registrar_asistencia_historica(
             self.socio_user,
             AsistenciaReunion.AUSENTE,
             date(2026, 5, 20),
@@ -1855,6 +1868,7 @@ class UsuariosModuloTests(TestCase):
             socio=self.socio_user,
             usuario=self.admin_user,
             motivo='Compromiso firmado',
+            asistencia=ausencia_justificada,
         )
         self.registrar_asistencia_historica(
             self.socio_user,
@@ -1877,7 +1891,7 @@ class UsuariosModuloTests(TestCase):
             creador=self.admin_user,
         )
         reunion.iniciar(self.admin_user)
-        self.registrar_asistencia_historica(
+        ausencia_justificada = self.registrar_asistencia_historica(
             self.socio_user,
             AsistenciaReunion.AUSENTE,
             date(2026, 5, 20),
@@ -1891,6 +1905,7 @@ class UsuariosModuloTests(TestCase):
             socio=self.socio_user,
             usuario=self.admin_user,
             motivo='Compromiso firmado',
+            asistencia=ausencia_justificada,
         )
 
         asistencia = AsistenciaReunion.registrar_presente(
@@ -2012,11 +2027,18 @@ class UsuariosModuloTests(TestCase):
         response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Listado operativo de socios')
-        self.assertContains(response, 'Reuniones')
-        self.assertContains(response, 'Asistencias')
-        self.assertContains(response, 'Ausencias')
+        self.assertContains(response, 'title="Reuniones"')
+        self.assertContains(response, 'aria-label="Reuniones"')
+        self.assertContains(response, 'bi-calendar-check')
+        self.assertContains(response, 'title="Asistencias"')
+        self.assertContains(response, 'aria-label="Asistencias"')
+        self.assertContains(response, 'title="Ausencias"')
+        self.assertContains(response, 'aria-label="Ausencias"')
+        self.assertContains(response, 'title="Justificaciones"')
+        self.assertContains(response, 'aria-label="Justificaciones"')
         self.assertContains(response, 'Sin ausencias')
-        self.assertContains(response, 'Gestionar estado')
+        self.assertContains(response, 'aria-label="Ver detalle de asistencia"')
+        self.assertNotContains(response, 'Gestionar estado')
         self.assertNotContains(response, reverse('usuarios:editar_socio', args=[self.socio_user.pk]))
         self.assertContains(response, 'socio@example.com')
         self.assertContains(response, '+56922222222')
@@ -2140,12 +2162,15 @@ class UsuariosModuloTests(TestCase):
             rut='88.444.444-4',
             rol=self.User.SOCIO,
         )
+        ausencia_justificada = None
         for socio in (socio_bloqueado, socio_justificado):
-            self.registrar_asistencia_historica(
+            ausencia = self.registrar_asistencia_historica(
                 socio,
                 AsistenciaReunion.AUSENTE,
                 date(2026, 5, 20),
             )
+            if socio == socio_justificado:
+                ausencia_justificada = ausencia
             self.registrar_asistencia_historica(
                 socio,
                 AsistenciaReunion.AUSENTE,
@@ -2155,6 +2180,7 @@ class UsuariosModuloTests(TestCase):
             socio=socio_justificado,
             usuario=self.admin_user,
             motivo='Compromiso firmado',
+            asistencia=ausencia_justificada,
         )
 
         self.client.login(username='admin', password='ClaveSegura123')
@@ -2303,7 +2329,7 @@ class UsuariosModuloTests(TestCase):
 
     def test_resumen_estado_asistencia_socios_cuenta_justificados_en_riesgo(self):
         """Cuenta al socio justificado como una inasistencia efectiva."""
-        self.registrar_asistencia_historica(
+        ausencia_justificada = self.registrar_asistencia_historica(
             self.socio_user,
             AsistenciaReunion.AUSENTE,
             date(2026, 5, 20),
@@ -2317,6 +2343,7 @@ class UsuariosModuloTests(TestCase):
             socio=self.socio_user,
             usuario=self.admin_user,
             motivo='Compromiso firmado',
+            asistencia=ausencia_justificada,
         )
 
         resumen = obtener_resumen_estado_asistencia_socios()
@@ -2726,7 +2753,7 @@ class UsuariosModuloTests(TestCase):
 
     def test_administrador_justifica_inasistencia_de_socio_bloqueado(self):
         """Permite justificar desde acciones del listado de asistencia."""
-        self.registrar_asistencia_historica(
+        ausencia_justificada = self.registrar_asistencia_historica(
             self.socio_user,
             AsistenciaReunion.AUSENTE,
             date(2026, 5, 20),
@@ -2737,23 +2764,30 @@ class UsuariosModuloTests(TestCase):
             date(2026, 5, 27),
         )
         url_justificar = reverse('usuarios:justificar_inasistencia', args=[self.socio_user.pk])
+        url_detalle = reverse('usuarios:detalle_asistencia_socio', args=[self.socio_user.pk])
 
         self.client.login(username='admin', password='ClaveSegura123')
         response = self.client.get(reverse('usuarios:listado_socios'))
         self.assertNotContains(response, url_justificar)
 
         response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
-        self.assertContains(response, url_justificar)
-        self.assertContains(response, 'aria-label="Justificar inasistencia"')
+        self.assertNotContains(response, url_justificar)
+        self.assertContains(response, url_detalle)
+        self.assertContains(response, 'aria-label="Ver detalle para justificar inasistencia"')
 
         response = self.client.get(url_justificar)
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Justificar inasistencia')
+        self.assertContains(response, 'Reunion a justificar')
+        self.assertContains(response, '20-05-2026 18:30 - Sede social')
         self.assertContains(response, 'motivo')
 
         response = self.client.post(
             url_justificar,
-            {'motivo': 'Compromiso firmado'},
+            {
+                'asistencia': ausencia_justificada.pk,
+                'motivo': 'Compromiso firmado',
+            },
             follow=True,
         )
 
@@ -2763,13 +2797,212 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Una inasistencia')
         self.assertFalse(AsistenciaReunion.socio_esta_bloqueado(self.socio_user))
         justificacion = DesbloqueoSocio.objects.get(socio=self.socio_user)
+        self.assertEqual(justificacion.asistencia, ausencia_justificada)
         self.assertEqual(justificacion.desbloqueado_por, self.admin_user)
         self.assertEqual(justificacion.motivo, 'Compromiso firmado')
         self.assertEqual(justificacion.inasistencias_al_desbloquear, 2)
 
+    def test_detalle_asistencia_socio_muestra_justificaciones_y_pendientes(self):
+        """Muestra trazabilidad por socio desde el listado operativo."""
+        ausencia_justificada = self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 27),
+        )
+        DesbloqueoSocio.registrar(
+            socio=self.socio_user,
+            usuario=self.admin_user,
+            motivo='Compromiso firmado',
+            asistencia=ausencia_justificada,
+        )
+        detalle_url = reverse('usuarios:detalle_asistencia_socio', args=[self.socio_user.pk])
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
+        self.assertContains(response, 'Justificaciones')
+        self.assertContains(response, detalle_url)
+        self.assertContains(response, 'aria-label="Ver detalle de asistencia"')
+
+        response = self.client.get(detalle_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Detalle del socio')
+        self.assertContains(response, 'Compromiso firmado')
+        self.assertContains(response, '20-05-2026')
+        self.assertContains(response, '27-05-2026')
+        self.assertContains(response, 'Ausencias pendientes de justificaci&oacute;n')
+
+    def test_detalle_asistencia_socio_permite_justificar_ausencia_pendiente(self):
+        """Enlaza cada ausencia pendiente al formulario con la reunion preseleccionada."""
+        ausencia_justificable = self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 27),
+        )
+        detalle_url = reverse('usuarios:detalle_asistencia_socio', args=[self.socio_user.pk])
+        justificar_url = reverse('usuarios:justificar_inasistencia', args=[self.socio_user.pk])
+        url_justificar_ausencia = f'{justificar_url}?asistencia={ausencia_justificable.pk}'
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(detalle_url)
+        self.assertContains(response, url_justificar_ausencia)
+        self.assertContains(response, 'aria-label="Justificar esta inasistencia"')
+
+        response = self.client.get(url_justificar_ausencia)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['form'].initial['asistencia'], ausencia_justificable)
+
+    def test_listado_justificaciones_admin_muestra_trazabilidad_general(self):
+        """Expone una vista general de justificaciones solo para administradores."""
+        ausencia_justificada = self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 27),
+        )
+        DesbloqueoSocio.registrar(
+            socio=self.socio_user,
+            usuario=self.admin_user,
+            motivo='Control medico',
+            asistencia=ausencia_justificada,
+        )
+        url = reverse('usuarios:listado_justificaciones')
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Historial general de justificaciones')
+        self.assertContains(response, 'aria-label="Filtros de justificaciones"')
+        self.assertContains(response, self.socio_user.rut)
+        self.assertContains(response, '20-05-2026')
+        self.assertContains(response, 'Control medico')
+        self.assertContains(response, 'Sede social')
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(url)
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+
+    def test_listado_justificaciones_filtra_por_socio_y_motivo(self):
+        """Permite ubicar justificaciones por socio y causa."""
+        ausencia_justificada = self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 27),
+        )
+        DesbloqueoSocio.registrar(
+            socio=self.socio_user,
+            usuario=self.admin_user,
+            motivo='Control medico',
+            asistencia=ausencia_justificada,
+        )
+        otro_socio = self.User.objects.create_user(
+            username='otro.justificado',
+            email='otro.justificado@example.com',
+            password='ClaveSegura123',
+            first_name='Otro',
+            last_name='Justificado',
+            rut='55.555.555-5',
+            rol=self.User.SOCIO,
+        )
+        otra_ausencia = self.registrar_asistencia_historica(
+            otro_socio,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 6, 3),
+        )
+        self.registrar_asistencia_historica(
+            otro_socio,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 6, 10),
+        )
+        DesbloqueoSocio.registrar(
+            socio=otro_socio,
+            usuario=self.admin_user,
+            motivo='Trabajo fuera',
+            asistencia=otra_ausencia,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:listado_justificaciones'),
+            {
+                'rut': self.socio_user.rut,
+                'nombre': 'Socio',
+                'apellido': 'Prueba',
+                'motivo': 'Control',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['justificaciones']), 1)
+        self.assertContains(response, f'value="{self.socio_user.rut}"')
+        self.assertContains(response, 'value="Socio"')
+        self.assertContains(response, 'value="Prueba"')
+        self.assertContains(response, 'value="Control"')
+        self.assertContains(response, 'Limpiar')
+        self.assertContains(response, 'Control medico')
+        self.assertNotContains(response, 'Trabajo fuera')
+        self.assertNotContains(response, otro_socio.rut)
+
+    def test_listado_justificaciones_paginacion_conserva_filtros(self):
+        """Mantiene filtros activos al navegar paginas de justificaciones."""
+        for indice in range(51):
+            socio = self.User.objects.create_user(
+                username=f'justificacion_filtro_{indice:02d}',
+                email=f'justificacion_filtro_{indice:02d}@example.com',
+                password='ClaveSegura123',
+                first_name='JustificacionFiltro',
+                last_name=f'Paginacion {indice:02d}',
+                rut=f'61.000.{indice:03d}-{indice % 10}',
+                rol=self.User.SOCIO,
+            )
+            ausencia_justificada = self.registrar_asistencia_historica(
+                socio,
+                AsistenciaReunion.AUSENTE,
+                date(2026, 1, 1),
+            )
+            self.registrar_asistencia_historica(
+                socio,
+                AsistenciaReunion.AUSENTE,
+                date(2026, 1, 2),
+            )
+            DesbloqueoSocio.registrar(
+                socio=socio,
+                usuario=self.admin_user,
+                motivo='Filtro operativo',
+                asistencia=ausencia_justificada,
+            )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:listado_justificaciones'),
+            {'nombre': 'JustificacionFiltro'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['justificaciones']), 50)
+        self.assertContains(response, 'nombre=JustificacionFiltro&page=2')
+
     def test_justificar_inasistencia_requiere_motivo(self):
         """Mantiene bloqueado al socio cuando falta el motivo."""
-        self.registrar_asistencia_historica(
+        ausencia_justificada = self.registrar_asistencia_historica(
             self.socio_user,
             AsistenciaReunion.AUSENTE,
             date(2026, 5, 20),
@@ -2783,7 +3016,7 @@ class UsuariosModuloTests(TestCase):
         self.client.login(username='admin', password='ClaveSegura123')
         response = self.client.post(
             reverse('usuarios:justificar_inasistencia', args=[self.socio_user.pk]),
-            {'motivo': '   '},
+            {'asistencia': ausencia_justificada.pk, 'motivo': '   '},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -2925,8 +3158,9 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'socio@example.com')
         self.assertNotContains(response, 'Registrar socio')
         self.assertNotContains(response, 'Editar')
-        self.assertContains(response, 'aria-label="Sin acceso a esta funcionalidad"')
-        self.assertContains(response, 'bi-lock-fill')
+        self.assertContains(response, 'aria-label="Ver detalle de asistencia"')
+        self.assertNotContains(response, 'aria-label="Sin acceso a esta funcionalidad"')
+        self.assertNotContains(response, 'bi-lock-fill')
         self.assertNotContains(response, reverse('usuarios:editar_socio', args=[self.socio_user.pk]))
         self.assertNotContains(response, 'admin@example.com')
         self.assertNotContains(response, 'encargado@example.com')
@@ -3798,7 +4032,7 @@ class UsuariosModuloTests(TestCase):
             locacion='Sede social',
             creador=self.admin_user,
         )
-        AsistenciaReunion.objects.create(
+        ausencia = AsistenciaReunion.objects.create(
             reunion=reunion,
             socio=self.socio_user,
             estado=AsistenciaReunion.AUSENTE,
@@ -3807,6 +4041,7 @@ class UsuariosModuloTests(TestCase):
         )
         DesbloqueoSocio.objects.create(
             socio=self.socio_user,
+            asistencia=ausencia,
             motivo='Prueba local',
             desbloqueado_por=self.admin_user,
             inasistencias_al_desbloquear=1,

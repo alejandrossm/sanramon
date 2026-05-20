@@ -1,31 +1,21 @@
-{% if not puede_justificar_inasistencias %}
-    <span class="d-inline-block" title="Sin acceso a esta funcionalidad">
-        <button
-            type="button"
-            class="btn btn-outline-secondary text-muted btn-sm px-4"
-            aria-label="Sin acceso a esta funcionalidad"
-            disabled
+<div class="d-inline-flex gap-2 justify-content-end">
+    {% if puede_justificar_inasistencias and socio.indicador_asistencia.key == 'bloqueado' %}
+        <a
+            href="{% url 'usuarios:detalle_asistencia_socio' socio.pk %}"
+            class="btn btn-outline-primary btn-sm"
+            title="Ver detalle para justificar inasistencia"
+            aria-label="Ver detalle para justificar inasistencia"
         >
-            {% include "includes/icon.html" with name="lock" %}
-        </button>
-    </span>
-{% elif socio.indicador_asistencia.key == 'bloqueado' %}
-    <a
-        href="{% url 'usuarios:justificar_inasistencia' socio.pk %}"
-        class="btn btn-outline-primary btn-sm px-4"
-        title="Justificar inasistencia"
-        aria-label="Justificar inasistencia"
-    >
-        {% include "includes/icon.html" with name="check-circle" %}
-    </a>
-{% else %}
-    <button
-        type="button"
-        class="btn btn-outline-secondary btn-sm px-4"
-        title="Gestionar estado"
-        aria-label="Gestionar estado"
-        disabled
-    >
-        {% include "includes/icon.html" with name="activity" %}
-    </button>
-{% endif %}
+            {% include "includes/icon.html" with name="eye" %}
+        </a>
+    {% else %}
+        <a
+            href="{% url 'usuarios:detalle_asistencia_socio' socio.pk %}"
+            class="btn btn-outline-primary btn-sm"
+            title="Ver detalle de asistencia"
+            aria-label="Ver detalle de asistencia"
+        >
+            {% include "includes/icon.html" with name="eye" %}
+        </a>
+    {% endif %}
+</div>

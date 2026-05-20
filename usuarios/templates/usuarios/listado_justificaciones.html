@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block title %}Justificaciones | Sistema San Ramon{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-start mb-4">
+    <div class="d-flex align-items-center gap-3">
+        {% include "includes/icon.html" with name="check-circle" classes="fs-4 text-primary" %}
+        <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Asistencia</p>
+            <h1 class="h3 mb-1">Justificaciones</h1>
+            <p class="text-muted mb-0">Historial general de justificaciones administrativas.</p>
+        </div>
+    </div>
+</div>
+
+<form method="get" class="row g-2 align-items-end mb-3" aria-label="Filtros de justificaciones">
+    <div class="col-12 col-md-3">
+        <label for="filtro-justificacion-rut" class="form-label">RUT</label>
+        <input
+            type="search"
+            class="form-control"
+            id="filtro-justificacion-rut"
+            name="rut"
+            value="{{ filtros.rut }}"
+            placeholder="Buscar por RUT"
+        >
+    </div>
+    <div class="col-12 col-md-3">
+        <label for="filtro-justificacion-nombre" class="form-label">Nombre</label>
+        <input
+            type="search"
+            class="form-control"
+            id="filtro-justificacion-nombre"
+            name="nombre"
+            value="{{ filtros.nombre }}"
+            placeholder="Buscar por nombre"
+        >
+    </div>
+    <div class="col-12 col-md-3">
+        <label for="filtro-justificacion-apellido" class="form-label">Apellido</label>
+        <input
+            type="search"
+            class="form-control"
+            id="filtro-justificacion-apellido"
+            name="apellido"
+            value="{{ filtros.apellido }}"
+            placeholder="Buscar por apellido"
+        >
+    </div>
+    <div class="col-12 col-md-3">
+        <label for="filtro-justificacion-motivo" class="form-label">Motivo</label>
+        <input
+            type="search"
+            class="form-control"
+            id="filtro-justificacion-motivo"
+            name="motivo"
+            value="{{ filtros.motivo }}"
+            placeholder="Buscar por motivo"
+        >
+    </div>
+    <div class="col-12 col-md-3 d-flex flex-wrap gap-2">
+        <button type="submit" class="btn btn-outline-primary">
+            {% include "includes/icon.html" with name="search" %}
+            <span>Filtrar</span>
+        </button>
+        {% if filtros_activos %}
+            <a href="{% url 'usuarios:listado_justificaciones' %}" class="btn btn-outline-secondary">
+                {% include "includes/icon.html" with name="x-circle" %}
+                <span>Limpiar</span>
+            </a>
+        {% endif %}
+    </div>
+</form>
+
+<div class="table-responsive rounded overflow-hidden shadow-sm border bg-white d-none d-md-block">
+    <table class="table table-hover align-middle mb-0">
+        <thead>
+            <tr>
+                <th>SOCIO</th>
+                <th>RUT</th>
+                <th>REUNI&Oacute;N</th>
+                <th>MOTIVO</th>
+                <th>JUSTIFICADO POR</th>
+                <th>FECHA DE JUSTIFICACI&Oacute;N</th>
+                <th class="text-center">INASISTENCIAS</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for justificacion in justificaciones %}
+                <tr>
+                    <td>{{ justificacion.socio.nombre_completo }}</td>
+                    <td>{{ justificacion.socio.rut }}</td>
+                    <td>
+                        <span class="d-block fw-semibold">{{ justificacion.asistencia.reunion.fecha|date:"d-m-Y" }} {{ justificacion.asistencia.reunion.hora|time:"H:i" }}</span>
+                        <span class="d-block text-muted small">{{ justificacion.asistencia.reunion.locacion }}</span>
+                    </td>
+                    <td class="text-break">{{ justificacion.motivo }}</td>
+                    <td>{{ justificacion.desbloqueado_por.nombre_completo }}</td>
+                    <td>{{ justificacion.fecha_desbloqueo|date:"d-m-Y H:i" }}</td>
+                    <td class="text-center">{{ justificacion.inasistencias_al_desbloquear }}</td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="7" class="text-center text-muted py-4">No hay justificaciones registradas.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="list-group shadow-sm border rounded overflow-hidden d-md-none">
+    {% for justificacion in justificaciones %}
+        <div class="list-group-item p-3">
+            <div class="d-flex justify-content-between gap-3 align-items-start">
+                <div>
+                    <strong class="d-block">{{ justificacion.socio.nombre_completo }}</strong>
+                    <span class="d-block text-muted small">{{ justificacion.socio.rut }}</span>
+                </div>
+                <span class="badge text-bg-secondary">{{ justificacion.inasistencias_al_desbloquear }}</span>
+            </div>
+            <dl class="row g-2 small mt-3 mb-0">
+                <dt class="col-4 text-muted fw-semibold">REUNI&Oacute;N</dt>
+                <dd class="col-8 mb-0">
+                    {{ justificacion.asistencia.reunion.fecha|date:"d-m-Y" }} {{ justificacion.asistencia.reunion.hora|time:"H:i" }}
+                    <span class="d-block text-muted">{{ justificacion.asistencia.reunion.locacion }}</span>
+                </dd>
+                <dt class="col-4 text-muted fw-semibold">MOTIVO</dt>
+                <dd class="col-8 mb-0 text-break">{{ justificacion.motivo }}</dd>
+                <dt class="col-4 text-muted fw-semibold">RESPONSABLE</dt>
+                <dd class="col-8 mb-0">{{ justificacion.desbloqueado_por.nombre_completo }}</dd>
+                <dt class="col-4 text-muted fw-semibold">FECHA DE JUSTIFICACI&Oacute;N</dt>
+                <dd class="col-8 mb-0">{{ justificacion.fecha_desbloqueo|date:"d-m-Y H:i" }}</dd>
+            </dl>
+        </div>
+    {% empty %}
+        <div class="list-group-item text-center text-muted py-4">No hay justificaciones registradas.</div>
+    {% endfor %}
+</div>
+
+{% if page_obj.has_other_pages %}
+    <nav class="mt-3" aria-label="Paginaci&oacute;n de justificaciones">
+        <ul class="pagination justify-content-center mb-0">
+            <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}">
+                {% if page_obj.has_previous %}
+                    <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={{ page_obj.previous_page_number }}" aria-label="P&aacute;gina anterior">Anterior</a>
+                {% else %}
+                    <span class="page-link" aria-disabled="true">Anterior</span>
+                {% endif %}
+            </li>
+
+            {% for page_number in page_numbers %}
+                {% if page_number == pagination_ellipsis %}
+                    <li class="page-item disabled">
+                        <span class="page-link" aria-disabled="true">{{ page_number }}</span>
+                    </li>
+                {% elif page_number == page_obj.number %}
+                    <li class="page-item active" aria-current="page">
+                        <span class="page-link">{{ page_number }}</span>
+                    </li>
+                {% else %}
+                    <li class="page-item">
+                        <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={{ page_number }}">{{ page_number }}</a>
+                    </li>
+                {% endif %}
+            {% endfor %}
+
+            <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}">
+                {% if page_obj.has_next %}
+                    <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={{ page_obj.next_page_number }}" aria-label="P&aacute;gina siguiente">Siguiente</a>
+                {% else %}
+                    <span class="page-link" aria-disabled="true">Siguiente</span>
+                {% endif %}
+            </li>
+        </ul>
+    </nav>
+{% endif %}
+{% endblock %}

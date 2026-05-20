@@ -113,9 +113,18 @@
                         </th>
                     {% endif %}
                 {% endfor %}
-                <th class="text-center">Reuniones</th>
-                <th class="text-center">Asistencias</th>
-                <th class="text-center">Ausencias</th>
+                <th class="text-center" title="Reuniones" aria-label="Reuniones">
+                    {% include "includes/icon.html" with name="calendar-check" %}
+                </th>
+                <th class="text-center" title="Asistencias" aria-label="Asistencias">
+                    {% include "includes/icon.html" with name="check-circle" %}
+                </th>
+                <th class="text-center" title="Ausencias" aria-label="Ausencias">
+                    {% include "includes/icon.html" with name="x-circle" %}
+                </th>
+                <th class="text-center" title="Justificaciones" aria-label="Justificaciones">
+                    {% include "includes/icon.html" with name="shield-check" %}
+                </th>
                 <th>Indicador</th>
                 {% for columna in columnas_ordenables %}
                     {% if columna.key == 'estado' %}
@@ -153,6 +162,7 @@
                     <td class="text-center">{{ socio.total_reuniones }}</td>
                     <td class="text-center">{{ socio.total_asistencias }}</td>
                     <td class="text-center">{{ socio.total_ausencias }}</td>
+                    <td class="text-center">{{ socio.total_justificaciones }}</td>
                     <td>
                         <span class="badge {{ socio.indicador_asistencia.badge_class }}">
                             {{ socio.indicador_asistencia.label }}
@@ -171,7 +181,7 @@
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="11" class="text-center text-muted py-4">No hay socios registrados.</td>
+                    <td colspan="12" class="text-center text-muted py-4">No hay socios registrados.</td>
                 </tr>
             {% endfor %}
         </tbody>
@@ -211,6 +221,8 @@
                 <dd class="col-8 mb-0">{{ socio.total_asistencias }}</dd>
                 <dt class="col-4 text-muted fw-semibold">AUSENCIAS</dt>
                 <dd class="col-8 mb-0">{{ socio.total_ausencias }}</dd>
+                <dt class="col-4 text-muted fw-semibold">JUSTIFICACIONES</dt>
+                <dd class="col-8 mb-0">{{ socio.total_justificaciones }}</dd>
                 <dt class="col-4 text-muted fw-semibold">ESTADO</dt>
                 <dd class="col-8 mb-0">
                     {% if socio.is_active %}
