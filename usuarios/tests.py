@@ -10,6 +10,7 @@ from django.contrib.staticfiles import finders
 from django.core import mail
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -2924,7 +2925,8 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'socio@example.com')
         self.assertNotContains(response, 'Registrar socio')
         self.assertNotContains(response, 'Editar')
-        self.assertContains(response, 'Gestionar estado')
+        self.assertContains(response, 'aria-label="Sin acceso a esta funcionalidad"')
+        self.assertContains(response, 'bi-lock-fill')
         self.assertNotContains(response, reverse('usuarios:editar_socio', args=[self.socio_user.pk]))
         self.assertNotContains(response, 'admin@example.com')
         self.assertNotContains(response, 'encargado@example.com')
@@ -3786,3 +3788,56 @@ class UsuariosModuloTests(TestCase):
         self.assertFalse(usuario.has_usable_password())
         self.assertIn('Encargados creados: 100; actualizados: 0', output.getvalue())
         self.assertIn('Encargados creados: 0; actualizados: 100', output.getvalue())
+
+    @override_settings(DEBUG=True)
+    def test_comando_resetea_asistencia_de_pruebas(self):
+        """Borra reuniones, asistencias y justificaciones sin eliminar usuarios."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        AsistenciaReunion.objects.create(
+            reunion=reunion,
+            socio=self.socio_user,
+            estado=AsistenciaReunion.AUSENTE,
+            origen=AsistenciaReunion.ORIGEN_AUTOMATICO,
+            registrada_por=self.encargado_user,
+        )
+        DesbloqueoSocio.objects.create(
+            socio=self.socio_user,
+            motivo='Prueba local',
+            desbloqueado_por=self.admin_user,
+            inasistencias_al_desbloquear=1,
+        )
+        output = StringIO()
+
+        call_command('resetdata', '--confirmar=true', stdout=output)
+
+        self.assertFalse(Reunion.objects.exists())
+        self.assertFalse(AsistenciaReunion.objects.exists())
+        self.assertFalse(DesbloqueoSocio.objects.exists())
+        self.assertTrue(self.User.objects.filter(pk=self.socio_user.pk).exists())
+        self.assertIn('Reset de asistencia completado', output.getvalue())
+
+    @override_settings(DEBUG=True)
+    def test_comando_reset_asistencia_exige_confirmacion(self):
+        """Evita borrar datos operativos sin confirmacion explicita."""
+        Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+
+        with self.assertRaises(CommandError):
+            call_command('resetdata')
+
+        self.assertEqual(Reunion.objects.count(), 1)
+
+    @override_settings(DEBUG=False)
+    def test_comando_reset_asistencia_bloquea_produccion(self):
+        """Impide ejecutar el reset cuando DEBUG esta desactivado."""
+        with self.assertRaises(CommandError):
+            call_command('resetdata', confirmar=True)
