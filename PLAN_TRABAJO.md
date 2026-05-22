@@ -122,7 +122,7 @@ Se usara un modelo de usuario personalizado basado en `AbstractUser`. Como el pr
 - El flujo se implementa con Gmail como proveedor inicial, usando una cuenta dedicada del sistema y contrasena de aplicacion.
 - Alcance definido: usuarios internos activos (`ADMINISTRADOR` y `ENCARGADO_REGISTRO`) y socios activos con cuenta creada pueden recuperar contrasena por correo.
 - Los socios pueden recuperar contrasena, pero no pueden activar su cuenta por autoservicio.
-- Si el socio fue creado sin contrasena utilizable, el flujo de recuperacion debe permitir definirla sin abrir un flujo publico de activacion de cuentas.
+- El formulario de creacion de socios solicita una contrasena inicial y sugiere usar el RUT normalizado del socio, sin puntos y con guion.
 
 ## Pendientes obligatorios antes de produccion
 

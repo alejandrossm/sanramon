@@ -734,6 +734,17 @@ class UsuariosModuloTests(TestCase):
         self.admin_user.refresh_from_db()
         self.assertTrue(self.admin_user.check_password('ClaveNuevaSegura123'))
 
+    def test_recuperacion_password_envia_correo_a_socio_activo(self):
+        """Permite recuperar contrasena a socios activos con contrasena utilizable."""
+        response = self.client.post(
+            reverse('usuarios:password_reset'),
+            {'email': 'socio@example.com'},
+        )
+
+        self.assertRedirects(response, reverse('usuarios:password_reset_done'))
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ['socio@example.com'])
+
     def test_socio_no_accede_a_gestion_de_usuarios(self):
         """Redirige al socio cuando intenta entrar a gestion de usuarios."""
         self.client.login(username='socio', password='ClaveSegura123')
@@ -3287,17 +3298,18 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(self.User.objects.filter(email='socio.interno@example.com').exists())
 
-    def test_registro_socio_no_muestra_usuario_ni_password_y_pide_confirmacion(self):
-        """Renderiza el formulario de socio sin credenciales tradicionales."""
+    def test_registro_socio_muestra_password_sugerido_por_rut_y_pide_confirmacion(self):
+        """Renderiza el formulario de socio con contrasena inicial sugerida."""
         self.client.login(username='admin', password='ClaveSegura123')
         response = self.client.get(reverse('usuarios:registro_socio'))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'email_confirmacion')
         self.assertContains(response, 'name="telefono_movil"')
         self.assertContains(response, 'value="+56"')
+        self.assertContains(response, 'name="password1"')
+        self.assertContains(response, 'name="password2"')
+        self.assertContains(response, 'Sugerencia: usar el RUT del socio como contrasena inicial')
         self.assertNotContains(response, 'name="username"')
-        self.assertNotContains(response, 'name="password1"')
-        self.assertNotContains(response, 'name="password2"')
 
     def test_telefono_movil_chileno_exige_prefijo_y_nueve_digitos(self):
         """Valida el formato chileno +56 seguido de nueve dígitos."""
@@ -3311,6 +3323,8 @@ class UsuariosModuloTests(TestCase):
                 'last_name': 'Telefono',
                 'rut': '76.666.666-6',
                 'telefono_movil': '+561234',
+                'password1': '76666666-6',
+                'password2': '76666666-6',
                 'is_active': 'on',
             },
         )
@@ -3334,6 +3348,8 @@ class UsuariosModuloTests(TestCase):
                 'last_name': 'Nuevo',
                 'rut': '66.666.666-6',
                 'telefono_movil': '+56966666666',
+                'password1': '66666666-6',
+                'password2': '66666666-6',
                 'is_active': 'on',
             },
         )
@@ -3360,6 +3376,8 @@ class UsuariosModuloTests(TestCase):
                 'last_name': 'Nuevo',
                 'rut': '66.666.666-6',
                 'telefono_movil': '+56966666666',
+                'password1': '66666666-6',
+                'password2': '66666666-6',
                 'is_active': 'on',
             },
         )
@@ -3368,7 +3386,8 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(usuario.rol, self.User.SOCIO)
         self.assertEqual(usuario.username, 'socio.nuevo@example.com')
         self.assertEqual(usuario.telefono_movil, '+56966666666')
-        self.assertFalse(usuario.has_usable_password())
+        self.assertTrue(usuario.check_password('66666666-6'))
+        self.assertNotEqual(usuario.password, '66666666-6')
 
     def test_encargado_no_accede_a_registro_socio(self):
         """Impide que el encargado vea o use el alta de socios."""
@@ -3384,6 +3403,8 @@ class UsuariosModuloTests(TestCase):
                 'first_name': 'Socio',
                 'last_name': 'No Permitido',
                 'rut': '66.666.666-6',
+                'password1': '66666666-6',
+                'password2': '66666666-6',
                 'is_active': 'on',
             },
         )

@@ -1186,7 +1186,7 @@ def registro_usuario(request):
 
 @registro_socios_required
 def registro_socio(request):
-    """Crea socios sin credenciales tradicionales de username y password."""
+    """Crea socios con username tecnico y contrasena inicial."""
     if request.method == 'POST':
         form = SocioCreationForm(request.POST)
         if form.is_valid():

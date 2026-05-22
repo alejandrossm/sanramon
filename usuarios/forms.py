@@ -232,9 +232,21 @@ class UsuarioCreationForm(TelefonoMovilFormMixin, UserCreationForm):
 
 
 class SocioCreationForm(TelefonoMovilFormMixin, forms.ModelForm):
-    """Formulario de alta de socios sin credenciales de acceso tradicional."""
+    """Formulario de alta de socios con contrasena inicial."""
 
     email_confirmacion = forms.EmailField(label='Confirmar correo electrónico')
+    password1 = forms.CharField(
+        label='Contrasena inicial',
+        widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
+        help_text=(
+            'Sugerencia: usar el RUT del socio como contrasena inicial, '
+            'sin puntos y con guion. Ejemplo: 12345678-9.'
+        ),
+    )
+    password2 = forms.CharField(
+        label='Confirmar contrasena inicial',
+        widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
+    )
 
     class Meta:
         """Campos requeridos para crear una cuenta de socio."""
@@ -277,6 +289,10 @@ class SocioCreationForm(TelefonoMovilFormMixin, forms.ModelForm):
                 Column('email', css_class='col-md-6'),
                 Column('email_confirmacion', css_class='col-md-6'),
             ),
+            Row(
+                Column('password1', css_class='col-md-6'),
+                Column('password2', css_class='col-md-6'),
+            ),
             'is_active',
             Submit('submit', 'Guardar socio', css_class='btn btn-primary'),
         )
@@ -298,20 +314,27 @@ class SocioCreationForm(TelefonoMovilFormMixin, forms.ModelForm):
         return rut
 
     def clean(self):
-        """Verifica que el correo ingresado coincida con su confirmación."""
+        """Verifica correo y contrasena inicial del socio."""
         cleaned_data = super().clean()
         email = (cleaned_data.get('email') or '').strip().lower()
         email_confirmacion = (cleaned_data.get('email_confirmacion') or '').strip().lower()
         if email and email_confirmacion and email != email_confirmacion:
             self.add_error('email_confirmacion', 'La confirmación del correo no coincide.')
+
+        password1 = cleaned_data.get('password1')
+        password2 = cleaned_data.get('password2')
+        if password1 and password2 and password1 != password2:
+            self.add_error('password2', 'Las contrasenas no coinciden.')
+        elif password1:
+            validate_password(password1)
         return cleaned_data
 
     def save(self, commit=True):
-        """Crea un socio sin password utilizable y con username interno."""
+        """Crea un socio con username interno y contrasena inicial hasheada."""
         socio = super().save(commit=False)
         socio.rol = Usuario.SOCIO
         socio.username = socio.email
-        socio.set_unusable_password()
+        socio.set_password(self.cleaned_data['password1'])
         if commit:
             socio.save()
             self.save_m2m()

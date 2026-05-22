@@ -22,6 +22,7 @@ Archivo para registrar detalles importantes que conviene conservar entre sesione
 - Las justificaciones de inasistencia tienen trazabilidad exacta: cada registro debe asociarse a una `AsistenciaReunion` ausente concreta. El formulario de justificacion muestra solo ausencias pendientes del socio.
 - El rol `ADMINISTRADOR` corresponde solo al sistema web. Las cuentas que entran al admin de Django deben ser `is_staff=True`, `is_superuser=True` y usar el rol reservado `SUPERADMINISTRADOR`; no se listan ni se gestionan desde el listado web de usuarios.
 - La recuperacion de contrasena por correo debe aplicar a usuarios internos activos y socios activos con cuenta creada. Los socios pueden recuperar contrasena, pero no pueden activar su cuenta por autoservicio.
+- Al crear socios, el formulario debe solicitar una contrasena inicial y sugerir usar el RUT normalizado del socio, sin puntos y con guion.
 - Las lecciones aprendidas reutilizables quedan documentadas en `docs/LECCIONES_APRENDIDAS.md`.
 
 ## Pendientes
