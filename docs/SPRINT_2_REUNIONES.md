@@ -137,14 +137,7 @@
 - Mantener actualizados los contadores existentes de asistencia en socios.
 - Integrar cada HU a `feature/reuniones-sprint-2` antes de abrir la siguiente.
 
-## Pendientes futuros
+## Cierre de alcance
 
-- Permitir que un administrador configure varias reuniones futuras, marcando solo una como `proxima reunion`.
-- Validar que exista como maximo una reunion marcada como proxima.
-- Usar esa reunion destacada para mostrar informacion publica en el landing page solicitado por el cliente.
-- Mantener este punto fuera del alcance inicial de Sprint 2, salvo que se planifique como HU adicional.
-- Permitir que el administrador elimine reuniones siempre que no tengan asistencias registradas.
-- Las reuniones historicas tambien pueden eliminarse por administrador bajo la misma regla: solo si no tienen asistencias registradas.
-- Crear reporte exportable a Excel con todas las reuniones.
-- Soportar reuniones en estado `historica` para registrar asistencias posteriores mediante carga masiva CSV u otro mecanismo operativo.
-- Definir permisos y flujo para carga historica: administrador o socio podran registrar asistencia historica mediante CSV u otro mecanismo validado.
+- Los pendientes futuros de reuniones, landing publica, reportes y carga historica se trasladan a `docs/SPRINT_3_REUNIONES_REPORTES.md`.
+- La eliminacion de reuniones sin asistencias registradas queda dentro del alcance cerrado de Sprint 2, incluidas reuniones historicas bajo la misma regla.

@@ -120,11 +120,11 @@ Se usara un modelo de usuario personalizado basado en `AbstractUser`. Como el pr
 ## Recuperacion de contrasena por correo
 
 - El flujo se implementa con Gmail como proveedor inicial, usando una cuenta dedicada del sistema y contrasena de aplicacion.
-- Alcance actual: recuperacion solo para usuarios internos activos con contrasena utilizable (`ADMINISTRADOR` y `ENCARGADO_REGISTRO`).
-- Los socios no recuperan contrasena en esta etapa; siguen creados sin contrasena utilizable desde el flujo operativo de socios.
-- Para una version futura, definir si los socios tendran activacion de cuenta o recuperacion de contrasena propia antes de cambiar este comportamiento.
+- Alcance definido: usuarios internos activos (`ADMINISTRADOR` y `ENCARGADO_REGISTRO`) y socios activos con cuenta creada pueden recuperar contrasena por correo.
+- Los socios pueden recuperar contrasena, pero no pueden activar su cuenta por autoservicio.
+- Si el socio fue creado sin contrasena utilizable, el flujo de recuperacion debe permitir definirla sin abrir un flujo publico de activacion de cuentas.
 
-## Pendientes de despliegue y seguridad
+## Pendientes obligatorios antes de produccion
 
 - Configurar `DEBUG=False` para el entorno de produccion.
 - Reemplazar `SECRET_KEY` por una clave larga, aleatoria y gestionada por variable de entorno.

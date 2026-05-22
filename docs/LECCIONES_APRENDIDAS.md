@@ -60,6 +60,8 @@ Cuando se agregue una restriccion de seguridad sobre datos ya existentes:
 
 ## Revision de seguridad antes de publicar
 
+Estos puntos deben cerrarse antes de subir el sistema a produccion.
+
 ### Puntos pendientes detectados
 
 - Forzar HTTPS en la plataforma y en Django cuando `DEBUG=False`.

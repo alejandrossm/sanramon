@@ -21,13 +21,13 @@ Archivo para registrar detalles importantes que conviene conservar entre sesione
 - Para reiniciar pruebas operativas sin borrar usuarios ni socios, usar `python manage.py resetdata --confirmar`. Borra reuniones, asistencias y justificaciones; solo corre con `DEBUG=True`.
 - Las justificaciones de inasistencia tienen trazabilidad exacta: cada registro debe asociarse a una `AsistenciaReunion` ausente concreta. El formulario de justificacion muestra solo ausencias pendientes del socio.
 - El rol `ADMINISTRADOR` corresponde solo al sistema web. Las cuentas que entran al admin de Django deben ser `is_staff=True`, `is_superuser=True` y usar el rol reservado `SUPERADMINISTRADOR`; no se listan ni se gestionan desde el listado web de usuarios.
-- La recuperacion de contrasena por correo aplica por ahora solo a usuarios internos activos con contrasena utilizable: administradores y encargados. Los socios no recuperan contrasena en esta etapa porque se crean sin contrasena utilizable; evaluar activacion/recuperacion para socios como caracteristica futura.
+- La recuperacion de contrasena por correo debe aplicar a usuarios internos activos y socios activos con cuenta creada. Los socios pueden recuperar contrasena, pero no pueden activar su cuenta por autoservicio.
 - Las lecciones aprendidas reutilizables quedan documentadas en `docs/LECCIONES_APRENDIDAS.md`.
 
 ## Pendientes
 
 - En una proxima version, ajustar en el listado de usuarios el boton de desactivacion del usuario autenticado: hoy puede verse como activo, pero debe mostrarse con estilo deshabilitado porque la propia cuenta no se puede desactivar.
-- Seguridad pendiente: endurecer HTTPS/cookies en produccion, activar `Force HTTPS` en PythonAnywhere, agregar proteccion anti fuerza bruta en login, bloquear comandos demo en produccion y evitar colisiones globales entre `username` y `email`.
+- Seguridad pendiente antes de subir a produccion: endurecer HTTPS/cookies, activar `Force HTTPS` en PythonAnywhere, agregar proteccion anti fuerza bruta en login, bloquear comandos demo y evitar colisiones globales entre `username` y `email`.
 
 ## Despliegue PythonAnywhere
 

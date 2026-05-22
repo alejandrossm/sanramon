@@ -11,16 +11,16 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
 - [x] Documentar la correccion de estilos del admin de Django en PythonAnywhere: ejecutar `collectstatic`, mapear `/static/` a `staticfiles` y verificar `/static/admin/css/base.css`.
 - [x] Corregir tildes faltantes en etiquetas, ayudas y mensajes de los formularios.
 
-## Seguridad
+## Seguridad antes de produccion
 
 - [x] Separar administradores web de superadministradores Django: `ADMINISTRADOR` queda para el sistema web y `SUPERADMINISTRADOR` queda reservado para cuentas `is_staff` e `is_superuser`.
 - [x] Ocultar superadministradores del listado web de usuarios e impedir que se editen, desactiven o eliminen desde las vistas del sistema.
 - [x] Recuperacion de contrasena por Gmail para usuarios internos activos con contrasena utilizable: administradores y encargados.
-- [ ] Endurecer configuracion HTTPS de produccion: activar `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE` y evaluar `SECURE_HSTS_SECONDS` despues de confirmar que todo el sitio opera solo por HTTPS.
-- [ ] Activar `Force HTTPS` en PythonAnywhere para que `http://alejandrossm.pythonanywhere.com/` redirija a `https://alejandrossm.pythonanywhere.com/`.
-- [ ] Agregar proteccion contra fuerza bruta en login, por ejemplo `django-axes` o rate limiting equivalente.
-- [ ] Bloquear en produccion los comandos demo que crean usuarios con passwords predecibles, especialmente `crear_usuarios_prueba`.
-- [ ] Validar globalmente que ningun `username` coincida con el `email` de cualquier cuenta, y que ningun `email` coincida con el `username` de otra cuenta, para evitar ambiguedades en el login por usuario o correo.
+- [ ] Antes de subir a produccion, endurecer configuracion HTTPS: activar `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE` y evaluar `SECURE_HSTS_SECONDS` despues de confirmar que todo el sitio opera solo por HTTPS.
+- [ ] Antes de subir a produccion, activar `Force HTTPS` en PythonAnywhere para que `http://alejandrossm.pythonanywhere.com/` redirija a `https://alejandrossm.pythonanywhere.com/`.
+- [ ] Antes de subir a produccion, agregar proteccion contra fuerza bruta en login, por ejemplo `django-axes` o rate limiting equivalente.
+- [ ] Antes de subir a produccion, bloquear los comandos demo que crean usuarios con passwords predecibles, especialmente `crear_usuarios_prueba`.
+- [ ] Antes de subir a produccion, validar globalmente que ningun `username` coincida con el `email` de cualquier cuenta, y que ningun `email` coincida con el `username` de otra cuenta, para evitar ambiguedades en el login por usuario o correo.
 
 ## Socios
 
@@ -33,7 +33,8 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
   - Amarillo: una inasistencia.
   - Rojo: bloqueado por dos inasistencias.
 - [x] Agregar un campo de telefono movil a usuarios y socios para registrar un numero de contacto operativo.
-- [ ] Definir si en una version futura los socios podran activar cuenta o recuperar contrasena propia. Por ahora no aplica: los socios se crean sin contrasena utilizable y no reciben correo de recuperacion.
+- [x] Definido: los socios podran recuperar contrasena propia, pero no podran activar su cuenta por autoservicio.
+- [ ] Ajustar el flujo de recuperacion para que socios activos con cuenta creada puedan recuperar contrasena por correo sin habilitar activacion publica de cuentas.
 - [x] Implementar bloqueo operativo de socios por inasistencias: un socio con 2 o mas ausencias no puede registrar nuevas asistencias.
 - [x] Agregar flujo de justificacion administrativa de inasistencias de socios bloqueados, con motivo obligatorio, usuario responsable y fecha.
 - [x] Mostrar la causa de las justificaciones de inasistencia en una vista operativa o historica, para que el administrador pueda revisar el motivo registrado.
