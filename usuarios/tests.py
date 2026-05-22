@@ -972,8 +972,16 @@ class UsuariosModuloTests(TestCase):
             response.content.decode().index('Listado reuniones'),
         )
         self.assertLess(
-            response.content.decode().index('Registrar socio'),
+            response.content.decode().index('Listado reuniones'),
             response.content.decode().index('Registrar asistencia'),
+        )
+        self.assertLess(
+            response.content.decode().index('Registrar asistencia'),
+            response.content.decode().index('Listado socios'),
+        )
+        self.assertLess(
+            response.content.decode().index('Registrar socio'),
+            response.content.decode().index('Listado usuarios'),
         )
 
     @patch('usuarios.forms.timezone.localtime', return_value=datetime(2026, 5, 14, 12, 0))
