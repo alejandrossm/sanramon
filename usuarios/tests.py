@@ -3896,6 +3896,36 @@ class UsuariosModuloTests(TestCase):
         self.assertFalse(self.User.objects.filter(pk=encargado_pk).exists())
         self.assertContains(response, 'Usuario Encargado Registro eliminado correctamente.')
 
+    def test_administrador_no_elimina_usuario_con_historial_operativo(self):
+        """Bloquea eliminacion de usuarios internos referenciados por asistencia."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        AsistenciaReunion.objects.create(
+            reunion=reunion,
+            socio=self.socio_user,
+            estado=AsistenciaReunion.PRESENTE,
+            origen=AsistenciaReunion.ORIGEN_RUT,
+            registrada_por=self.encargado_user,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:eliminar_usuario', args=[self.encargado_user.pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_usuarios'))
+        self.assertTrue(self.User.objects.filter(pk=self.encargado_user.pk).exists())
+        self.assertContains(
+            response,
+            'No se puede eliminar este usuario porque tiene historial operativo registrado.',
+        )
+
     def test_administrador_no_puede_eliminarse_a_si_mismo(self):
         """Evita que un administrador elimine su propia cuenta."""
         self.client.login(username='admin', password='ClaveSegura123')

@@ -15,6 +15,7 @@ from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import IntegrityError
 from django.db.models import Count, Q
+from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.views.decorators.http import require_POST
@@ -1357,7 +1358,18 @@ def eliminar_usuario(request, pk):
         return redirect('usuarios:listado_usuarios')
 
     nombre_usuario = usuario.nombre_completo
-    usuario.delete()
+    try:
+        usuario.delete()
+    except ProtectedError:
+        messages.error(
+            request,
+            (
+                'No se puede eliminar este usuario porque tiene historial operativo '
+                'registrado. Puedes desactivarlo para impedir su acceso.'
+            ),
+        )
+        return redirect('usuarios:listado_usuarios')
+
     messages.success(request, f'Usuario {nombre_usuario} eliminado correctamente.')
     return redirect('usuarios:listado_usuarios')
 
