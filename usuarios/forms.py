@@ -362,6 +362,25 @@ class SocioCreationForm(TelefonoMovilFormMixin, FechaIngresoProyectoFormMixin, f
 class ReunionCreationForm(forms.ModelForm):
     """Formulario para programar una nueva reunion."""
 
+    HORA_24H_REGEX = r'([01][0-9]|2[0-3]):[0-5][0-9]'
+    HORA_24H_MENSAJE = 'Ingresa la hora en formato 24 horas HH:MM.'
+    hora = forms.TimeField(
+        label='Hora',
+        input_formats=['%H:%M'],
+        widget=forms.TextInput(
+            attrs={
+                'type': 'time',
+                'autocomplete': 'off',
+                'lang': 'es-CL',
+                'min': '00:00',
+                'max': '23:59',
+                'pattern': HORA_24H_REGEX,
+                'step': '60',
+                'title': HORA_24H_MENSAJE,
+            }
+        ),
+        error_messages={'invalid': HORA_24H_MENSAJE},
+    )
     REUNION_DUPLICADA_MENSAJE = (
         'Ya existe una reunion programada para la misma fecha y hora. '
         'Ajusta la fecha u hora antes de guardar.'
@@ -388,7 +407,6 @@ class ReunionCreationForm(forms.ModelForm):
         }
         widgets = {
             'fecha': forms.DateInput(attrs={'type': 'date'}),
-            'hora': forms.TimeInput(attrs={'type': 'time'}),
             'locacion': forms.TextInput(attrs={'autocomplete': 'off'}),
         }
 
@@ -432,6 +450,13 @@ class ReunionCreationForm(forms.ModelForm):
             ),
             Submit('submit', 'Guardar reunion', css_class='btn btn-primary'),
         )
+
+    def clean_hora(self):
+        """Exige hora en formato 24 horas con cero inicial."""
+        valor = self.data.get(self.add_prefix('hora'), '').strip()
+        if not re.fullmatch(self.HORA_24H_REGEX, valor):
+            raise forms.ValidationError(self.HORA_24H_MENSAJE)
+        return self.cleaned_data['hora']
 
     def clean(self):
         """Valida reglas de fecha, estado y duplicidad antes de guardar."""

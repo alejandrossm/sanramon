@@ -205,6 +205,32 @@ class UsuariosModuloTests(TestCase):
         self.assertIn('hora', form.errors)
         self.assertIn('locacion', form.errors)
 
+    def test_formulario_reunion_exige_hora_en_formato_24_horas(self):
+        """Rechaza horas con AM/PM o sin cero inicial."""
+        datos_base = {
+            'fecha': '2026-07-20',
+            'locacion': 'Sede social',
+            'estado': Reunion.PROGRAMADA,
+        }
+
+        for hora_invalida in ('6:30 PM', '6:30'):
+            form = ReunionCreationForm(
+                data={**datos_base, 'hora': hora_invalida},
+                creador=self.admin_user,
+            )
+            self.assertFalse(form.is_valid())
+            self.assertIn(
+                ReunionCreationForm.HORA_24H_MENSAJE,
+                form.errors['hora'],
+            )
+
+        form = ReunionCreationForm(
+            data={**datos_base, 'hora': '18:30'},
+            creador=self.admin_user,
+        )
+        self.assertTrue(form.is_valid())
+        self.assertEqual(form.cleaned_data['hora'], time(18, 30))
+
     @patch('usuarios.forms.timezone.localtime', return_value=datetime(2026, 5, 14, 12, 0))
     def test_formulario_reunion_alerta_fecha_hora_duplicada(self, _localtime):
         """Bloquea reuniones con fecha y hora ya registradas."""
@@ -1013,6 +1039,11 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'data-today="2026-05-14"')
         self.assertContains(response, 'name="hora"')
         self.assertContains(response, 'type="time"')
+        self.assertContains(response, 'lang="es-CL"')
+        self.assertContains(response, 'min="00:00"')
+        self.assertContains(response, 'max="23:59"')
+        self.assertContains(response, 'step="60"')
+        self.assertContains(response, 'pattern="([01][0-9]|2[0-3]):[0-5][0-9]"')
         self.assertContains(response, 'data-reunion-time="true"')
         self.assertContains(response, 'data-current-time="12:00"')
         self.assertContains(response, 'name="locacion"')
