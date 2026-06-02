@@ -29,7 +29,12 @@ from .identificacion import (
     ORIGEN_RUT_MANUAL,
     parsear_lectura_rut,
 )
-from .models import AsistenciaReunion, DesbloqueoSocio, Reunion
+from .models import (
+    AsistenciaReunion,
+    DesbloqueoSocio,
+    NotificacionBloqueoSocio,
+    Reunion,
+)
 from .permisos import (
     GRUPO_ADMINISTRADOR,
     GRUPO_ENCARGADO_REGISTRO,
@@ -2905,6 +2910,167 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(justificacion.motivo, 'Compromiso firmado')
         self.assertEqual(justificacion.inasistencias_al_desbloquear, 2)
 
+    def test_administrador_envia_notificacion_de_bloqueo_desde_listado_asistencia(self):
+        """Permite avisar por correo a un socio bloqueado desde el listado operativo."""
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 27),
+        )
+        url_notificar = reverse('usuarios:notificar_bloqueo_socio', args=[self.socio_user.pk])
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
+        self.assertContains(response, url_notificar)
+        self.assertContains(response, 'aria-label="Enviar notificacion de bloqueo"')
+        self.assertContains(response, 'bi-envelope')
+        self.assertContains(
+            response,
+            'btn btn-danger btn-sm',
+        )
+
+        response = self.client.post(url_notificar, follow=True)
+
+        self.assertRedirects(response, reverse('usuarios:listado_socios_asistencia'))
+        self.assertContains(response, 'Notificacion de bloqueo enviada a socio@example.com.')
+        self.assertContains(response, 'aria-label="Notificacion de bloqueo ya enviada"')
+        self.assertContains(response, 'bi-envelope-check-fill')
+        self.assertContains(response, 'btn btn-success btn-sm')
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].subject, 'Notificacion de bloqueo de asistencia')
+        self.assertEqual(mail.outbox[0].to, ['socio@example.com'])
+        self.assertEqual(NotificacionBloqueoSocio.objects.filter(socio=self.socio_user).count(), 1)
+        self.assertIn(
+            'Tu estado actual en el sistema de asistencia es: BLOQUEADO.',
+            mail.outbox[0].body,
+        )
+        self.assertIn(
+            'Registras 2 inasistencias pendientes de justificacion',
+            mail.outbox[0].body,
+        )
+        self.assertIn('20-05-2026 18:30 - Sede social', mail.outbox[0].body)
+        self.assertIn('27-05-2026 18:30 - Sede social', mail.outbox[0].body)
+
+    def test_notificacion_bloqueo_no_reenvia_mientras_siga_el_mismo_bloqueo(self):
+        """Evita duplicar correos si el bloqueo vigente ya fue notificado."""
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 27),
+        )
+        url_notificar = reverse('usuarios:notificar_bloqueo_socio', args=[self.socio_user.pk])
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        self.client.post(url_notificar, follow=True)
+        response = self.client.post(url_notificar, follow=True)
+
+        self.assertRedirects(response, reverse('usuarios:listado_socios_asistencia'))
+        self.assertContains(
+            response,
+            'La notificacion de bloqueo ya fue enviada para el bloqueo actual.',
+        )
+        self.assertContains(response, 'aria-label="Notificacion de bloqueo ya enviada"')
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(NotificacionBloqueoSocio.objects.filter(socio=self.socio_user).count(), 1)
+
+    def test_notificacion_bloqueo_vuelve_a_habilitarse_si_cambia_el_bloqueo(self):
+        """Reactiva el envio cuando el socio cae en un nuevo bloqueo distinto."""
+        ausencia_primera = self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        ausencia_segunda = self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 27),
+        )
+        url_notificar = reverse('usuarios:notificar_bloqueo_socio', args=[self.socio_user.pk])
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        self.client.post(url_notificar, follow=True)
+
+        DesbloqueoSocio.registrar(
+            socio=self.socio_user,
+            usuario=self.admin_user,
+            motivo='Revision administrativa',
+            asistencia=ausencia_primera,
+        )
+        self.assertFalse(
+            NotificacionBloqueoSocio.bloqueo_actual_ya_notificado(self.socio_user)
+        )
+
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 6, 3),
+        )
+        self.assertTrue(AsistenciaReunion.socio_esta_bloqueado(self.socio_user))
+        self.assertNotEqual(
+            AsistenciaReunion.obtener_firma_bloqueo_socio(self.socio_user),
+            NotificacionBloqueoSocio.objects.get(socio=self.socio_user).firma_bloqueo,
+        )
+
+        response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
+
+        self.assertContains(response, url_notificar)
+        self.assertContains(response, 'aria-label="Enviar notificacion de bloqueo"')
+        self.assertContains(response, 'btn btn-danger btn-sm')
+        self.assertNotContains(response, 'aria-label="Notificacion de bloqueo ya enviada"')
+        self.assertEqual(ausencia_segunda.estado, AsistenciaReunion.AUSENTE)
+
+    def test_notificacion_bloqueo_rechaza_socios_no_bloqueados(self):
+        """Evita enviar el aviso cuando el socio todavia no cumple condicion de bloqueo."""
+        url_notificar = reverse('usuarios:notificar_bloqueo_socio', args=[self.socio_user.pk])
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
+        self.assertNotContains(response, url_notificar)
+        self.assertContains(response, 'aria-label="Notificacion de bloqueo no disponible"')
+        self.assertContains(response, 'bi-envelope')
+        self.assertContains(response, 'btn-outline-secondary btn-sm text-muted')
+
+        response = self.client.post(url_notificar, follow=True)
+
+        self.assertRedirects(response, reverse('usuarios:listado_socios_asistencia'))
+        self.assertContains(response, 'El socio no esta bloqueado por inasistencias.')
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_notificacion_bloqueo_solo_disponible_para_administrador(self):
+        """Impide que encargados envien avisos de bloqueo a socios."""
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 27),
+        )
+        url_notificar = reverse('usuarios:notificar_bloqueo_socio', args=[self.socio_user.pk])
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
+        self.assertNotContains(response, url_notificar)
+        self.assertContains(response, 'aria-label="Notificacion de bloqueo no disponible"')
+        self.assertContains(response, 'bi-envelope')
+
+        response = self.client.post(url_notificar, follow=True)
+
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+        self.assertEqual(len(mail.outbox), 0)
+
     def test_detalle_asistencia_socio_muestra_justificaciones_y_pendientes(self):
         """Muestra trazabilidad por socio desde el listado operativo."""
         ausencia_justificada = self.registrar_asistencia_historica(
@@ -4178,7 +4344,7 @@ class UsuariosModuloTests(TestCase):
 
     @override_settings(DEBUG=True)
     def test_comando_resetea_asistencia_de_pruebas(self):
-        """Borra reuniones, asistencias y justificaciones sin eliminar usuarios."""
+        """Borra reuniones, asistencias, justificaciones y notificaciones sin eliminar usuarios."""
         reunion = Reunion.objects.create(
             fecha=date(2026, 5, 20),
             hora=time(18, 30),
@@ -4199,6 +4365,13 @@ class UsuariosModuloTests(TestCase):
             desbloqueado_por=self.admin_user,
             inasistencias_al_desbloquear=1,
         )
+        NotificacionBloqueoSocio.objects.create(
+            socio=self.socio_user,
+            enviada_por=self.admin_user,
+            firma_bloqueo='bloqueo-prueba',
+            email_destino=self.socio_user.email,
+            total_inasistencias_efectivas=2,
+        )
         output = StringIO()
 
         call_command('resetdata', '--confirmar=true', stdout=output)
@@ -4206,8 +4379,10 @@ class UsuariosModuloTests(TestCase):
         self.assertFalse(Reunion.objects.exists())
         self.assertFalse(AsistenciaReunion.objects.exists())
         self.assertFalse(DesbloqueoSocio.objects.exists())
+        self.assertFalse(NotificacionBloqueoSocio.objects.exists())
         self.assertTrue(self.User.objects.filter(pk=self.socio_user.pk).exists())
         self.assertIn('Reset de asistencia completado', output.getvalue())
+        self.assertIn('notificaciones eliminadas: 1', output.getvalue())
 
     @override_settings(DEBUG=True)
     def test_comando_reset_asistencia_exige_confirmacion(self):

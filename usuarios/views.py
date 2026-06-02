@@ -1,4 +1,5 @@
 from functools import wraps
+from smtplib import SMTPException
 
 from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
@@ -11,12 +12,14 @@ from django.contrib.auth.views import (
     PasswordResetDoneView,
     PasswordResetView,
 )
+from django.core.mail import BadHeaderError, send_mail
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import IntegrityError
 from django.db.models import Count, Q
 from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.urls import reverse_lazy
 from django.views.decorators.http import require_POST
 
@@ -35,7 +38,13 @@ from .forms import (
     UsuarioCreationForm,
     UsuarioUpdateForm,
 )
-from .models import AsistenciaReunion, DesbloqueoSocio, Reunion, Usuario
+from .models import (
+    AsistenciaReunion,
+    DesbloqueoSocio,
+    NotificacionBloqueoSocio,
+    Reunion,
+    Usuario,
+)
 from .permisos import (
     PERM_ACCEDER_ASISTENCIA,
     PERM_ADMINISTRAR_PRIVILEGIOS,
@@ -128,6 +137,25 @@ def obtener_mensaje_validacion(error):
     if hasattr(error, 'message_dict'):
         return next(iter(error.message_dict.values()))[0]
     return error.messages[0] if error.messages else 'No fue posible completar la accion.'
+
+
+def obtener_contexto_notificacion_bloqueo(socio):
+    """Construye el contenido del aviso estandar para socios bloqueados."""
+    ausencias_pendientes = list(AsistenciaReunion.obtener_ausencias_justificables(socio))
+    total_inasistencias_efectivas = len(ausencias_pendientes)
+    umbral_bloqueo = AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO
+
+    return {
+        'socio': socio,
+        'ausencias_pendientes': ausencias_pendientes,
+        'total_inasistencias_efectivas': total_inasistencias_efectivas,
+        'umbral_bloqueo': umbral_bloqueo,
+        'razon_bloqueo': (
+            f'Registras {total_inasistencias_efectivas} inasistencias pendientes '
+            f'de justificacion, superando el umbral de {umbral_bloqueo} '
+            'inasistencias efectivas definido por el sistema.'
+        ),
+    }
 
 
 COLUMNAS_ORDENABLES_USUARIOS = [
@@ -571,6 +599,9 @@ def listado_socios_asistencia(request):
     paginator = Paginator(socios, 50)
     page_obj = paginator.get_page(request.GET.get('page'))
     page_obj.object_list = agregar_resumen_asistencia_socios(page_obj.object_list)
+    page_obj.object_list = agregar_estado_notificacion_bloqueo_socios(
+        page_obj.object_list
+    )
     pagination_params = request.GET.copy()
     if 'page' in pagination_params:
         del pagination_params['page']
@@ -709,6 +740,37 @@ def agregar_resumen_asistencia_socios(socios):
         )
         socios_resumidos.append(socio)
     return socios_resumidos
+
+
+def agregar_estado_notificacion_bloqueo_socios(socios):
+    """Marca si el bloqueo vigente del socio ya fue notificado."""
+    socios = list(socios)
+    socios_bloqueados_ids = []
+
+    for socio in socios:
+        socio.notificacion_bloqueo_enviada = False
+        if getattr(socio, 'total_ausencias_efectivas', 0) >= (
+            AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO
+        ):
+            socios_bloqueados_ids.append(socio.pk)
+
+    if not socios_bloqueados_ids:
+        return socios
+
+    firmas_actuales = AsistenciaReunion.obtener_firmas_bloqueo_socios(
+        socios_bloqueados_ids,
+    )
+    firmas_notificadas = NotificacionBloqueoSocio.obtener_firmas_notificadas_socios(
+        socios_bloqueados_ids,
+    )
+
+    for socio in socios:
+        firma_actual = firmas_actuales.get(socio.pk)
+        socio.notificacion_bloqueo_enviada = bool(
+            firma_actual and (socio.pk, firma_actual) in firmas_notificadas
+        )
+
+    return socios
 
 
 def anotar_resumen_asistencia_socios(socios):
@@ -1155,6 +1217,9 @@ def listado_socios(request):
     paginator = Paginator(socios, 50)
     page_obj = paginator.get_page(request.GET.get('page'))
     page_obj.object_list = agregar_resumen_asistencia_socios(page_obj.object_list)
+    page_obj.object_list = agregar_estado_notificacion_bloqueo_socios(
+        page_obj.object_list
+    )
     pagination_params = request.GET.copy()
     if 'page' in pagination_params:
         del pagination_params['page']
@@ -1352,6 +1417,63 @@ def justificar_inasistencia(request, pk):
             ),
         },
     )
+
+
+@require_POST
+@gestor_usuarios_required
+def notificar_bloqueo_socio(request, pk):
+    """Envia al socio bloqueado un correo con el motivo del bloqueo."""
+    socio = get_object_or_404(Usuario, pk=pk, rol=Usuario.SOCIO)
+
+    if not AsistenciaReunion.socio_esta_bloqueado(socio):
+        messages.error(request, 'El socio no esta bloqueado por inasistencias.')
+        return redirect('usuarios:listado_socios_asistencia')
+
+    if NotificacionBloqueoSocio.bloqueo_actual_ya_notificado(socio):
+        messages.info(
+            request,
+            'La notificacion de bloqueo ya fue enviada para el bloqueo actual.',
+        )
+        return redirect('usuarios:listado_socios_asistencia')
+
+    contexto = obtener_contexto_notificacion_bloqueo(socio)
+
+    try:
+        enviados = send_mail(
+            'Notificacion de bloqueo de asistencia',
+            render_to_string(
+                'usuarios/emails/notificacion_bloqueo_socio.txt',
+                contexto,
+            ),
+            None,
+            [socio.email],
+            fail_silently=False,
+        )
+    except (BadHeaderError, OSError, SMTPException):
+        messages.error(
+            request,
+            'No fue posible enviar la notificacion de bloqueo en este momento.',
+        )
+        return redirect('usuarios:listado_socios_asistencia')
+
+    if not enviados:
+        messages.error(
+            request,
+            'No fue posible enviar la notificacion de bloqueo en este momento.',
+        )
+        return redirect('usuarios:listado_socios_asistencia')
+
+    try:
+        NotificacionBloqueoSocio.registrar_bloqueo_actual(socio, request.user)
+    except ValidationError as error:
+        messages.info(request, obtener_mensaje_validacion(error))
+        return redirect('usuarios:listado_socios_asistencia')
+
+    messages.success(
+        request,
+        f'Notificacion de bloqueo enviada a {socio.email}.',
+    )
+    return redirect('usuarios:listado_socios_asistencia')
 
 
 @require_POST

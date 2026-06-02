@@ -1,7 +1,13 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
-from .models import AsistenciaReunion, DesbloqueoSocio, Reunion, Usuario
+from .models import (
+    AsistenciaReunion,
+    DesbloqueoSocio,
+    NotificacionBloqueoSocio,
+    Reunion,
+    Usuario,
+)
 
 
 @admin.register(Usuario)
@@ -158,3 +164,27 @@ class DesbloqueoSocioAdmin(admin.ModelAdmin):
     )
     readonly_fields = ('fecha_desbloqueo',)
     ordering = ('-fecha_desbloqueo',)
+
+
+@admin.register(NotificacionBloqueoSocio)
+class NotificacionBloqueoSocioAdmin(admin.ModelAdmin):
+    """Configuracion del historial de notificaciones de bloqueo."""
+
+    list_display = (
+        'socio',
+        'email_destino',
+        'enviada_por',
+        'fecha_envio',
+        'total_inasistencias_efectivas',
+    )
+    list_filter = ('fecha_envio',)
+    search_fields = (
+        'socio__rut',
+        'socio__first_name',
+        'socio__last_name',
+        'socio__apellido_materno',
+        'email_destino',
+        'enviada_por__username',
+    )
+    readonly_fields = ('fecha_envio', 'firma_bloqueo')
+    ordering = ('-fecha_envio',)

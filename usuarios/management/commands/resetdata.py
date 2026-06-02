@@ -4,7 +4,12 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from usuarios.models import AsistenciaReunion, DesbloqueoSocio, Reunion
+from usuarios.models import (
+    AsistenciaReunion,
+    DesbloqueoSocio,
+    NotificacionBloqueoSocio,
+    Reunion,
+)
 
 
 class Command(BaseCommand):
@@ -60,6 +65,9 @@ class Command(BaseCommand):
                 'Operacion cancelada. Ejecuta con --confirmar para borrar datos de prueba.'
             )
 
+        notificaciones, _detalle_notificaciones = (
+            NotificacionBloqueoSocio.objects.all().delete()
+        )
         justificaciones, _detalle_justificaciones = DesbloqueoSocio.objects.all().delete()
         asistencias, _detalle_asistencias = AsistenciaReunion.objects.all().delete()
         reuniones, _detalle_reuniones = Reunion.objects.all().delete()
@@ -69,6 +77,7 @@ class Command(BaseCommand):
                 'Reset de asistencia completado: '
                 f'reuniones eliminadas: {reuniones}; '
                 f'asistencias eliminadas: {asistencias}; '
-                f'justificaciones eliminadas: {justificaciones}.'
+                f'justificaciones eliminadas: {justificaciones}; '
+                f'notificaciones eliminadas: {notificaciones}.'
             )
         )

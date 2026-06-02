@@ -62,6 +62,11 @@ urlpatterns = [
         views.justificar_inasistencia,
         name='justificar_inasistencia',
     ),
+    path(
+        'socios/<int:pk>/notificar-bloqueo/',
+        views.notificar_bloqueo_socio,
+        name='notificar_bloqueo_socio',
+    ),
     path('socios/<int:pk>/eliminar/', views.eliminar_socio, name='eliminar_socio'),
     path('mi-contrasena/', views.cambiar_mi_password, name='cambiar_mi_password'),
     path('usuarios/', views.listado_usuarios, name='listado_usuarios'),
