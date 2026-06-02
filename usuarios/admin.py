@@ -13,23 +13,55 @@ class UsuarioAdmin(UserAdmin):
         'email',
         'first_name',
         'last_name',
+        'apellido_materno',
         'rut',
         'telefono_movil',
+        'fecha_ingreso_proyecto',
         'rol',
         'is_active',
         'is_staff',
     )
     list_filter = ('rol', 'is_active', 'is_staff', 'is_superuser')
-    search_fields = ('username', 'email', 'first_name', 'last_name', 'rut', 'telefono_movil')
-    ordering = ('last_name', 'first_name', 'username')
+    search_fields = (
+        'username',
+        'email',
+        'first_name',
+        'last_name',
+        'apellido_materno',
+        'rut',
+        'telefono_movil',
+    )
+    ordering = ('last_name', 'apellido_materno', 'first_name', 'username')
 
     fieldsets = UserAdmin.fieldsets + (
-        ('Datos del sistema', {'fields': ('rut', 'telefono_movil', 'rol')}),
+        (
+            'Datos del sistema',
+            {
+                'fields': (
+                    'apellido_materno',
+                    'rut',
+                    'telefono_movil',
+                    'fecha_ingreso_proyecto',
+                    'rol',
+                )
+            },
+        ),
     )
     add_fieldsets = UserAdmin.add_fieldsets + (
         (
             'Datos del sistema',
-            {'fields': ('email', 'first_name', 'last_name', 'rut', 'telefono_movil', 'rol')},
+            {
+                'fields': (
+                    'email',
+                    'first_name',
+                    'last_name',
+                    'apellido_materno',
+                    'rut',
+                    'telefono_movil',
+                    'fecha_ingreso_proyecto',
+                    'rol',
+                )
+            },
         ),
     )
 
@@ -95,6 +127,7 @@ class AsistenciaReunionAdmin(admin.ModelAdmin):
         'socio__rut',
         'socio__first_name',
         'socio__last_name',
+        'socio__apellido_materno',
         'registrada_por__username',
     )
     readonly_fields = ('fecha_registro',)
@@ -118,6 +151,7 @@ class DesbloqueoSocioAdmin(admin.ModelAdmin):
         'socio__rut',
         'socio__first_name',
         'socio__last_name',
+        'socio__apellido_materno',
         'asistencia__reunion__locacion',
         'desbloqueado_por__username',
         'motivo',

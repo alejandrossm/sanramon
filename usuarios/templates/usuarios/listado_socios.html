@@ -127,6 +127,8 @@
                     </td>
                     <td>{{ socio.first_name }}</td>
                     <td>{{ socio.last_name }}</td>
+                    <td>{{ socio.apellido_materno|default:"-" }}</td>
+                    <td>{{ socio.fecha_ingreso_proyecto|date:"d-m-Y" }}</td>
                     <td>{{ socio.email }}</td>
                     <td>{{ socio.telefono_movil|default:"-" }}</td>
                     <td>
@@ -145,7 +147,7 @@
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="9" class="text-center text-muted py-4">No hay socios registrados.</td>
+                    <td colspan="11" class="text-center text-muted py-4">No hay socios registrados.</td>
                 </tr>
             {% endfor %}
         </tbody>
@@ -166,7 +168,7 @@
                         {% endif %}
                         {% include "usuarios/includes/indicador_asistencia_socio.html" %}
                     </div>
-                    <div class="text-muted small text-break">{{ socio.first_name }} {{ socio.last_name }}</div>
+                    <div class="text-muted small text-break">{{ socio.nombre_completo }}</div>
                 </div>
                 <div class="flex-shrink-0">
                     {% include "usuarios/includes/acciones_socio.html" %}
@@ -181,8 +183,12 @@
                     <span class="visually-hidden">ASISTENCIA</span>
                 </dt>
                 <dd class="col-8 mb-0">{% include "usuarios/includes/indicador_asistencia_socio.html" %}</dd>
-                <dt class="col-4 text-muted fw-semibold">APELLIDO</dt>
+                <dt class="col-4 text-muted fw-semibold">APELLIDO PATERNO</dt>
                 <dd class="col-8 mb-0 text-break">{{ socio.last_name }}</dd>
+                <dt class="col-4 text-muted fw-semibold">APELLIDO MATERNO</dt>
+                <dd class="col-8 mb-0 text-break">{{ socio.apellido_materno|default:"-" }}</dd>
+                <dt class="col-4 text-muted fw-semibold">INGRESO</dt>
+                <dd class="col-8 mb-0">{{ socio.fecha_ingreso_proyecto|date:"d-m-Y" }}</dd>
                 <dt class="col-4 text-muted fw-semibold">EMAIL</dt>
                 <dd class="col-8 mb-0 text-break">{{ socio.email }}</dd>
                 <dt class="col-4 text-muted fw-semibold">TELÉFONO</dt>

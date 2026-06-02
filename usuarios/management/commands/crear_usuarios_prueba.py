@@ -41,7 +41,7 @@ class Command(BaseCommand):
     ]
 
     def handle(self, *args, **options):
-        """Crea o actualiza usuarios demo usando username como contraseña."""
+        """Crea o actualiza usuarios demo con acceso solo para roles internos."""
         User = get_user_model()
 
         for datos in self.usuarios:
@@ -53,12 +53,18 @@ class Command(BaseCommand):
             for campo, valor in datos.items():
                 setattr(usuario, campo, valor)
             usuario.is_active = True
-            usuario.set_password(username)
+            if usuario.rol == User.SOCIO:
+                usuario.set_unusable_password()
+            else:
+                usuario.set_password(username)
             usuario.save()
 
             accion = 'creado' if creado else 'actualizado'
+            credencial = 'sin contrasena de acceso'
+            if usuario.has_usable_password():
+                credencial = username
             self.stdout.write(
                 self.style.SUCCESS(
-                    f"Usuario {username} {accion}: {datos['email']} / {username}"
+                    f"Usuario {username} {accion}: {datos['email']} / {credencial}"
                 )
             )

@@ -144,7 +144,13 @@ COLUMNAS_ORDENABLES_USUARIOS = [
 COLUMNAS_ORDENABLES_SOCIOS = [
     {'key': 'rut', 'label': 'RUT', 'field': 'rut'},
     {'key': 'nombre', 'label': 'Nombre', 'field': 'first_name'},
-    {'key': 'apellido', 'label': 'Apellido', 'field': 'last_name'},
+    {'key': 'apellido', 'label': 'Apellido paterno', 'field': 'last_name'},
+    {
+        'key': 'apellido_materno',
+        'label': 'Apellido materno',
+        'field': 'apellido_materno',
+    },
+    {'key': 'ingreso', 'label': 'Ingreso', 'field': 'fecha_ingreso_proyecto'},
     {'key': 'email', 'label': 'Email', 'field': 'email'},
     {'key': 'telefono', 'label': 'Teléfono', 'field': 'telefono_movil'},
     {'key': 'estado', 'label': 'Estado', 'field': 'is_active'},
@@ -252,7 +258,10 @@ def aplicar_filtros_orden_socios(request, socios, columnas_ordenables):
     if filtros['nombre']:
         socios = socios.filter(first_name__icontains=filtros['nombre'])
     if filtros['apellido']:
-        socios = socios.filter(last_name__icontains=filtros['apellido'])
+        socios = socios.filter(
+            Q(last_name__icontains=filtros['apellido'])
+            | Q(apellido_materno__icontains=filtros['apellido'])
+        )
     if filtros['estado']:
         socios = socios.filter(is_active=filtros['estado'] == 'activo')
 
@@ -263,12 +272,24 @@ def aplicar_filtros_orden_socios(request, socios, columnas_ordenables):
             campo_orden = f'-{campo_base}'
         campos_secundarios = [
             campo
-            for campo in ('last_name', 'first_name', 'username', 'pk')
+            for campo in (
+                'last_name',
+                'apellido_materno',
+                'first_name',
+                'username',
+                'pk',
+            )
             if campo != campo_base
         ]
         socios = socios.order_by(campo_orden, *campos_secundarios)
     else:
-        socios = socios.order_by('last_name', 'first_name', 'username', 'pk')
+        socios = socios.order_by(
+            'last_name',
+            'apellido_materno',
+            'first_name',
+            'username',
+            'pk',
+        )
 
     return {
         'socios': socios,
@@ -627,7 +648,8 @@ def listado_justificaciones(request):
         )
     if filtros['apellido']:
         justificaciones = justificaciones.filter(
-            socio__last_name__icontains=filtros['apellido'],
+            Q(socio__last_name__icontains=filtros['apellido'])
+            | Q(socio__apellido_materno__icontains=filtros['apellido']),
         )
     if filtros['motivo']:
         justificaciones = justificaciones.filter(motivo__icontains=filtros['motivo'])
@@ -1187,7 +1209,7 @@ def registro_usuario(request):
 
 @registro_socios_required
 def registro_socio(request):
-    """Crea socios con username tecnico y contrasena inicial."""
+    """Crea socios con username tecnico y sin contrasena de acceso."""
     if request.method == 'POST':
         form = SocioCreationForm(request.POST)
         if form.is_valid():

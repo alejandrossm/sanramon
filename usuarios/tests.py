@@ -734,16 +734,28 @@ class UsuariosModuloTests(TestCase):
         self.admin_user.refresh_from_db()
         self.assertTrue(self.admin_user.check_password('ClaveNuevaSegura123'))
 
-    def test_recuperacion_password_envia_correo_a_socio_activo(self):
-        """Permite recuperar contrasena a socios activos con contrasena utilizable."""
+    def test_recuperacion_password_no_envia_correo_a_socio_activo(self):
+        """No envia recuperacion a socios aunque tengan password utilizable."""
         response = self.client.post(
             reverse('usuarios:password_reset'),
             {'email': 'socio@example.com'},
         )
 
         self.assertRedirects(response, reverse('usuarios:password_reset_done'))
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertEqual(mail.outbox[0].to, ['socio@example.com'])
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_recuperacion_password_no_envia_correo_a_socio_sin_password_utilizable(self):
+        """No envia recuperacion cuando el socio no tiene password utilizable."""
+        self.socio_user.set_unusable_password()
+        self.socio_user.save(update_fields=['password'])
+
+        response = self.client.post(
+            reverse('usuarios:password_reset'),
+            {'email': 'socio@example.com'},
+        )
+
+        self.assertRedirects(response, reverse('usuarios:password_reset_done'))
+        self.assertEqual(len(mail.outbox), 0)
 
     def test_socio_no_accede_a_gestion_de_usuarios(self):
         """Redirige al socio cuando intenta entrar a gestion de usuarios."""
@@ -2061,6 +2073,7 @@ class UsuariosModuloTests(TestCase):
         self.assertNotContains(response, reverse('usuarios:editar_socio', args=[self.socio_user.pk]))
         self.assertContains(response, 'socio@example.com')
         self.assertContains(response, '+56922222222')
+        self.assertContains(response, 'AP. MATERNO')
         self.assertNotContains(response, 'admin@example.com')
         self.assertNotContains(response, 'encargado@example.com')
 
@@ -2072,6 +2085,8 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Ana',
             last_name='Asistencia',
+            apellido_materno='Rojas',
+            fecha_ingreso_proyecto=date(2026, 5, 15),
             rut='77.777.777-7',
             rol=self.User.SOCIO,
         )
@@ -2081,6 +2096,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Bruno',
             last_name='Asistencia',
+            apellido_materno='Silva',
             rut='88.888.888-8',
             rol=self.User.SOCIO,
         )
@@ -2091,21 +2107,23 @@ class UsuariosModuloTests(TestCase):
             {
                 'rut': '77.777.777-7',
                 'nombre': 'Ana',
-                'apellido': 'Asistencia',
+                'apellido': 'Rojas',
             },
         )
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Ordenar RUT ascendente')
         self.assertContains(response, 'Ordenar Nombre ascendente')
-        self.assertContains(response, 'Ordenar Apellido ascendente')
+        self.assertContains(response, 'Ordenar Apellido paterno ascendente')
+        self.assertContains(response, 'Ordenar Apellido materno ascendente')
         self.assertContains(response, socio_filtrado.email)
         self.assertContains(response, '<td class="fw-semibold">77777777-7</td>', html=True)
         self.assertContains(response, '<td>Ana</td>', html=True)
         self.assertContains(response, '<td>Asistencia</td>', html=True)
+        self.assertContains(response, '<td>Rojas</td>', html=True)
         self.assertContains(response, 'value="77.777.777-7"')
         self.assertContains(response, 'value="Ana"')
-        self.assertContains(response, 'value="Asistencia"')
+        self.assertContains(response, 'value="Rojas"')
         self.assertNotContains(response, 'bruno.asistencia@example.com')
         self.assertNotContains(response, 'admin@example.com')
 
@@ -2226,7 +2244,8 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'd-none d-md-block')
         self.assertContains(response, 'list-group shadow-sm border rounded overflow-hidden d-md-none')
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">NOMBRE</dt>', html=True)
-        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">APELLIDO</dt>', html=True)
+        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">AP. PATERNO</dt>', html=True)
+        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">AP. MATERNO</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">TELÉFONO</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">REUNIONES</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">ASISTENCIAS</dt>', html=True)
@@ -2642,6 +2661,8 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Gestión administrativa de socios registrados.')
         self.assertContains(response, 'socio@example.com')
         self.assertContains(response, '+56922222222')
+        self.assertContains(response, 'APELLIDO MATERNO')
+        self.assertContains(response, 'INGRESO')
         self.assertContains(response, 'aria-label="Estado de asistencia"')
         self.assertContains(response, 'bi-info-circle')
         self.assertContains(response, 'title="Sin ausencias"')
@@ -2664,6 +2685,8 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Ana',
             last_name='Zapata',
+            apellido_materno='Rojas',
+            fecha_ingreso_proyecto=date(2026, 5, 15),
             rut='77.777.777-7',
             rol=self.User.SOCIO,
         )
@@ -2673,6 +2696,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Bruno',
             last_name='Zapata',
+            apellido_materno='Silva',
             rut='88.888.888-8',
             rol=self.User.SOCIO,
         )
@@ -2683,21 +2707,25 @@ class UsuariosModuloTests(TestCase):
             {
                 'rut': '77.777.777-7',
                 'nombre': 'Ana',
-                'apellido': 'Zapata',
+                'apellido': 'Rojas',
             },
         )
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Ordenar RUT ascendente')
         self.assertContains(response, 'Ordenar Nombre ascendente')
-        self.assertContains(response, 'Ordenar Apellido ascendente')
+        self.assertContains(response, 'Ordenar Apellido paterno ascendente')
+        self.assertContains(response, 'Ordenar Apellido materno ascendente')
+        self.assertContains(response, 'Ordenar Ingreso ascendente')
         self.assertContains(response, socio_filtrado.email)
         self.assertContains(response, '<td class="fw-semibold">77777777-7</td>', html=True)
         self.assertContains(response, '<td>Ana</td>', html=True)
         self.assertContains(response, '<td>Zapata</td>', html=True)
+        self.assertContains(response, '<td>Rojas</td>', html=True)
+        self.assertContains(response, '<td>15-05-2026</td>', html=True)
         self.assertContains(response, 'value="77.777.777-7"')
         self.assertContains(response, 'value="Ana"')
-        self.assertContains(response, 'value="Zapata"')
+        self.assertContains(response, 'value="Rojas"')
         self.assertNotContains(response, 'bruno.socio@example.com')
         self.assertNotContains(response, 'admin@example.com')
 
@@ -2738,7 +2766,9 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'd-none d-md-block')
         self.assertContains(response, 'list-group shadow-sm border rounded overflow-hidden d-md-none')
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">NOMBRE</dt>', html=True)
-        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">APELLIDO</dt>', html=True)
+        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">APELLIDO PATERNO</dt>', html=True)
+        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">APELLIDO MATERNO</dt>', html=True)
+        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">INGRESO</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">EMAIL</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">TELÉFONO</dt>', html=True)
 
@@ -3306,17 +3336,21 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(self.User.objects.filter(email='socio.interno@example.com').exists())
 
-    def test_registro_socio_muestra_password_sugerido_por_rut_y_pide_confirmacion(self):
-        """Renderiza el formulario de socio con contrasena inicial sugerida."""
+    def test_registro_socio_no_solicita_password_inicial(self):
+        """Renderiza el formulario de socio sin contrasena inicial."""
         self.client.login(username='admin', password='ClaveSegura123')
         response = self.client.get(reverse('usuarios:registro_socio'))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'email_confirmacion')
         self.assertContains(response, 'name="telefono_movil"')
+        self.assertContains(response, 'name="apellido_materno"')
+        self.assertContains(response, 'name="fecha_ingreso_proyecto"')
+        self.assertContains(response, 'type="date"')
+        self.assertContains(response, f'value="{timezone.localdate().isoformat()}"')
         self.assertContains(response, 'value="+56"')
-        self.assertContains(response, 'name="password1"')
-        self.assertContains(response, 'name="password2"')
-        self.assertContains(response, 'Sugerencia: usar el RUT del socio como contrasena inicial')
+        self.assertNotContains(response, 'name="password1"')
+        self.assertNotContains(response, 'name="password2"')
+        self.assertNotContains(response, 'Sugerencia: usar el RUT del socio como contrasena inicial')
         self.assertNotContains(response, 'name="username"')
 
     def test_telefono_movil_chileno_exige_prefijo_y_nueve_digitos(self):
@@ -3331,8 +3365,6 @@ class UsuariosModuloTests(TestCase):
                 'last_name': 'Telefono',
                 'rut': '76.666.666-6',
                 'telefono_movil': '+561234',
-                'password1': '76666666-6',
-                'password2': '76666666-6',
                 'is_active': 'on',
             },
         )
@@ -3354,10 +3386,10 @@ class UsuariosModuloTests(TestCase):
                 'email_confirmacion': 'otro.correo@example.com',
                 'first_name': 'Socio',
                 'last_name': 'Nuevo',
+                'apellido_materno': 'Materno',
                 'rut': '66.666.666-6',
                 'telefono_movil': '+56966666666',
-                'password1': '66666666-6',
-                'password2': '66666666-6',
+                'fecha_ingreso_proyecto': '',
                 'is_active': 'on',
             },
         )
@@ -3382,10 +3414,10 @@ class UsuariosModuloTests(TestCase):
                 'email_confirmacion': 'socio.nuevo@example.com',
                 'first_name': 'Socio',
                 'last_name': 'Nuevo',
+                'apellido_materno': 'Materno',
                 'rut': '66.666.666-6',
                 'telefono_movil': '+56966666666',
-                'password1': '66666666-6',
-                'password2': '66666666-6',
+                'fecha_ingreso_proyecto': '',
                 'is_active': 'on',
             },
         )
@@ -3394,8 +3426,10 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(usuario.rol, self.User.SOCIO)
         self.assertEqual(usuario.username, 'socio.nuevo@example.com')
         self.assertEqual(usuario.telefono_movil, '+56966666666')
-        self.assertTrue(usuario.check_password('66666666-6'))
-        self.assertNotEqual(usuario.password, '66666666-6')
+        self.assertEqual(usuario.apellido_materno, 'Materno')
+        self.assertEqual(usuario.fecha_ingreso_proyecto, timezone.localdate())
+        self.assertFalse(usuario.has_usable_password())
+        self.assertFalse(usuario.check_password('66666666-6'))
 
     def test_encargado_no_accede_a_registro_socio(self):
         """Impide que el encargado vea o use el alta de socios."""
@@ -3411,8 +3445,6 @@ class UsuariosModuloTests(TestCase):
                 'first_name': 'Socio',
                 'last_name': 'No Permitido',
                 'rut': '66.666.666-6',
-                'password1': '66666666-6',
-                'password2': '66666666-6',
                 'is_active': 'on',
             },
         )
@@ -3597,8 +3629,10 @@ class UsuariosModuloTests(TestCase):
                 'email_confirmacion': 'socio.admin@example.com',
                 'first_name': 'Socio',
                 'last_name': 'Admin',
+                'apellido_materno': 'Materno',
                 'rut': '99.999.999-9',
                 'telefono_movil': '+56977777777',
+                'fecha_ingreso_proyecto': '2026-05-20',
             },
         )
         self.assertRedirects(response, reverse('usuarios:listado_socios'))
@@ -3607,6 +3641,8 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(self.socio_user.username, 'socio')
         self.assertEqual(self.socio_user.rut, '22222222-2')
         self.assertEqual(self.socio_user.telefono_movil, '+56977777777')
+        self.assertEqual(self.socio_user.apellido_materno, 'Materno')
+        self.assertEqual(self.socio_user.fecha_ingreso_proyecto, date(2026, 5, 20))
         self.assertEqual(self.socio_user.rol, self.User.SOCIO)
 
     def test_modelo_impide_promover_socio_a_rol_interno(self):
@@ -4053,15 +4089,19 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.wsgi_request.user.is_authenticated)
 
-    def test_comando_crea_usuarios_demo_con_username_como_password(self):
-        """Verifica que el comando demo cree passwords hasheados por username."""
+    def test_comando_crea_usuarios_demo_con_acceso_solo_para_roles_internos(self):
+        """Verifica que el comando demo no deje password utilizable en socios."""
         output = StringIO()
         call_command('crear_usuarios_prueba', stdout=output)
 
-        for username in ('admin_demo', 'encargado_demo', 'socio_demo'):
+        for username in ('admin_demo', 'encargado_demo'):
             usuario = self.User.objects.get(username=username)
             self.assertTrue(usuario.check_password(username))
             self.assertNotEqual(usuario.password, username)
+
+        socio = self.User.objects.get(username='socio_demo')
+        self.assertFalse(socio.has_usable_password())
+        self.assertIn('socio.demo@example.com / sin contrasena de acceso', output.getvalue())
 
     def test_comando_carga_encargados_paginacion_sin_validacion(self):
         """Carga encargados por bulk sin ejecutar validaciones del modelo."""

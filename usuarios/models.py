@@ -63,7 +63,12 @@ class Usuario(AbstractUser):
     ]
 
     first_name = models.CharField(max_length=150, verbose_name='Nombre')
-    last_name = models.CharField(max_length=150, verbose_name='Apellido')
+    last_name = models.CharField(max_length=150, verbose_name='Apellido paterno')
+    apellido_materno = models.CharField(
+        max_length=150,
+        blank=True,
+        verbose_name='Apellido materno',
+    )
     rut = models.CharField(
         max_length=12,
         unique=True,
@@ -87,6 +92,10 @@ class Usuario(AbstractUser):
             )
         ],
     )
+    fecha_ingreso_proyecto = models.DateField(
+        default=timezone.localdate,
+        verbose_name='Fecha de ingreso al proyecto',
+    )
     rol = models.CharField(max_length=20, choices=ROLES, default=SOCIO)
 
     objects = UsuarioManager()
@@ -96,7 +105,7 @@ class Usuario(AbstractUser):
     class Meta:
         """Orden y nombres legibles del modelo en Django."""
 
-        ordering = ['last_name', 'first_name', 'username']
+        ordering = ['last_name', 'apellido_materno', 'first_name', 'username']
         verbose_name = 'usuario'
         verbose_name_plural = 'usuarios'
         permissions = PERMISOS_USUARIO
@@ -142,6 +151,18 @@ class Usuario(AbstractUser):
     def nombre_completo(self):
         """Devuelve el nombre completo o el username cuando no hay nombres cargados."""
         return self.get_full_name() or self.username
+
+    def get_full_name(self):
+        """Devuelve nombre con apellido paterno y materno cuando existe."""
+        return ' '.join(
+            parte
+            for parte in (
+                (self.first_name or '').strip(),
+                (self.last_name or '').strip(),
+                (self.apellido_materno or '').strip(),
+            )
+            if parte
+        )
 
     def clean_fields(self, exclude=None):
         """Normaliza campos antes de ejecutar validadores de modelo."""
