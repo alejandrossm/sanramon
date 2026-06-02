@@ -150,7 +150,6 @@ COLUMNAS_ORDENABLES_SOCIOS = [
         'label': 'Apellido materno',
         'field': 'apellido_materno',
     },
-    {'key': 'ingreso', 'label': 'Ingreso', 'field': 'fecha_ingreso_proyecto'},
     {'key': 'email', 'label': 'Email', 'field': 'email'},
     {'key': 'telefono', 'label': 'Teléfono', 'field': 'telefono_movil'},
     {'key': 'estado', 'label': 'Estado', 'field': 'is_active'},
@@ -1182,6 +1181,22 @@ def listado_socios(request):
             'total_socios': total_socios,
             'socios_activos': socios_activos,
             'socios_inactivos': total_socios - socios_activos,
+        },
+    )
+
+
+@gestor_usuarios_required
+def detalle_socio(request, pk):
+    """Muestra datos administrativos y resumen operativo de un socio."""
+    socio = get_object_or_404(Usuario, pk=pk, rol=Usuario.SOCIO)
+    socio = agregar_resumen_asistencia_socios([socio])[0]
+
+    return render(
+        request,
+        'usuarios/detalle_socio.html',
+        {
+            'socio': socio,
+            'puede_editar_socios': puede_editar_socios(request.user),
         },
     )
 

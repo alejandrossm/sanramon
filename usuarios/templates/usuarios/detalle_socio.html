@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+
+{% block title %}Detalle socio | Sistema San Ramon{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-start mb-4">
+    <div class="d-flex align-items-center gap-3">
+        {% include "includes/icon.html" with name="eye" classes="fs-4 text-primary" %}
+        <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Administraci&oacute;n</p>
+            <h1 class="h3 mb-1">{{ socio.nombre_completo }}</h1>
+            <p class="text-muted mb-0">Detalle del socio - {{ socio.rut }}</p>
+        </div>
+    </div>
+    <div class="d-flex flex-wrap gap-2 align-self-start">
+        {% if puede_editar_socios %}
+            <a href="{% url 'usuarios:editar_socio' socio.pk %}" class="btn btn-primary">
+                {% include "includes/icon.html" with name="pencil" %}
+                <span>Editar socio</span>
+            </a>
+        {% endif %}
+        <a href="{% url 'usuarios:listado_socios' %}" class="btn btn-outline-secondary">
+            {% include "includes/icon.html" with name="arrow-left" %}
+            <span>Volver</span>
+        </a>
+    </div>
+</div>
+
+<section class="row g-3 mb-4" aria-label="Datos del socio">
+    <div class="col-12 col-lg-8">
+        <div class="border rounded bg-white p-3 h-100">
+            <h2 class="h5 mb-3 d-flex align-items-center gap-2">
+                {% include "includes/icon.html" with name="id-card" classes="text-primary" %}
+                <span>Datos personales</span>
+            </h2>
+            <dl class="row g-2 mb-0">
+                <dt class="col-sm-4 text-muted fw-semibold">RUT</dt>
+                <dd class="col-sm-8 mb-0 text-break">{{ socio.rut }}</dd>
+                <dt class="col-sm-4 text-muted fw-semibold">Nombre</dt>
+                <dd class="col-sm-8 mb-0 text-break">{{ socio.first_name }}</dd>
+                <dt class="col-sm-4 text-muted fw-semibold">Apellido paterno</dt>
+                <dd class="col-sm-8 mb-0 text-break">{{ socio.last_name }}</dd>
+                <dt class="col-sm-4 text-muted fw-semibold">Apellido materno</dt>
+                <dd class="col-sm-8 mb-0 text-break">{{ socio.apellido_materno|default:"-" }}</dd>
+                <dt class="col-sm-4 text-muted fw-semibold">Email</dt>
+                <dd class="col-sm-8 mb-0 text-break">{{ socio.email }}</dd>
+                <dt class="col-sm-4 text-muted fw-semibold">Tel&eacute;fono</dt>
+                <dd class="col-sm-8 mb-0 text-break">{{ socio.telefono_movil|default:"-" }}</dd>
+                <dt class="col-sm-4 text-muted fw-semibold">Fecha de ingreso al proyecto</dt>
+                <dd class="col-sm-8 mb-0">{{ socio.fecha_ingreso_proyecto|date:"d-m-Y" }}</dd>
+            </dl>
+        </div>
+    </div>
+    <div class="col-12 col-lg-4">
+        <div class="border rounded bg-white p-3 h-100">
+            <h2 class="h5 mb-3 d-flex align-items-center gap-2">
+                {% include "includes/icon.html" with name="activity" classes="text-primary" %}
+                <span>Estado</span>
+            </h2>
+            <dl class="row g-2 mb-0">
+                <dt class="col-6 text-muted fw-semibold d-flex align-items-center gap-2">
+                    {% include "includes/icon.html" with name="power" %}
+                    <span>Cuenta</span>
+                </dt>
+                <dd class="col-6 mb-0">
+                    {% if socio.is_active %}
+                        <span class="badge text-bg-success d-inline-flex align-items-center gap-1">
+                            {% include "includes/icon.html" with name="check-circle" %}
+                            <span>Activo</span>
+                        </span>
+                    {% else %}
+                        <span class="badge text-bg-secondary d-inline-flex align-items-center gap-1">
+                            {% include "includes/icon.html" with name="x-circle" %}
+                            <span>Inactivo</span>
+                        </span>
+                    {% endif %}
+                </dd>
+                <dt class="col-6 text-muted fw-semibold d-flex align-items-center gap-2">
+                    {% include "includes/icon.html" with name="clipboard-check" %}
+                    <span>Asistencia</span>
+                </dt>
+                <dd class="col-6 mb-0">
+                    <span class="badge {{ socio.indicador_asistencia.badge_class }} d-inline-flex align-items-center gap-1">
+                        {% include "includes/icon.html" with name="info" %}
+                        <span>{{ socio.indicador_asistencia.label }}</span>
+                    </span>
+                </dd>
+            </dl>
+        </div>
+    </div>
+</section>
+
+<section class="row g-3" aria-label="Resumen de asistencia">
+    <div class="col-6 col-lg-3">
+        <div class="border rounded bg-white p-3 h-100 d-flex justify-content-between gap-3 align-items-center">
+            <div>
+                <span class="d-block text-muted small fw-semibold">Reuniones</span>
+                <strong class="fs-4">{{ socio.total_reuniones }}</strong>
+            </div>
+            {% include "includes/icon.html" with name="calendar-check" classes="fs-4 text-primary flex-shrink-0" %}
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="border rounded bg-white p-3 h-100 d-flex justify-content-between gap-3 align-items-center">
+            <div>
+                <span class="d-block text-muted small fw-semibold">Asistencias</span>
+                <strong class="fs-4">{{ socio.total_asistencias }}</strong>
+            </div>
+            {% include "includes/icon.html" with name="check-circle" classes="fs-4 text-primary flex-shrink-0" %}
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="border rounded bg-white p-3 h-100 d-flex justify-content-between gap-3 align-items-center">
+            <div>
+                <span class="d-block text-muted small fw-semibold">Ausencias</span>
+                <strong class="fs-4">{{ socio.total_ausencias }}</strong>
+            </div>
+            {% include "includes/icon.html" with name="alert-triangle" classes="fs-4 text-primary flex-shrink-0" %}
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="border rounded bg-white p-3 h-100 d-flex justify-content-between gap-3 align-items-center">
+            <div>
+                <span class="d-block text-muted small fw-semibold">Justificaciones</span>
+                <strong class="fs-4">{{ socio.total_justificaciones }}</strong>
+            </div>
+            {% include "includes/icon.html" with name="shield-check" classes="fs-4 text-primary flex-shrink-0" %}
+        </div>
+    </div>
+</section>
+{% endblock %}

@@ -1,5 +1,13 @@
 <div class="d-inline-flex gap-2">
     <a
+        href="{% url 'usuarios:detalle_socio' socio.pk %}"
+        class="btn btn-outline-primary btn-sm"
+        title="Ver detalles del socio"
+        aria-label="Ver detalles del socio"
+    >
+        {% include "includes/icon.html" with name="eye" %}
+    </a>
+    <a
         href="{% url 'usuarios:editar_socio' socio.pk %}"
         class="btn btn-outline-primary btn-sm"
         title="Editar socio"

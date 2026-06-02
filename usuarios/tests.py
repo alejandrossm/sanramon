@@ -2662,12 +2662,15 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'socio@example.com')
         self.assertContains(response, '+56922222222')
         self.assertContains(response, 'APELLIDO MATERNO')
-        self.assertContains(response, 'INGRESO')
+        self.assertNotContains(response, 'INGRESO')
         self.assertContains(response, 'aria-label="Estado de asistencia"')
         self.assertContains(response, 'bi-info-circle')
         self.assertContains(response, 'title="Sin ausencias"')
         self.assertContains(response, 'aria-label="Estado de asistencia: Sin ausencias"')
         self.assertContains(response, 'bi-check-circle')
+        self.assertContains(response, reverse('usuarios:detalle_socio', args=[self.socio_user.pk]))
+        self.assertContains(response, 'aria-label="Ver detalles del socio"')
+        self.assertContains(response, 'bi-eye')
         self.assertContains(response, reverse('usuarios:editar_socio', args=[self.socio_user.pk]))
         self.assertContains(response, 'data-confirm-title="Desactivar socio"')
         self.assertContains(response, reverse('usuarios:eliminar_socio', args=[self.socio_user.pk]))
@@ -2716,18 +2719,38 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Ordenar Nombre ascendente')
         self.assertContains(response, 'Ordenar Apellido paterno ascendente')
         self.assertContains(response, 'Ordenar Apellido materno ascendente')
-        self.assertContains(response, 'Ordenar Ingreso ascendente')
         self.assertContains(response, socio_filtrado.email)
         self.assertContains(response, '<td class="fw-semibold">77777777-7</td>', html=True)
         self.assertContains(response, '<td>Ana</td>', html=True)
         self.assertContains(response, '<td>Zapata</td>', html=True)
         self.assertContains(response, '<td>Rojas</td>', html=True)
-        self.assertContains(response, '<td>15-05-2026</td>', html=True)
+        self.assertNotContains(response, '15-05-2026')
         self.assertContains(response, 'value="77.777.777-7"')
         self.assertContains(response, 'value="Ana"')
         self.assertContains(response, 'value="Rojas"')
         self.assertNotContains(response, 'bruno.socio@example.com')
         self.assertNotContains(response, 'admin@example.com')
+
+    def test_detalle_socio_muestra_fecha_ingreso(self):
+        """Mueve la fecha de ingreso desde el listado al detalle administrativo."""
+        self.socio_user.fecha_ingreso_proyecto = date(2026, 5, 15)
+        self.socio_user.save(update_fields=['fecha_ingreso_proyecto'])
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:detalle_socio', args=[self.socio_user.pk]),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Detalle del socio')
+        self.assertContains(response, 'Fecha de ingreso al proyecto')
+        self.assertContains(response, '15-05-2026')
+        self.assertContains(response, 'socio@example.com')
+        self.assertContains(response, '+56922222222')
+        self.assertContains(response, 'bi-calendar-check')
+        self.assertContains(response, 'bi-shield-check')
+        self.assertContains(response, 'bi-activity')
+        self.assertContains(response, reverse('usuarios:editar_socio', args=[self.socio_user.pk]))
 
     def test_listado_socios_filtra_por_estado(self):
         """Permite filtrar socios activos e inactivos."""
@@ -2768,7 +2791,7 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">NOMBRE</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">APELLIDO PATERNO</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">APELLIDO MATERNO</dt>', html=True)
-        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">INGRESO</dt>', html=True)
+        self.assertNotContains(response, '<dt class="col-4 text-muted fw-semibold">INGRESO</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">EMAIL</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">TELÉFONO</dt>', html=True)
 
