@@ -10,6 +10,5 @@ Inasistencias consideradas para el bloqueo:
 - {{ ausencia.reunion.fecha|date:"d-m-Y" }} {{ ausencia.reunion.hora|time:"H:i" }} - {{ ausencia.reunion.locacion }}
 {% endfor %}
 
-Hasta que se justifique al menos una de estas inasistencias, no sera posible registrar tu asistencia en nuevas reuniones.
 
 Si necesitas regularizar tu situacion, comunicate con la administracion.
