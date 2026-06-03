@@ -184,6 +184,15 @@ COLUMNAS_ORDENABLES_SOCIOS = [
 ]
 
 
+COLUMNAS_ORDENABLES_ASISTENCIA = [
+    {'key': 'rut', 'label': 'RUT', 'field': 'rut'},
+    {'key': 'nombre', 'label': 'Nombre', 'field': 'first_name'},
+    {'key': 'apellido', 'label': 'Apellidos', 'field': 'last_name'},
+    {'key': 'telefono', 'label': 'Teléfono', 'field': 'telefono_movil'},
+    {'key': 'estado', 'label': 'Estado', 'field': 'is_active'},
+]
+
+
 ROLES_FILTRABLES_USUARIOS = filtrar_choices_por_roles(
     Usuario.ROLES,
     ROLES_INTERNOS_GESTIONABLES,
@@ -251,6 +260,16 @@ def obtener_columnas_ordenables_socios(params, orden_actual, direccion_actual):
         orden_actual,
         direccion_actual,
         COLUMNAS_ORDENABLES_SOCIOS,
+    )
+
+
+def obtener_columnas_ordenables_asistencia(params, orden_actual, direccion_actual):
+    """Construye metadatos de ordenamiento para el listado operativo de asistencia."""
+    return obtener_columnas_ordenables(
+        params,
+        orden_actual,
+        direccion_actual,
+        COLUMNAS_ORDENABLES_ASISTENCIA,
     )
 
 
@@ -579,7 +598,7 @@ def listado_socios_asistencia(request):
     consulta = aplicar_filtros_orden_socios(
         request,
         socios,
-        COLUMNAS_ORDENABLES_SOCIOS,
+        COLUMNAS_ORDENABLES_ASISTENCIA,
     )
     socios = consulta['socios']
     filtros = consulta['filtros'].copy()
@@ -619,7 +638,7 @@ def listado_socios_asistencia(request):
             'filtros_activos': consulta['filtros_activos'] or socios_filtrados_por_indicador,
             'estados_filtrables': ESTADOS_FILTRABLES,
             'indicadores_filtrables': INDICADORES_FILTRABLES_ASISTENCIA,
-            'columnas_ordenables': obtener_columnas_ordenables_socios(
+            'columnas_ordenables': obtener_columnas_ordenables_asistencia(
                 request.GET,
                 consulta['orden_actual'],
                 consulta['direccion_actual'],

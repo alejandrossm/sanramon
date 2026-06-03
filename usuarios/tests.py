@@ -2105,16 +2105,17 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'aria-label="Justificaciones"')
         self.assertContains(response, 'Sin ausencias')
         self.assertContains(response, 'aria-label="Ver detalle de asistencia"')
+        self.assertContains(response, 'APELLIDOS')
         self.assertNotContains(response, 'Gestionar estado')
         self.assertNotContains(response, reverse('usuarios:editar_socio', args=[self.socio_user.pk]))
-        self.assertContains(response, 'socio@example.com')
+        self.assertContains(response, self.socio_user.rut)
         self.assertContains(response, '+56922222222')
-        self.assertContains(response, 'AP. MATERNO')
+        self.assertNotContains(response, self.socio_user.email)
         self.assertNotContains(response, 'admin@example.com')
         self.assertNotContains(response, 'encargado@example.com')
 
-    def test_listado_asistencia_filtra_y_separa_nombre_apellido(self):
-        """Aplica filtros operativos y muestra datos personales separados."""
+    def test_listado_asistencia_filtra_y_concatena_apellidos(self):
+        """Aplica filtros operativos y muestra apellidos en una sola columna."""
         socio_filtrado = self.User.objects.create_user(
             username='ana.asistencia',
             email='ana.asistencia@example.com',
@@ -2126,7 +2127,7 @@ class UsuariosModuloTests(TestCase):
             rut='77.777.777-7',
             rol=self.User.SOCIO,
         )
-        self.User.objects.create_user(
+        socio_excluido = self.User.objects.create_user(
             username='bruno.asistencia',
             email='bruno.asistencia@example.com',
             password='ClaveSegura123',
@@ -2150,17 +2151,16 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Ordenar RUT ascendente')
         self.assertContains(response, 'Ordenar Nombre ascendente')
-        self.assertContains(response, 'Ordenar Apellido paterno ascendente')
-        self.assertContains(response, 'Ordenar Apellido materno ascendente')
-        self.assertContains(response, socio_filtrado.email)
+        self.assertContains(response, 'Ordenar Apellidos ascendente')
+        self.assertNotContains(response, 'Ordenar Apellido materno ascendente')
+        self.assertNotContains(response, socio_filtrado.email)
         self.assertContains(response, '<td class="fw-semibold">77777777-7</td>', html=True)
         self.assertContains(response, '<td>Ana</td>', html=True)
-        self.assertContains(response, '<td>Asistencia</td>', html=True)
-        self.assertContains(response, '<td>Rojas</td>', html=True)
+        self.assertContains(response, '<td>Asistencia Rojas</td>', html=True)
         self.assertContains(response, 'value="77.777.777-7"')
         self.assertContains(response, 'value="Ana"')
         self.assertContains(response, 'value="Rojas"')
-        self.assertNotContains(response, 'bruno.asistencia@example.com')
+        self.assertNotContains(response, socio_excluido.rut)
         self.assertNotContains(response, 'admin@example.com')
 
     def test_listado_asistencia_filtra_por_indicador(self):
@@ -2211,9 +2211,9 @@ class UsuariosModuloTests(TestCase):
             '<option value="bloqueado" selected>Bloqueado</option>',
             html=True,
         )
-        self.assertContains(response, socio_bloqueado.email)
-        self.assertNotContains(response, socio_riesgo.email)
-        self.assertNotContains(response, 'socio@example.com')
+        self.assertContains(response, socio_bloqueado.rut)
+        self.assertNotContains(response, socio_riesgo.rut)
+        self.assertNotContains(response, self.socio_user.rut)
 
     def test_listado_asistencia_filtra_socios_justificados_como_una_inasistencia(self):
         """Muestra socios justificados como una inasistencia efectiva."""
@@ -2261,15 +2261,15 @@ class UsuariosModuloTests(TestCase):
             reverse('usuarios:listado_socios_asistencia'),
             {'indicador': 'bloqueado'},
         )
-        self.assertContains(response, socio_bloqueado.email)
-        self.assertNotContains(response, socio_justificado.email)
+        self.assertContains(response, socio_bloqueado.rut)
+        self.assertNotContains(response, socio_justificado.rut)
 
         response = self.client.get(
             reverse('usuarios:listado_socios_asistencia'),
             {'indicador': 'una_inasistencia'},
         )
-        self.assertContains(response, socio_justificado.email)
-        self.assertNotContains(response, socio_bloqueado.email)
+        self.assertContains(response, socio_justificado.rut)
+        self.assertNotContains(response, socio_bloqueado.rut)
 
     def test_listado_asistencia_tiene_lista_responsiva_para_movil(self):
         """Replica el formato responsivo usado por los listados administrativos."""
@@ -2280,8 +2280,10 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'd-none d-md-block')
         self.assertContains(response, 'list-group shadow-sm border rounded overflow-hidden d-md-none')
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">NOMBRE</dt>', html=True)
-        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">AP. PATERNO</dt>', html=True)
-        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">AP. MATERNO</dt>', html=True)
+        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">APELLIDOS</dt>', html=True)
+        self.assertNotContains(response, '<dt class="col-4 text-muted fw-semibold">AP. PATERNO</dt>', html=True)
+        self.assertNotContains(response, '<dt class="col-4 text-muted fw-semibold">AP. MATERNO</dt>', html=True)
+        self.assertNotContains(response, '<dt class="col-4 text-muted fw-semibold">EMAIL</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">TELÉFONO</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">REUNIONES</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">ASISTENCIAS</dt>', html=True)
@@ -3424,7 +3426,8 @@ class UsuariosModuloTests(TestCase):
         self.client.login(username='encargado', password='ClaveSegura123')
         response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'socio@example.com')
+        self.assertContains(response, self.socio_user.rut)
+        self.assertNotContains(response, self.socio_user.email)
         self.assertNotContains(response, 'Registrar socio')
         self.assertNotContains(response, 'Editar')
         self.assertContains(response, 'aria-label="Ver detalle de asistencia"')

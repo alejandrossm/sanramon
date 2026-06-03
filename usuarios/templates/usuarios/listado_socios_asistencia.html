@@ -95,15 +95,7 @@
                     {% if columna.key != 'estado' and columna.key != 'ingreso' %}
                         <th>
                             <div class="d-flex align-items-center gap-1">
-                                <span>
-                                    {% if columna.key == 'apellido' %}
-                                        AP. PATERNO
-                                    {% elif columna.key == 'apellido_materno' %}
-                                        AP. MATERNO
-                                    {% else %}
-                                        {{ columna.label|upper }}
-                                    {% endif %}
-                                </span>
+                                <span>{{ columna.label|upper }}</span>
                                 <a
                                     href="?{% if columna.asc_active %}{{ columna.desc_query }}{% else %}{{ columna.asc_query }}{% endif %}"
                                     class="{% if columna.asc_active or columna.desc_active %}link-primary{% else %}link-secondary{% endif %} text-decoration-none"
@@ -164,9 +156,7 @@
                 <tr>
                     <td class="fw-semibold">{{ socio.rut }}</td>
                     <td>{{ socio.first_name }}</td>
-                    <td>{{ socio.last_name }}</td>
-                    <td>{{ socio.apellido_materno|default:"-" }}</td>
-                    <td>{{ socio.email }}</td>
+                    <td>{{ socio.last_name }}{% if socio.apellido_materno %} {{ socio.apellido_materno }}{% endif %}</td>
                     <td>{{ socio.telefono_movil|default:"-" }}</td>
                     <td class="text-center">{{ socio.total_reuniones }}</td>
                     <td class="text-center">{{ socio.total_asistencias }}</td>
@@ -190,7 +180,7 @@
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="13" class="text-center text-muted py-4">No hay socios registrados.</td>
+                    <td colspan="11" class="text-center text-muted py-4">No hay socios registrados.</td>
                 </tr>
             {% endfor %}
         </tbody>
@@ -218,12 +208,8 @@
             <dl class="row g-2 small mt-3 mb-0">
                 <dt class="col-4 text-muted fw-semibold">NOMBRE</dt>
                 <dd class="col-8 mb-0 text-break">{{ socio.first_name }}</dd>
-                <dt class="col-4 text-muted fw-semibold">AP. PATERNO</dt>
-                <dd class="col-8 mb-0 text-break">{{ socio.last_name }}</dd>
-                <dt class="col-4 text-muted fw-semibold">AP. MATERNO</dt>
-                <dd class="col-8 mb-0 text-break">{{ socio.apellido_materno|default:"-" }}</dd>
-                <dt class="col-4 text-muted fw-semibold">EMAIL</dt>
-                <dd class="col-8 mb-0 text-break">{{ socio.email }}</dd>
+                <dt class="col-4 text-muted fw-semibold">APELLIDOS</dt>
+                <dd class="col-8 mb-0 text-break">{{ socio.last_name }}{% if socio.apellido_materno %} {{ socio.apellido_materno }}{% endif %}</dd>
                 <dt class="col-4 text-muted fw-semibold">TELÉFONO</dt>
                 <dd class="col-8 mb-0 text-break">{{ socio.telefono_movil|default:"-" }}</dd>
                 <dt class="col-4 text-muted fw-semibold">REUNIONES</dt>
