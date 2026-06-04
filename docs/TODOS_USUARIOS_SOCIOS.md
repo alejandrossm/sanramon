@@ -38,6 +38,7 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
 - [x] Implementar bloqueo operativo de socios por inasistencias: un socio con 2 o mas ausencias no puede registrar nuevas asistencias.
 - [x] Agregar flujo de justificacion administrativa de inasistencias de socios bloqueados, con motivo obligatorio, usuario responsable y fecha.
 - [x] Mostrar la causa de las justificaciones de inasistencia en una vista operativa o historica, para que el administrador pueda revisar el motivo registrado.
+- [ ] Revisar que un socio bloqueado no contabilice nuevas asistencias como ausente.
 
 ## Pendientes por definir
 
