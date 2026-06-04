@@ -130,6 +130,13 @@
                             </a>
                         </div>
                     </th>
+                    {% if columna.key == 'rut' %}
+                        <th class="text-center text-nowrap px-1" style="width: 1%;" title="Contacto" aria-label="Contacto">
+                            <span class="d-inline-flex align-items-center justify-content-center" style="width: 2.5rem;">
+                                {% include "includes/icon.html" with name="contact-card" %}
+                            </span>
+                        </th>
+                    {% endif %}
                 {% endfor %}
                 <th class="text-end">Acciones</th>
                 {% if puede_administrar_privilegios %}
@@ -140,13 +147,14 @@
         <tbody>
             {% for usuario in usuarios %}
                 <tr>
-                    <td class="fw-semibold">{{ usuario.username }}</td>
+                    <td class="fw-semibold"><span class="table-cell-truncate is-user" title="{{ usuario.username }}">{{ usuario.username }}</span></td>
                     <td><span class="table-cell-truncate is-name" title="{{ usuario.first_name }}">{{ usuario.first_name }}</span></td>
                     <td><span class="table-cell-truncate is-name" title="{{ usuario.last_name }}">{{ usuario.last_name }}</span></td>
                     <td>{{ usuario.rut }}</td>
-                    <td>{{ usuario.email }}</td>
-                    <td>{{ usuario.telefono_movil|default:"-" }}</td>
-                    <td>{{ usuario.get_rol_display }}</td>
+                    <td class="text-center text-nowrap px-1" style="width: 1%;">
+                        {% include "usuarios/includes/contacto_usuario_iconos.html" %}
+                    </td>
+                    <td><span class="table-cell-truncate is-role" title="{{ usuario.get_rol_display }}">{{ usuario.get_rol_display }}</span></td>
                     <td>
                         {% if usuario.is_active %}
                             <span class="badge text-bg-success">Activo</span>
@@ -165,7 +173,7 @@
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="{% if puede_administrar_privilegios %}10{% else %}9{% endif %}" class="text-center text-muted py-4">No hay usuarios registrados.</td>
+                    <td colspan="{% if puede_administrar_privilegios %}9{% else %}8{% endif %}" class="text-center text-muted py-4">No hay usuarios registrados.</td>
                 </tr>
             {% endfor %}
         </tbody>

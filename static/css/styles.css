@@ -304,12 +304,28 @@ h6,
     --table-cell-truncate-width: 13rem;
 }
 
+.table-cell-truncate.is-user {
+    --table-cell-truncate-width: 7rem;
+}
+
+.table-cell-truncate.is-email {
+    --table-cell-truncate-width: 13rem;
+}
+
+.table-cell-truncate.is-role {
+    --table-cell-truncate-width: 9rem;
+}
+
 @media (min-width: 1200px) {
     .table-cell-truncate.is-name {
         --table-cell-truncate-width: 11rem;
     }
 
     .table-cell-truncate.is-name-wide {
+        --table-cell-truncate-width: 15rem;
+    }
+
+    .table-cell-truncate.is-email {
         --table-cell-truncate-width: 15rem;
     }
 }

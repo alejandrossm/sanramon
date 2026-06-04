@@ -175,7 +175,9 @@
                         {% endif %}
                         {% include "usuarios/includes/indicador_asistencia_socio.html" %}
                     </div>
-                    <div class="text-muted small text-break">{{ socio.nombre_completo }}</div>
+                    <div class="text-muted small">
+                        <span class="table-cell-truncate is-name-wide" title="{{ socio.nombre_completo }}">{{ socio.nombre_completo }}</span>
+                    </div>
                 </div>
                 <div class="flex-shrink-0">
                     {% include "usuarios/includes/acciones_socio.html" %}
@@ -184,18 +186,18 @@
 
             <dl class="row g-2 small mt-3 mb-0">
                 <dt class="col-4 text-muted fw-semibold">NOMBRE</dt>
-                <dd class="col-8 mb-0 text-break">{{ socio.first_name }}</dd>
+                <dd class="col-8 mb-0"><span class="table-cell-truncate is-name-wide" title="{{ socio.first_name }}">{{ socio.first_name }}</span></dd>
                 <dt class="col-4 text-muted fw-semibold">
                     {% include "includes/icon.html" with name="info" %}
                     <span class="visually-hidden">ASISTENCIA</span>
                 </dt>
                 <dd class="col-8 mb-0">{% include "usuarios/includes/indicador_asistencia_socio.html" %}</dd>
                 <dt class="col-4 text-muted fw-semibold">APELLIDO PATERNO</dt>
-                <dd class="col-8 mb-0 text-break">{{ socio.last_name }}</dd>
+                <dd class="col-8 mb-0"><span class="table-cell-truncate is-name-wide" title="{{ socio.last_name }}">{{ socio.last_name }}</span></dd>
                 <dt class="col-4 text-muted fw-semibold">APELLIDO MATERNO</dt>
-                <dd class="col-8 mb-0 text-break">{{ socio.apellido_materno|default:"-" }}</dd>
+                <dd class="col-8 mb-0"><span class="table-cell-truncate is-name-wide" title="{{ socio.apellido_materno|default:'-' }}">{{ socio.apellido_materno|default:"-" }}</span></dd>
                 <dt class="col-4 text-muted fw-semibold">EMAIL</dt>
-                <dd class="col-8 mb-0 text-break">{{ socio.email }}</dd>
+                <dd class="col-8 mb-0"><span class="table-cell-truncate is-name-wide" title="{{ socio.email }}">{{ socio.email }}</span></dd>
                 <dt class="col-4 text-muted fw-semibold">TELÉFONO</dt>
                 <dd class="col-8 mb-0 text-break">{{ socio.telefono_movil|default:"-" }}</dd>
             </dl>

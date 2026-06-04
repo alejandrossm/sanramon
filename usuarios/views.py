@@ -163,8 +163,6 @@ COLUMNAS_ORDENABLES_USUARIOS = [
     {'key': 'nombre', 'label': 'Nombre', 'field': 'first_name'},
     {'key': 'apellido', 'label': 'Apellido', 'field': 'last_name'},
     {'key': 'rut', 'label': 'RUT', 'field': 'rut'},
-    {'key': 'email', 'label': 'Email', 'field': 'email'},
-    {'key': 'telefono', 'label': 'Teléfono', 'field': 'telefono_movil'},
     {'key': 'rol', 'label': 'Rol', 'field': 'rol'},
     {'key': 'estado', 'label': 'Estado', 'field': 'is_active'},
 ]
