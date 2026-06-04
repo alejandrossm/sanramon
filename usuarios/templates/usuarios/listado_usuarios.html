@@ -141,8 +141,8 @@
             {% for usuario in usuarios %}
                 <tr>
                     <td class="fw-semibold">{{ usuario.username }}</td>
-                    <td>{{ usuario.first_name }}</td>
-                    <td>{{ usuario.last_name }}</td>
+                    <td><span class="table-cell-truncate is-name" title="{{ usuario.first_name }}">{{ usuario.first_name }}</span></td>
+                    <td><span class="table-cell-truncate is-name" title="{{ usuario.last_name }}">{{ usuario.last_name }}</span></td>
                     <td>{{ usuario.rut }}</td>
                     <td>{{ usuario.email }}</td>
                     <td>{{ usuario.telefono_movil|default:"-" }}</td>

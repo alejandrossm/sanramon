@@ -178,8 +178,6 @@ COLUMNAS_ORDENABLES_SOCIOS = [
         'label': 'Apellido materno',
         'field': 'apellido_materno',
     },
-    {'key': 'email', 'label': 'Email', 'field': 'email'},
-    {'key': 'telefono', 'label': 'Teléfono', 'field': 'telefono_movil'},
     {'key': 'estado', 'label': 'Estado', 'field': 'is_active'},
 ]
 

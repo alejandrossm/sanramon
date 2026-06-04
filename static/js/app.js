@@ -39,6 +39,12 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    if (window.bootstrap?.Tooltip) {
+        document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((element) => {
+            window.bootstrap.Tooltip.getOrCreateInstance(element);
+        });
+    }
+
     if (window.Swal) {
         const iconByLevel = {
             success: 'success',

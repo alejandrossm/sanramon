@@ -113,6 +113,13 @@
                             {% include "includes/icon.html" with name="info" %}
                         </th>
                     {% endif %}
+                    {% if columna.key == 'apellido_materno' %}
+                        <th class="text-center text-nowrap px-1" style="width: 1%;" title="Contacto" aria-label="Contacto">
+                            <span class="d-inline-flex align-items-center justify-content-center" style="width: 2.5rem;">
+                                {% include "includes/icon.html" with name="contact-card" %}
+                            </span>
+                        </th>
+                    {% endif %}
                 {% endfor %}
                 <th class="text-end">Acciones</th>
                 <th class="text-end">Eliminar</th>
@@ -125,11 +132,12 @@
                     <td class="text-center text-nowrap px-1" style="width: 1%;">
                         {% include "usuarios/includes/indicador_asistencia_socio.html" %}
                     </td>
-                    <td>{{ socio.first_name }}</td>
-                    <td>{{ socio.last_name }}</td>
-                    <td>{{ socio.apellido_materno|default:"-" }}</td>
-                    <td>{{ socio.email }}</td>
-                    <td>{{ socio.telefono_movil|default:"-" }}</td>
+                    <td><span class="table-cell-truncate is-name" title="{{ socio.first_name }}">{{ socio.first_name }}</span></td>
+                    <td><span class="table-cell-truncate is-name" title="{{ socio.last_name }}">{{ socio.last_name }}</span></td>
+                    <td><span class="table-cell-truncate is-name" title="{{ socio.apellido_materno|default:'-' }}">{{ socio.apellido_materno|default:"-" }}</span></td>
+                    <td class="text-center text-nowrap px-1" style="width: 1%;">
+                        {% include "usuarios/includes/contacto_socio_iconos.html" %}
+                    </td>
                     <td>
                         {% if socio.is_active %}
                             <span class="badge text-bg-success">Activo</span>
@@ -137,16 +145,16 @@
                             <span class="badge text-bg-secondary">Inactivo</span>
                         {% endif %}
                     </td>
-                    <td class="text-end">
+                    <td class="text-end text-nowrap px-1" style="width: 1%;">
                         {% include "usuarios/includes/acciones_socio.html" %}
                     </td>
-                    <td class="text-end">
+                    <td class="text-end text-nowrap px-1" style="width: 1%;">
                         {% include "usuarios/includes/eliminar_socio.html" %}
                     </td>
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="10" class="text-center text-muted py-4">No hay socios registrados.</td>
+                    <td colspan="9" class="text-center text-muted py-4">No hay socios registrados.</td>
                 </tr>
             {% endfor %}
         </tbody>

@@ -155,8 +155,8 @@
             {% for socio in socios %}
                 <tr>
                     <td class="fw-semibold">{{ socio.rut }}</td>
-                    <td>{{ socio.first_name }}</td>
-                    <td>{{ socio.last_name }}{% if socio.apellido_materno %} {{ socio.apellido_materno }}{% endif %}</td>
+                    <td><span class="table-cell-truncate is-name" title="{{ socio.first_name }}">{{ socio.first_name }}</span></td>
+                    <td><span class="table-cell-truncate is-name-wide" title="{{ socio.last_name }}{% if socio.apellido_materno %} {{ socio.apellido_materno }}{% endif %}">{{ socio.last_name }}{% if socio.apellido_materno %} {{ socio.apellido_materno }}{% endif %}</span></td>
                     <td>{{ socio.telefono_movil|default:"-" }}</td>
                     <td class="text-center">{{ socio.total_reuniones }}</td>
                     <td class="text-center">{{ socio.total_asistencias }}</td>

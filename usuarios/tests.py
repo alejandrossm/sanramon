@@ -2155,8 +2155,16 @@ class UsuariosModuloTests(TestCase):
         self.assertNotContains(response, 'Ordenar Apellido materno ascendente')
         self.assertNotContains(response, socio_filtrado.email)
         self.assertContains(response, '<td class="fw-semibold">77777777-7</td>', html=True)
-        self.assertContains(response, '<td>Ana</td>', html=True)
-        self.assertContains(response, '<td>Asistencia Rojas</td>', html=True)
+        self.assertContains(
+            response,
+            '<span class="table-cell-truncate is-name" title="Ana">Ana</span>',
+            html=True,
+        )
+        self.assertContains(
+            response,
+            '<span class="table-cell-truncate is-name-wide" title="Asistencia Rojas">Asistencia Rojas</span>',
+            html=True,
+        )
         self.assertContains(response, 'value="77.777.777-7"')
         self.assertContains(response, 'value="Ana"')
         self.assertContains(response, 'value="Rojas"')
@@ -2547,8 +2555,16 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Ordenar Nombre ascendente')
         self.assertContains(response, 'Ordenar Apellido ascendente')
         self.assertContains(response, usuario_filtrado.email)
-        self.assertContains(response, '<td>Ana</td>', html=True)
-        self.assertContains(response, '<td>Zapata</td>', html=True)
+        self.assertContains(
+            response,
+            '<span class="table-cell-truncate is-name" title="Ana">Ana</span>',
+            html=True,
+        )
+        self.assertContains(
+            response,
+            '<span class="table-cell-truncate is-name" title="Zapata">Zapata</span>',
+            html=True,
+        )
         self.assertContains(response, 'value="77.777.777-7"')
         self.assertContains(response, 'value="Ana"')
         self.assertContains(response, 'value="Zapata"')
@@ -2697,8 +2713,11 @@ class UsuariosModuloTests(TestCase):
         response = self.client.get(reverse('usuarios:listado_socios'))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Gestión administrativa de socios registrados.')
-        self.assertContains(response, 'socio@example.com')
-        self.assertContains(response, '+56922222222')
+        self.assertContains(response, 'aria-label="Contacto"')
+        self.assertContains(response, 'title="Email: socio@example.com"')
+        self.assertContains(response, 'title="Telefono: +56922222222"')
+        self.assertContains(response, 'bi-envelope')
+        self.assertContains(response, 'bi-telephone')
         self.assertContains(response, 'APELLIDO MATERNO')
         self.assertNotContains(response, 'INGRESO')
         self.assertContains(response, 'aria-label="Estado de asistencia"')
@@ -2757,11 +2776,23 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Ordenar Nombre ascendente')
         self.assertContains(response, 'Ordenar Apellido paterno ascendente')
         self.assertContains(response, 'Ordenar Apellido materno ascendente')
-        self.assertContains(response, socio_filtrado.email)
+        self.assertContains(response, f'title="Email: {socio_filtrado.email}"')
         self.assertContains(response, '<td class="fw-semibold">77777777-7</td>', html=True)
-        self.assertContains(response, '<td>Ana</td>', html=True)
-        self.assertContains(response, '<td>Zapata</td>', html=True)
-        self.assertContains(response, '<td>Rojas</td>', html=True)
+        self.assertContains(
+            response,
+            '<span class="table-cell-truncate is-name" title="Ana">Ana</span>',
+            html=True,
+        )
+        self.assertContains(
+            response,
+            '<span class="table-cell-truncate is-name" title="Zapata">Zapata</span>',
+            html=True,
+        )
+        self.assertContains(
+            response,
+            '<span class="table-cell-truncate is-name" title="Rojas">Rojas</span>',
+            html=True,
+        )
         self.assertNotContains(response, '15-05-2026')
         self.assertContains(response, 'value="77.777.777-7"')
         self.assertContains(response, 'value="Ana"')
@@ -2815,7 +2846,7 @@ class UsuariosModuloTests(TestCase):
             '<option value="inactivo" selected>Inactivo</option>',
             html=True,
         )
-        self.assertContains(response, socio_inactivo.email)
+        self.assertContains(response, f'title="Email: {socio_inactivo.email}"')
         self.assertNotContains(response, 'socio@example.com')
 
     def test_listado_socios_tiene_lista_responsiva_para_movil(self):
@@ -2832,6 +2863,10 @@ class UsuariosModuloTests(TestCase):
         self.assertNotContains(response, '<dt class="col-4 text-muted fw-semibold">INGRESO</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">EMAIL</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">TELÉFONO</dt>', html=True)
+        self.assertContains(response, 'socio@example.com')
+        self.assertContains(response, '+56922222222')
+        self.assertContains(response, 'aria-label="Contacto"')
+        self.assertContains(response, 'data-bs-toggle="tooltip"')
 
         self.assertContains(response, '<span class="visually-hidden">ASISTENCIA</span>', html=True)
 

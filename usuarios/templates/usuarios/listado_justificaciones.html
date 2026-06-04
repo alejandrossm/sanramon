@@ -89,14 +89,14 @@
         <tbody>
             {% for justificacion in justificaciones %}
                 <tr>
-                    <td>{{ justificacion.socio.nombre_completo }}</td>
+                    <td><span class="table-cell-truncate is-name-wide" title="{{ justificacion.socio.nombre_completo }}">{{ justificacion.socio.nombre_completo }}</span></td>
                     <td>{{ justificacion.socio.rut }}</td>
                     <td>
                         <span class="d-block fw-semibold">{{ justificacion.asistencia.reunion.fecha|date:"d-m-Y" }} {{ justificacion.asistencia.reunion.hora|time:"H:i" }}</span>
                         <span class="d-block text-muted small">{{ justificacion.asistencia.reunion.locacion }}</span>
                     </td>
                     <td class="text-break">{{ justificacion.motivo }}</td>
-                    <td>{{ justificacion.desbloqueado_por.nombre_completo }}</td>
+                    <td><span class="table-cell-truncate is-name-wide" title="{{ justificacion.desbloqueado_por.nombre_completo }}">{{ justificacion.desbloqueado_por.nombre_completo }}</span></td>
                     <td>{{ justificacion.fecha_desbloqueo|date:"d-m-Y H:i" }}</td>
                     <td class="text-center">{{ justificacion.inasistencias_al_desbloquear }}</td>
                 </tr>

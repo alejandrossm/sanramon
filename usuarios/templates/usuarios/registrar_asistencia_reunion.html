@@ -95,11 +95,11 @@
             {% for asistencia in asistencias %}
             <tr>
                 <td class="fw-semibold">{{ asistencia.socio.rut }}</td>
-                <td>{{ asistencia.socio.nombre_completo }}</td>
+                <td><span class="table-cell-truncate is-name-wide" title="{{ asistencia.socio.nombre_completo }}">{{ asistencia.socio.nombre_completo }}</span></td>
                 <td>{{ asistencia.get_origen_display }}</td>
                 <td>
                     {% if asistencia.registrada_por %}
-                    {{ asistencia.registrada_por.nombre_completo }}
+                    <span class="table-cell-truncate is-name-wide" title="{{ asistencia.registrada_por.nombre_completo }}">{{ asistencia.registrada_por.nombre_completo }}</span>
                     {% else %}
                     <span class="text-muted">-</span>
                     {% endif %}

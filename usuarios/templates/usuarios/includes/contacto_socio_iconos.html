@@ -1,0 +1,20 @@
+<span class="d-inline-flex gap-2 align-items-center justify-content-center">
+    <span
+        class="text-primary"
+        title="Email: {{ socio.email }}"
+        aria-label="Email: {{ socio.email }}"
+        data-bs-toggle="tooltip"
+        tabindex="0"
+    >
+        {% include "includes/icon.html" with name="envelope" %}
+    </span>
+    <span
+        class="{% if socio.telefono_movil %}text-primary{% else %}text-muted{% endif %}"
+        title="{% if socio.telefono_movil %}Telefono: {{ socio.telefono_movil }}{% else %}Telefono no registrado{% endif %}"
+        aria-label="{% if socio.telefono_movil %}Telefono: {{ socio.telefono_movil }}{% else %}Telefono no registrado{% endif %}"
+        data-bs-toggle="tooltip"
+        tabindex="0"
+    >
+        {% include "includes/icon.html" with name="phone" %}
+    </span>
+</span>
