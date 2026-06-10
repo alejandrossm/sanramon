@@ -1,0 +1,14 @@
+Hola {{ socio.nombre_completo }},
+
+Tu estado actual en el sistema de asistencia es: BLOQUEADO.
+
+Razon del bloqueo:
+{{ razon_bloqueo }}
+
+Inasistencias consideradas para el bloqueo:
+{% for ausencia in ausencias_pendientes %}
+- {{ ausencia.reunion.fecha|date:"d-m-Y" }} {{ ausencia.reunion.hora|time:"H:i" }} - {{ ausencia.reunion.locacion }}
+{% endfor %}
+
+
+Si necesitas regularizar tu situacion, comunicate con la administracion.

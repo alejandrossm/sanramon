@@ -1,4 +1,5 @@
 from functools import wraps
+from smtplib import SMTPException
 
 from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
@@ -11,11 +12,14 @@ from django.contrib.auth.views import (
     PasswordResetDoneView,
     PasswordResetView,
 )
+from django.core.mail import BadHeaderError, send_mail
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import IntegrityError
 from django.db.models import Count, Q
+from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.urls import reverse_lazy
 from django.views.decorators.http import require_POST
 
@@ -34,7 +38,13 @@ from .forms import (
     UsuarioCreationForm,
     UsuarioUpdateForm,
 )
-from .models import AsistenciaReunion, DesbloqueoSocio, Reunion, Usuario
+from .models import (
+    AsistenciaReunion,
+    DesbloqueoSocio,
+    NotificacionBloqueoSocio,
+    Reunion,
+    Usuario,
+)
 from .permisos import (
     PERM_ACCEDER_ASISTENCIA,
     PERM_ADMINISTRAR_PRIVILEGIOS,
@@ -129,13 +139,30 @@ def obtener_mensaje_validacion(error):
     return error.messages[0] if error.messages else 'No fue posible completar la accion.'
 
 
+def obtener_contexto_notificacion_bloqueo(socio):
+    """Construye el contenido del aviso estandar para socios bloqueados."""
+    ausencias_pendientes = list(AsistenciaReunion.obtener_ausencias_justificables(socio))
+    total_inasistencias_efectivas = len(ausencias_pendientes)
+    umbral_bloqueo = AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO
+
+    return {
+        'socio': socio,
+        'ausencias_pendientes': ausencias_pendientes,
+        'total_inasistencias_efectivas': total_inasistencias_efectivas,
+        'umbral_bloqueo': umbral_bloqueo,
+        'razon_bloqueo': (
+            f'Registras {total_inasistencias_efectivas} inasistencias pendientes '
+            f'de justificacion, superando el umbral de {umbral_bloqueo} '
+            'inasistencias efectivas definido por el sistema.'
+        ),
+    }
+
+
 COLUMNAS_ORDENABLES_USUARIOS = [
     {'key': 'usuario', 'label': 'Usuario', 'field': 'username'},
     {'key': 'nombre', 'label': 'Nombre', 'field': 'first_name'},
     {'key': 'apellido', 'label': 'Apellido', 'field': 'last_name'},
     {'key': 'rut', 'label': 'RUT', 'field': 'rut'},
-    {'key': 'email', 'label': 'Email', 'field': 'email'},
-    {'key': 'telefono', 'label': 'Teléfono', 'field': 'telefono_movil'},
     {'key': 'rol', 'label': 'Rol', 'field': 'rol'},
     {'key': 'estado', 'label': 'Estado', 'field': 'is_active'},
 ]
@@ -143,8 +170,20 @@ COLUMNAS_ORDENABLES_USUARIOS = [
 COLUMNAS_ORDENABLES_SOCIOS = [
     {'key': 'rut', 'label': 'RUT', 'field': 'rut'},
     {'key': 'nombre', 'label': 'Nombre', 'field': 'first_name'},
-    {'key': 'apellido', 'label': 'Apellido', 'field': 'last_name'},
-    {'key': 'email', 'label': 'Email', 'field': 'email'},
+    {'key': 'apellido', 'label': 'Apellido paterno', 'field': 'last_name'},
+    {
+        'key': 'apellido_materno',
+        'label': 'Apellido materno',
+        'field': 'apellido_materno',
+    },
+    {'key': 'estado', 'label': 'Estado', 'field': 'is_active'},
+]
+
+
+COLUMNAS_ORDENABLES_ASISTENCIA = [
+    {'key': 'rut', 'label': 'RUT', 'field': 'rut'},
+    {'key': 'nombre', 'label': 'Nombre', 'field': 'first_name'},
+    {'key': 'apellido', 'label': 'Apellidos', 'field': 'last_name'},
     {'key': 'telefono', 'label': 'Teléfono', 'field': 'telefono_movil'},
     {'key': 'estado', 'label': 'Estado', 'field': 'is_active'},
 ]
@@ -220,6 +259,16 @@ def obtener_columnas_ordenables_socios(params, orden_actual, direccion_actual):
     )
 
 
+def obtener_columnas_ordenables_asistencia(params, orden_actual, direccion_actual):
+    """Construye metadatos de ordenamiento para el listado operativo de asistencia."""
+    return obtener_columnas_ordenables(
+        params,
+        orden_actual,
+        direccion_actual,
+        COLUMNAS_ORDENABLES_ASISTENCIA,
+    )
+
+
 def aplicar_filtros_orden_socios(request, socios, columnas_ordenables):
     """Aplica filtros y ordenamiento comun para listados de socios."""
     campos_ordenables = {
@@ -251,7 +300,10 @@ def aplicar_filtros_orden_socios(request, socios, columnas_ordenables):
     if filtros['nombre']:
         socios = socios.filter(first_name__icontains=filtros['nombre'])
     if filtros['apellido']:
-        socios = socios.filter(last_name__icontains=filtros['apellido'])
+        socios = socios.filter(
+            Q(last_name__icontains=filtros['apellido'])
+            | Q(apellido_materno__icontains=filtros['apellido'])
+        )
     if filtros['estado']:
         socios = socios.filter(is_active=filtros['estado'] == 'activo')
 
@@ -262,12 +314,24 @@ def aplicar_filtros_orden_socios(request, socios, columnas_ordenables):
             campo_orden = f'-{campo_base}'
         campos_secundarios = [
             campo
-            for campo in ('last_name', 'first_name', 'username', 'pk')
+            for campo in (
+                'last_name',
+                'apellido_materno',
+                'first_name',
+                'username',
+                'pk',
+            )
             if campo != campo_base
         ]
         socios = socios.order_by(campo_orden, *campos_secundarios)
     else:
-        socios = socios.order_by('last_name', 'first_name', 'username', 'pk')
+        socios = socios.order_by(
+            'last_name',
+            'apellido_materno',
+            'first_name',
+            'username',
+            'pk',
+        )
 
     return {
         'socios': socios,
@@ -530,7 +594,7 @@ def listado_socios_asistencia(request):
     consulta = aplicar_filtros_orden_socios(
         request,
         socios,
-        COLUMNAS_ORDENABLES_SOCIOS,
+        COLUMNAS_ORDENABLES_ASISTENCIA,
     )
     socios = consulta['socios']
     filtros = consulta['filtros'].copy()
@@ -550,6 +614,9 @@ def listado_socios_asistencia(request):
     paginator = Paginator(socios, 50)
     page_obj = paginator.get_page(request.GET.get('page'))
     page_obj.object_list = agregar_resumen_asistencia_socios(page_obj.object_list)
+    page_obj.object_list = agregar_estado_notificacion_bloqueo_socios(
+        page_obj.object_list
+    )
     pagination_params = request.GET.copy()
     if 'page' in pagination_params:
         del pagination_params['page']
@@ -567,7 +634,7 @@ def listado_socios_asistencia(request):
             'filtros_activos': consulta['filtros_activos'] or socios_filtrados_por_indicador,
             'estados_filtrables': ESTADOS_FILTRABLES,
             'indicadores_filtrables': INDICADORES_FILTRABLES_ASISTENCIA,
-            'columnas_ordenables': obtener_columnas_ordenables_socios(
+            'columnas_ordenables': obtener_columnas_ordenables_asistencia(
                 request.GET,
                 consulta['orden_actual'],
                 consulta['direccion_actual'],
@@ -626,7 +693,8 @@ def listado_justificaciones(request):
         )
     if filtros['apellido']:
         justificaciones = justificaciones.filter(
-            socio__last_name__icontains=filtros['apellido'],
+            Q(socio__last_name__icontains=filtros['apellido'])
+            | Q(socio__apellido_materno__icontains=filtros['apellido']),
         )
     if filtros['motivo']:
         justificaciones = justificaciones.filter(motivo__icontains=filtros['motivo'])
@@ -687,6 +755,37 @@ def agregar_resumen_asistencia_socios(socios):
         )
         socios_resumidos.append(socio)
     return socios_resumidos
+
+
+def agregar_estado_notificacion_bloqueo_socios(socios):
+    """Marca si el bloqueo vigente del socio ya fue notificado."""
+    socios = list(socios)
+    socios_bloqueados_ids = []
+
+    for socio in socios:
+        socio.notificacion_bloqueo_enviada = False
+        if getattr(socio, 'total_ausencias_efectivas', 0) >= (
+            AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO
+        ):
+            socios_bloqueados_ids.append(socio.pk)
+
+    if not socios_bloqueados_ids:
+        return socios
+
+    firmas_actuales = AsistenciaReunion.obtener_firmas_bloqueo_socios(
+        socios_bloqueados_ids,
+    )
+    firmas_notificadas = NotificacionBloqueoSocio.obtener_firmas_notificadas_socios(
+        socios_bloqueados_ids,
+    )
+
+    for socio in socios:
+        firma_actual = firmas_actuales.get(socio.pk)
+        socio.notificacion_bloqueo_enviada = bool(
+            firma_actual and (socio.pk, firma_actual) in firmas_notificadas
+        )
+
+    return socios
 
 
 def anotar_resumen_asistencia_socios(socios):
@@ -1133,6 +1232,9 @@ def listado_socios(request):
     paginator = Paginator(socios, 50)
     page_obj = paginator.get_page(request.GET.get('page'))
     page_obj.object_list = agregar_resumen_asistencia_socios(page_obj.object_list)
+    page_obj.object_list = agregar_estado_notificacion_bloqueo_socios(
+        page_obj.object_list
+    )
     pagination_params = request.GET.copy()
     if 'page' in pagination_params:
         del pagination_params['page']
@@ -1163,6 +1265,22 @@ def listado_socios(request):
     )
 
 
+@gestor_usuarios_required
+def detalle_socio(request, pk):
+    """Muestra datos administrativos y resumen operativo de un socio."""
+    socio = get_object_or_404(Usuario, pk=pk, rol=Usuario.SOCIO)
+    socio = agregar_resumen_asistencia_socios([socio])[0]
+
+    return render(
+        request,
+        'usuarios/detalle_socio.html',
+        {
+            'socio': socio,
+            'puede_editar_socios': puede_editar_socios(request.user),
+        },
+    )
+
+
 @registro_usuarios_required
 def registro_usuario(request):
     """Crea usuarios internos respetando las restricciones de rol del actor."""
@@ -1186,7 +1304,7 @@ def registro_usuario(request):
 
 @registro_socios_required
 def registro_socio(request):
-    """Crea socios con username tecnico y contrasena inicial."""
+    """Crea socios con username tecnico y sin contrasena de acceso."""
     if request.method == 'POST':
         form = SocioCreationForm(request.POST)
         if form.is_valid():
@@ -1318,6 +1436,63 @@ def justificar_inasistencia(request, pk):
 
 @require_POST
 @gestor_usuarios_required
+def notificar_bloqueo_socio(request, pk):
+    """Envia al socio bloqueado un correo con el motivo del bloqueo."""
+    socio = get_object_or_404(Usuario, pk=pk, rol=Usuario.SOCIO)
+
+    if not AsistenciaReunion.socio_esta_bloqueado(socio):
+        messages.error(request, 'El socio no esta bloqueado por inasistencias.')
+        return redirect('usuarios:listado_socios_asistencia')
+
+    if NotificacionBloqueoSocio.bloqueo_actual_ya_notificado(socio):
+        messages.info(
+            request,
+            'La notificacion de bloqueo ya fue enviada para el bloqueo actual.',
+        )
+        return redirect('usuarios:listado_socios_asistencia')
+
+    contexto = obtener_contexto_notificacion_bloqueo(socio)
+
+    try:
+        enviados = send_mail(
+            'Notificacion de bloqueo de asistencia',
+            render_to_string(
+                'usuarios/emails/notificacion_bloqueo_socio.txt',
+                contexto,
+            ),
+            None,
+            [socio.email],
+            fail_silently=False,
+        )
+    except (BadHeaderError, OSError, SMTPException):
+        messages.error(
+            request,
+            'No fue posible enviar la notificacion de bloqueo en este momento.',
+        )
+        return redirect('usuarios:listado_socios_asistencia')
+
+    if not enviados:
+        messages.error(
+            request,
+            'No fue posible enviar la notificacion de bloqueo en este momento.',
+        )
+        return redirect('usuarios:listado_socios_asistencia')
+
+    try:
+        NotificacionBloqueoSocio.registrar_bloqueo_actual(socio, request.user)
+    except ValidationError as error:
+        messages.info(request, obtener_mensaje_validacion(error))
+        return redirect('usuarios:listado_socios_asistencia')
+
+    messages.success(
+        request,
+        f'Notificacion de bloqueo enviada a {socio.email}.',
+    )
+    return redirect('usuarios:listado_socios_asistencia')
+
+
+@require_POST
+@gestor_usuarios_required
 def cambiar_estado_usuario(request, pk):
     """Activa o desactiva un usuario permitido desde una peticion POST."""
     usuario = get_object_or_404(Usuario, pk=pk)
@@ -1357,7 +1532,18 @@ def eliminar_usuario(request, pk):
         return redirect('usuarios:listado_usuarios')
 
     nombre_usuario = usuario.nombre_completo
-    usuario.delete()
+    try:
+        usuario.delete()
+    except ProtectedError:
+        messages.error(
+            request,
+            (
+                'No se puede eliminar este usuario porque tiene historial operativo '
+                'registrado. Puedes desactivarlo para impedir su acceso.'
+            ),
+        )
+        return redirect('usuarios:listado_usuarios')
+
     messages.success(request, f'Usuario {nombre_usuario} eliminado correctamente.')
     return redirect('usuarios:listado_usuarios')
 

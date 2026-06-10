@@ -288,6 +288,48 @@ h6,
     color: var(--color-text);
 }
 
+.table-cell-truncate {
+    display: block;
+    max-width: var(--table-cell-truncate-width, 10rem);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.table-cell-truncate.is-name {
+    --table-cell-truncate-width: 9rem;
+}
+
+.table-cell-truncate.is-name-wide {
+    --table-cell-truncate-width: 13rem;
+}
+
+.table-cell-truncate.is-user {
+    --table-cell-truncate-width: 7rem;
+}
+
+.table-cell-truncate.is-email {
+    --table-cell-truncate-width: 13rem;
+}
+
+.table-cell-truncate.is-role {
+    --table-cell-truncate-width: 9rem;
+}
+
+@media (min-width: 1200px) {
+    .table-cell-truncate.is-name {
+        --table-cell-truncate-width: 11rem;
+    }
+
+    .table-cell-truncate.is-name-wide {
+        --table-cell-truncate-width: 15rem;
+    }
+
+    .table-cell-truncate.is-email {
+        --table-cell-truncate-width: 15rem;
+    }
+}
+
 .table tbody tr {
     border-color: var(--color-border);
 }

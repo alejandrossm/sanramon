@@ -29,7 +29,12 @@ from .identificacion import (
     ORIGEN_RUT_MANUAL,
     parsear_lectura_rut,
 )
-from .models import AsistenciaReunion, DesbloqueoSocio, Reunion
+from .models import (
+    AsistenciaReunion,
+    DesbloqueoSocio,
+    NotificacionBloqueoSocio,
+    Reunion,
+)
 from .permisos import (
     GRUPO_ADMINISTRADOR,
     GRUPO_ENCARGADO_REGISTRO,
@@ -204,6 +209,32 @@ class UsuariosModuloTests(TestCase):
         self.assertIn('fecha', form.errors)
         self.assertIn('hora', form.errors)
         self.assertIn('locacion', form.errors)
+
+    def test_formulario_reunion_exige_hora_en_formato_24_horas(self):
+        """Rechaza horas con AM/PM o sin cero inicial."""
+        datos_base = {
+            'fecha': '2026-07-20',
+            'locacion': 'Sede social',
+            'estado': Reunion.PROGRAMADA,
+        }
+
+        for hora_invalida in ('6:30 PM', '6:30'):
+            form = ReunionCreationForm(
+                data={**datos_base, 'hora': hora_invalida},
+                creador=self.admin_user,
+            )
+            self.assertFalse(form.is_valid())
+            self.assertIn(
+                ReunionCreationForm.HORA_24H_MENSAJE,
+                form.errors['hora'],
+            )
+
+        form = ReunionCreationForm(
+            data={**datos_base, 'hora': '18:30'},
+            creador=self.admin_user,
+        )
+        self.assertTrue(form.is_valid())
+        self.assertEqual(form.cleaned_data['hora'], time(18, 30))
 
     @patch('usuarios.forms.timezone.localtime', return_value=datetime(2026, 5, 14, 12, 0))
     def test_formulario_reunion_alerta_fecha_hora_duplicada(self, _localtime):
@@ -509,20 +540,6 @@ class UsuariosModuloTests(TestCase):
             origen=AsistenciaReunion.ORIGEN_AUTOMATICO,
             registrada_por=self.admin_user,
         )
-        reunion_anio_anterior = Reunion.objects.create(
-            fecha=date(2025, 12, 10),
-            hora=time(18, 30),
-            locacion='Sede social',
-            creador=self.admin_user,
-            estado=Reunion.FINALIZADA,
-        )
-        AsistenciaReunion.objects.create(
-            reunion=reunion_anio_anterior,
-            socio=socio_ausente,
-            estado=AsistenciaReunion.AUSENTE,
-            origen=AsistenciaReunion.ORIGEN_AUTOMATICO,
-            registrada_por=self.admin_user,
-        )
         reunion = Reunion.objects.create(
             fecha=date(2026, 5, 20),
             hora=time(18, 30),
@@ -558,6 +575,110 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(asistencia_ausente.estado, AsistenciaReunion.AUSENTE)
         self.assertEqual(asistencia_ausente.origen, AsistenciaReunion.ORIGEN_AUTOMATICO)
         self.assertEqual(asistencia_ausente.registrada_por, self.admin_user)
+
+    def test_reunion_finalizada_no_marca_ausente_socio_bloqueado(self):
+        """No crea nuevas ausencias automaticas para socios ya bloqueados."""
+        socio_bloqueado = self.User.objects.create_user(
+            username='socio.bloqueado.finalizar',
+            email='socio.bloqueado.finalizar@example.com',
+            password='ClaveSegura123',
+            first_name='Socio',
+            last_name='Bloqueado',
+            rut='66.666.666-6',
+            rol=self.User.SOCIO,
+        )
+        self.registrar_asistencia_historica(
+            socio_bloqueado,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 4, 10),
+        )
+        self.registrar_asistencia_historica(
+            socio_bloqueado,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 4, 17),
+        )
+        self.assertTrue(AsistenciaReunion.socio_esta_bloqueado(socio_bloqueado))
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+        AsistenciaReunion.registrar_presente(
+            reunion=reunion,
+            socio=self.socio_user,
+            usuario=self.encargado_user,
+            origen=AsistenciaReunion.ORIGEN_RUT,
+        )
+
+        resultado = reunion.finalizar(self.admin_user)
+
+        self.assertEqual(resultado['ausencias_creadas'], 0)
+        self.assertEqual(resultado['inasistencias_anuales'][socio_bloqueado.pk], 2)
+        self.assertFalse(
+            AsistenciaReunion.objects.filter(
+                reunion=reunion,
+                socio=socio_bloqueado,
+            ).exists()
+        )
+
+    def test_reunion_finalizada_marca_ausente_socio_desbloqueado(self):
+        """Vuelve a contabilizar ausencias cuando el socio ya fue desbloqueado."""
+        socio_desbloqueado = self.User.objects.create_user(
+            username='socio.desbloqueado.finalizar',
+            email='socio.desbloqueado.finalizar@example.com',
+            password='ClaveSegura123',
+            first_name='Socio',
+            last_name='Desbloqueado',
+            rut='77.777.777-7',
+            rol=self.User.SOCIO,
+        )
+        ausencia_justificada = self.registrar_asistencia_historica(
+            socio_desbloqueado,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 4, 10),
+        )
+        self.registrar_asistencia_historica(
+            socio_desbloqueado,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 4, 17),
+        )
+        DesbloqueoSocio.registrar(
+            socio=socio_desbloqueado,
+            usuario=self.admin_user,
+            motivo='Justificacion administrativa',
+            asistencia=ausencia_justificada,
+        )
+        self.assertFalse(AsistenciaReunion.socio_esta_bloqueado(socio_desbloqueado))
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+        AsistenciaReunion.registrar_presente(
+            reunion=reunion,
+            socio=self.socio_user,
+            usuario=self.encargado_user,
+            origen=AsistenciaReunion.ORIGEN_RUT,
+        )
+
+        resultado = reunion.finalizar(self.admin_user)
+
+        self.assertEqual(resultado['ausencias_creadas'], 1)
+        self.assertEqual(resultado['inasistencias_anuales'][socio_desbloqueado.pk], 3)
+        nueva_ausencia = AsistenciaReunion.objects.get(
+            reunion=reunion,
+            socio=socio_desbloqueado,
+        )
+        self.assertEqual(nueva_ausencia.estado, AsistenciaReunion.AUSENTE)
+        self.assertEqual(
+            AsistenciaReunion.contar_inasistencias_efectivas_socio(socio_desbloqueado),
+            2,
+        )
+        self.assertTrue(AsistenciaReunion.socio_esta_bloqueado(socio_desbloqueado))
 
     def test_reunion_no_finaliza_si_no_esta_activa(self):
         """Impide cerrar reuniones programadas, historicas o ya finalizadas."""
@@ -734,16 +855,28 @@ class UsuariosModuloTests(TestCase):
         self.admin_user.refresh_from_db()
         self.assertTrue(self.admin_user.check_password('ClaveNuevaSegura123'))
 
-    def test_recuperacion_password_envia_correo_a_socio_activo(self):
-        """Permite recuperar contrasena a socios activos con contrasena utilizable."""
+    def test_recuperacion_password_no_envia_correo_a_socio_activo(self):
+        """No envia recuperacion a socios aunque tengan password utilizable."""
         response = self.client.post(
             reverse('usuarios:password_reset'),
             {'email': 'socio@example.com'},
         )
 
         self.assertRedirects(response, reverse('usuarios:password_reset_done'))
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertEqual(mail.outbox[0].to, ['socio@example.com'])
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_recuperacion_password_no_envia_correo_a_socio_sin_password_utilizable(self):
+        """No envia recuperacion cuando el socio no tiene password utilizable."""
+        self.socio_user.set_unusable_password()
+        self.socio_user.save(update_fields=['password'])
+
+        response = self.client.post(
+            reverse('usuarios:password_reset'),
+            {'email': 'socio@example.com'},
+        )
+
+        self.assertRedirects(response, reverse('usuarios:password_reset_done'))
+        self.assertEqual(len(mail.outbox), 0)
 
     def test_socio_no_accede_a_gestion_de_usuarios(self):
         """Redirige al socio cuando intenta entrar a gestion de usuarios."""
@@ -1001,6 +1134,11 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'data-today="2026-05-14"')
         self.assertContains(response, 'name="hora"')
         self.assertContains(response, 'type="time"')
+        self.assertContains(response, 'lang="es-CL"')
+        self.assertContains(response, 'min="00:00"')
+        self.assertContains(response, 'max="23:59"')
+        self.assertContains(response, 'step="60"')
+        self.assertContains(response, 'pattern="([01][0-9]|2[0-3]):[0-5][0-9]"')
         self.assertContains(response, 'data-reunion-time="true"')
         self.assertContains(response, 'data-current-time="12:00"')
         self.assertContains(response, 'name="locacion"')
@@ -2057,30 +2195,35 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'aria-label="Justificaciones"')
         self.assertContains(response, 'Sin ausencias')
         self.assertContains(response, 'aria-label="Ver detalle de asistencia"')
+        self.assertContains(response, 'APELLIDOS')
         self.assertNotContains(response, 'Gestionar estado')
         self.assertNotContains(response, reverse('usuarios:editar_socio', args=[self.socio_user.pk]))
-        self.assertContains(response, 'socio@example.com')
+        self.assertContains(response, self.socio_user.rut)
         self.assertContains(response, '+56922222222')
+        self.assertNotContains(response, self.socio_user.email)
         self.assertNotContains(response, 'admin@example.com')
         self.assertNotContains(response, 'encargado@example.com')
 
-    def test_listado_asistencia_filtra_y_separa_nombre_apellido(self):
-        """Aplica filtros operativos y muestra datos personales separados."""
+    def test_listado_asistencia_filtra_y_concatena_apellidos(self):
+        """Aplica filtros operativos y muestra apellidos en una sola columna."""
         socio_filtrado = self.User.objects.create_user(
             username='ana.asistencia',
             email='ana.asistencia@example.com',
             password='ClaveSegura123',
             first_name='Ana',
             last_name='Asistencia',
+            apellido_materno='Rojas',
+            fecha_ingreso_proyecto=date(2026, 5, 15),
             rut='77.777.777-7',
             rol=self.User.SOCIO,
         )
-        self.User.objects.create_user(
+        socio_excluido = self.User.objects.create_user(
             username='bruno.asistencia',
             email='bruno.asistencia@example.com',
             password='ClaveSegura123',
             first_name='Bruno',
             last_name='Asistencia',
+            apellido_materno='Silva',
             rut='88.888.888-8',
             rol=self.User.SOCIO,
         )
@@ -2091,22 +2234,31 @@ class UsuariosModuloTests(TestCase):
             {
                 'rut': '77.777.777-7',
                 'nombre': 'Ana',
-                'apellido': 'Asistencia',
+                'apellido': 'Rojas',
             },
         )
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Ordenar RUT ascendente')
         self.assertContains(response, 'Ordenar Nombre ascendente')
-        self.assertContains(response, 'Ordenar Apellido ascendente')
-        self.assertContains(response, socio_filtrado.email)
+        self.assertContains(response, 'Ordenar Apellidos ascendente')
+        self.assertNotContains(response, 'Ordenar Apellido materno ascendente')
+        self.assertNotContains(response, socio_filtrado.email)
         self.assertContains(response, '<td class="fw-semibold">77777777-7</td>', html=True)
-        self.assertContains(response, '<td>Ana</td>', html=True)
-        self.assertContains(response, '<td>Asistencia</td>', html=True)
+        self.assertContains(
+            response,
+            '<span class="table-cell-truncate is-name" title="Ana">Ana</span>',
+            html=True,
+        )
+        self.assertContains(
+            response,
+            '<span class="table-cell-truncate is-name-wide" title="Asistencia Rojas">Asistencia Rojas</span>',
+            html=True,
+        )
         self.assertContains(response, 'value="77.777.777-7"')
         self.assertContains(response, 'value="Ana"')
-        self.assertContains(response, 'value="Asistencia"')
-        self.assertNotContains(response, 'bruno.asistencia@example.com')
+        self.assertContains(response, 'value="Rojas"')
+        self.assertNotContains(response, socio_excluido.rut)
         self.assertNotContains(response, 'admin@example.com')
 
     def test_listado_asistencia_filtra_por_indicador(self):
@@ -2157,9 +2309,9 @@ class UsuariosModuloTests(TestCase):
             '<option value="bloqueado" selected>Bloqueado</option>',
             html=True,
         )
-        self.assertContains(response, socio_bloqueado.email)
-        self.assertNotContains(response, socio_riesgo.email)
-        self.assertNotContains(response, 'socio@example.com')
+        self.assertContains(response, socio_bloqueado.rut)
+        self.assertNotContains(response, socio_riesgo.rut)
+        self.assertNotContains(response, self.socio_user.rut)
 
     def test_listado_asistencia_filtra_socios_justificados_como_una_inasistencia(self):
         """Muestra socios justificados como una inasistencia efectiva."""
@@ -2207,15 +2359,15 @@ class UsuariosModuloTests(TestCase):
             reverse('usuarios:listado_socios_asistencia'),
             {'indicador': 'bloqueado'},
         )
-        self.assertContains(response, socio_bloqueado.email)
-        self.assertNotContains(response, socio_justificado.email)
+        self.assertContains(response, socio_bloqueado.rut)
+        self.assertNotContains(response, socio_justificado.rut)
 
         response = self.client.get(
             reverse('usuarios:listado_socios_asistencia'),
             {'indicador': 'una_inasistencia'},
         )
-        self.assertContains(response, socio_justificado.email)
-        self.assertNotContains(response, socio_bloqueado.email)
+        self.assertContains(response, socio_justificado.rut)
+        self.assertNotContains(response, socio_bloqueado.rut)
 
     def test_listado_asistencia_tiene_lista_responsiva_para_movil(self):
         """Replica el formato responsivo usado por los listados administrativos."""
@@ -2226,7 +2378,10 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'd-none d-md-block')
         self.assertContains(response, 'list-group shadow-sm border rounded overflow-hidden d-md-none')
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">NOMBRE</dt>', html=True)
-        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">APELLIDO</dt>', html=True)
+        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">APELLIDOS</dt>', html=True)
+        self.assertNotContains(response, '<dt class="col-4 text-muted fw-semibold">AP. PATERNO</dt>', html=True)
+        self.assertNotContains(response, '<dt class="col-4 text-muted fw-semibold">AP. MATERNO</dt>', html=True)
+        self.assertNotContains(response, '<dt class="col-4 text-muted fw-semibold">EMAIL</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">TELÉFONO</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">REUNIONES</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">ASISTENCIAS</dt>', html=True)
@@ -2490,8 +2645,16 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Ordenar Nombre ascendente')
         self.assertContains(response, 'Ordenar Apellido ascendente')
         self.assertContains(response, usuario_filtrado.email)
-        self.assertContains(response, '<td>Ana</td>', html=True)
-        self.assertContains(response, '<td>Zapata</td>', html=True)
+        self.assertContains(
+            response,
+            '<span class="table-cell-truncate is-name" title="Ana">Ana</span>',
+            html=True,
+        )
+        self.assertContains(
+            response,
+            '<span class="table-cell-truncate is-name" title="Zapata">Zapata</span>',
+            html=True,
+        )
         self.assertContains(response, 'value="77.777.777-7"')
         self.assertContains(response, 'value="Ana"')
         self.assertContains(response, 'value="Zapata"')
@@ -2640,13 +2803,21 @@ class UsuariosModuloTests(TestCase):
         response = self.client.get(reverse('usuarios:listado_socios'))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Gestión administrativa de socios registrados.')
-        self.assertContains(response, 'socio@example.com')
-        self.assertContains(response, '+56922222222')
+        self.assertContains(response, 'aria-label="Contacto"')
+        self.assertContains(response, 'title="Email: socio@example.com"')
+        self.assertContains(response, 'title="Telefono: +56922222222"')
+        self.assertContains(response, 'bi-envelope')
+        self.assertContains(response, 'bi-telephone')
+        self.assertContains(response, 'APELLIDO MATERNO')
+        self.assertNotContains(response, 'INGRESO')
         self.assertContains(response, 'aria-label="Estado de asistencia"')
         self.assertContains(response, 'bi-info-circle')
         self.assertContains(response, 'title="Sin ausencias"')
         self.assertContains(response, 'aria-label="Estado de asistencia: Sin ausencias"')
         self.assertContains(response, 'bi-check-circle')
+        self.assertContains(response, reverse('usuarios:detalle_socio', args=[self.socio_user.pk]))
+        self.assertContains(response, 'aria-label="Ver detalles del socio"')
+        self.assertContains(response, 'bi-eye')
         self.assertContains(response, reverse('usuarios:editar_socio', args=[self.socio_user.pk]))
         self.assertContains(response, 'data-confirm-title="Desactivar socio"')
         self.assertContains(response, reverse('usuarios:eliminar_socio', args=[self.socio_user.pk]))
@@ -2664,6 +2835,8 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Ana',
             last_name='Zapata',
+            apellido_materno='Rojas',
+            fecha_ingreso_proyecto=date(2026, 5, 15),
             rut='77.777.777-7',
             rol=self.User.SOCIO,
         )
@@ -2673,6 +2846,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Bruno',
             last_name='Zapata',
+            apellido_materno='Silva',
             rut='88.888.888-8',
             rol=self.User.SOCIO,
         )
@@ -2683,23 +2857,59 @@ class UsuariosModuloTests(TestCase):
             {
                 'rut': '77.777.777-7',
                 'nombre': 'Ana',
-                'apellido': 'Zapata',
+                'apellido': 'Rojas',
             },
         )
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Ordenar RUT ascendente')
         self.assertContains(response, 'Ordenar Nombre ascendente')
-        self.assertContains(response, 'Ordenar Apellido ascendente')
-        self.assertContains(response, socio_filtrado.email)
+        self.assertContains(response, 'Ordenar Apellido paterno ascendente')
+        self.assertContains(response, 'Ordenar Apellido materno ascendente')
+        self.assertContains(response, f'title="Email: {socio_filtrado.email}"')
         self.assertContains(response, '<td class="fw-semibold">77777777-7</td>', html=True)
-        self.assertContains(response, '<td>Ana</td>', html=True)
-        self.assertContains(response, '<td>Zapata</td>', html=True)
+        self.assertContains(
+            response,
+            '<span class="table-cell-truncate is-name" title="Ana">Ana</span>',
+            html=True,
+        )
+        self.assertContains(
+            response,
+            '<span class="table-cell-truncate is-name" title="Zapata">Zapata</span>',
+            html=True,
+        )
+        self.assertContains(
+            response,
+            '<span class="table-cell-truncate is-name" title="Rojas">Rojas</span>',
+            html=True,
+        )
+        self.assertNotContains(response, '15-05-2026')
         self.assertContains(response, 'value="77.777.777-7"')
         self.assertContains(response, 'value="Ana"')
-        self.assertContains(response, 'value="Zapata"')
+        self.assertContains(response, 'value="Rojas"')
         self.assertNotContains(response, 'bruno.socio@example.com')
         self.assertNotContains(response, 'admin@example.com')
+
+    def test_detalle_socio_muestra_fecha_ingreso(self):
+        """Mueve la fecha de ingreso desde el listado al detalle administrativo."""
+        self.socio_user.fecha_ingreso_proyecto = date(2026, 5, 15)
+        self.socio_user.save(update_fields=['fecha_ingreso_proyecto'])
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:detalle_socio', args=[self.socio_user.pk]),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Detalle del socio')
+        self.assertContains(response, 'Fecha de ingreso al proyecto')
+        self.assertContains(response, '15-05-2026')
+        self.assertContains(response, 'socio@example.com')
+        self.assertContains(response, '+56922222222')
+        self.assertContains(response, 'bi-calendar-check')
+        self.assertContains(response, 'bi-shield-check')
+        self.assertContains(response, 'bi-activity')
+        self.assertContains(response, reverse('usuarios:editar_socio', args=[self.socio_user.pk]))
 
     def test_listado_socios_filtra_por_estado(self):
         """Permite filtrar socios activos e inactivos."""
@@ -2726,7 +2936,7 @@ class UsuariosModuloTests(TestCase):
             '<option value="inactivo" selected>Inactivo</option>',
             html=True,
         )
-        self.assertContains(response, socio_inactivo.email)
+        self.assertContains(response, f'title="Email: {socio_inactivo.email}"')
         self.assertNotContains(response, 'socio@example.com')
 
     def test_listado_socios_tiene_lista_responsiva_para_movil(self):
@@ -2738,9 +2948,15 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'd-none d-md-block')
         self.assertContains(response, 'list-group shadow-sm border rounded overflow-hidden d-md-none')
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">NOMBRE</dt>', html=True)
-        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">APELLIDO</dt>', html=True)
+        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">APELLIDO PATERNO</dt>', html=True)
+        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">APELLIDO MATERNO</dt>', html=True)
+        self.assertNotContains(response, '<dt class="col-4 text-muted fw-semibold">INGRESO</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">EMAIL</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">TELÉFONO</dt>', html=True)
+        self.assertContains(response, 'socio@example.com')
+        self.assertContains(response, '+56922222222')
+        self.assertContains(response, 'aria-label="Contacto"')
+        self.assertContains(response, 'data-bs-toggle="tooltip"')
 
         self.assertContains(response, '<span class="visually-hidden">ASISTENCIA</span>', html=True)
 
@@ -2820,6 +3036,167 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(justificacion.desbloqueado_por, self.admin_user)
         self.assertEqual(justificacion.motivo, 'Compromiso firmado')
         self.assertEqual(justificacion.inasistencias_al_desbloquear, 2)
+
+    def test_administrador_envia_notificacion_de_bloqueo_desde_listado_asistencia(self):
+        """Permite avisar por correo a un socio bloqueado desde el listado operativo."""
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 27),
+        )
+        url_notificar = reverse('usuarios:notificar_bloqueo_socio', args=[self.socio_user.pk])
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
+        self.assertContains(response, url_notificar)
+        self.assertContains(response, 'aria-label="Enviar notificacion de bloqueo"')
+        self.assertContains(response, 'bi-envelope')
+        self.assertContains(
+            response,
+            'btn btn-danger btn-sm',
+        )
+
+        response = self.client.post(url_notificar, follow=True)
+
+        self.assertRedirects(response, reverse('usuarios:listado_socios_asistencia'))
+        self.assertContains(response, 'Notificacion de bloqueo enviada a socio@example.com.')
+        self.assertContains(response, 'aria-label="Notificacion de bloqueo ya enviada"')
+        self.assertContains(response, 'bi-envelope-check-fill')
+        self.assertContains(response, 'btn btn-success btn-sm')
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].subject, 'Notificacion de bloqueo de asistencia')
+        self.assertEqual(mail.outbox[0].to, ['socio@example.com'])
+        self.assertEqual(NotificacionBloqueoSocio.objects.filter(socio=self.socio_user).count(), 1)
+        self.assertIn(
+            'Tu estado actual en el sistema de asistencia es: BLOQUEADO.',
+            mail.outbox[0].body,
+        )
+        self.assertIn(
+            'Registras 2 inasistencias pendientes de justificacion',
+            mail.outbox[0].body,
+        )
+        self.assertIn('20-05-2026 18:30 - Sede social', mail.outbox[0].body)
+        self.assertIn('27-05-2026 18:30 - Sede social', mail.outbox[0].body)
+
+    def test_notificacion_bloqueo_no_reenvia_mientras_siga_el_mismo_bloqueo(self):
+        """Evita duplicar correos si el bloqueo vigente ya fue notificado."""
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 27),
+        )
+        url_notificar = reverse('usuarios:notificar_bloqueo_socio', args=[self.socio_user.pk])
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        self.client.post(url_notificar, follow=True)
+        response = self.client.post(url_notificar, follow=True)
+
+        self.assertRedirects(response, reverse('usuarios:listado_socios_asistencia'))
+        self.assertContains(
+            response,
+            'La notificacion de bloqueo ya fue enviada para el bloqueo actual.',
+        )
+        self.assertContains(response, 'aria-label="Notificacion de bloqueo ya enviada"')
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(NotificacionBloqueoSocio.objects.filter(socio=self.socio_user).count(), 1)
+
+    def test_notificacion_bloqueo_vuelve_a_habilitarse_si_cambia_el_bloqueo(self):
+        """Reactiva el envio cuando el socio cae en un nuevo bloqueo distinto."""
+        ausencia_primera = self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        ausencia_segunda = self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 27),
+        )
+        url_notificar = reverse('usuarios:notificar_bloqueo_socio', args=[self.socio_user.pk])
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        self.client.post(url_notificar, follow=True)
+
+        DesbloqueoSocio.registrar(
+            socio=self.socio_user,
+            usuario=self.admin_user,
+            motivo='Revision administrativa',
+            asistencia=ausencia_primera,
+        )
+        self.assertFalse(
+            NotificacionBloqueoSocio.bloqueo_actual_ya_notificado(self.socio_user)
+        )
+
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 6, 3),
+        )
+        self.assertTrue(AsistenciaReunion.socio_esta_bloqueado(self.socio_user))
+        self.assertNotEqual(
+            AsistenciaReunion.obtener_firma_bloqueo_socio(self.socio_user),
+            NotificacionBloqueoSocio.objects.get(socio=self.socio_user).firma_bloqueo,
+        )
+
+        response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
+
+        self.assertContains(response, url_notificar)
+        self.assertContains(response, 'aria-label="Enviar notificacion de bloqueo"')
+        self.assertContains(response, 'btn btn-danger btn-sm')
+        self.assertNotContains(response, 'aria-label="Notificacion de bloqueo ya enviada"')
+        self.assertEqual(ausencia_segunda.estado, AsistenciaReunion.AUSENTE)
+
+    def test_notificacion_bloqueo_rechaza_socios_no_bloqueados(self):
+        """Evita enviar el aviso cuando el socio todavia no cumple condicion de bloqueo."""
+        url_notificar = reverse('usuarios:notificar_bloqueo_socio', args=[self.socio_user.pk])
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
+        self.assertNotContains(response, url_notificar)
+        self.assertContains(response, 'aria-label="Notificacion de bloqueo no disponible"')
+        self.assertContains(response, 'bi-envelope')
+        self.assertContains(response, 'btn-outline-secondary btn-sm text-muted')
+
+        response = self.client.post(url_notificar, follow=True)
+
+        self.assertRedirects(response, reverse('usuarios:listado_socios_asistencia'))
+        self.assertContains(response, 'El socio no esta bloqueado por inasistencias.')
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_notificacion_bloqueo_solo_disponible_para_administrador(self):
+        """Impide que encargados envien avisos de bloqueo a socios."""
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 27),
+        )
+        url_notificar = reverse('usuarios:notificar_bloqueo_socio', args=[self.socio_user.pk])
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
+        self.assertNotContains(response, url_notificar)
+        self.assertContains(response, 'aria-label="Notificacion de bloqueo no disponible"')
+        self.assertContains(response, 'bi-envelope')
+
+        response = self.client.post(url_notificar, follow=True)
+
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+        self.assertEqual(len(mail.outbox), 0)
 
     def test_detalle_asistencia_socio_muestra_justificaciones_y_pendientes(self):
         """Muestra trazabilidad por socio desde el listado operativo."""
@@ -3174,7 +3551,8 @@ class UsuariosModuloTests(TestCase):
         self.client.login(username='encargado', password='ClaveSegura123')
         response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'socio@example.com')
+        self.assertContains(response, self.socio_user.rut)
+        self.assertNotContains(response, self.socio_user.email)
         self.assertNotContains(response, 'Registrar socio')
         self.assertNotContains(response, 'Editar')
         self.assertContains(response, 'aria-label="Ver detalle de asistencia"')
@@ -3306,17 +3684,21 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(self.User.objects.filter(email='socio.interno@example.com').exists())
 
-    def test_registro_socio_muestra_password_sugerido_por_rut_y_pide_confirmacion(self):
-        """Renderiza el formulario de socio con contrasena inicial sugerida."""
+    def test_registro_socio_no_solicita_password_inicial(self):
+        """Renderiza el formulario de socio sin contrasena inicial."""
         self.client.login(username='admin', password='ClaveSegura123')
         response = self.client.get(reverse('usuarios:registro_socio'))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'email_confirmacion')
         self.assertContains(response, 'name="telefono_movil"')
+        self.assertContains(response, 'name="apellido_materno"')
+        self.assertContains(response, 'name="fecha_ingreso_proyecto"')
+        self.assertContains(response, 'type="date"')
+        self.assertContains(response, f'value="{timezone.localdate().isoformat()}"')
         self.assertContains(response, 'value="+56"')
-        self.assertContains(response, 'name="password1"')
-        self.assertContains(response, 'name="password2"')
-        self.assertContains(response, 'Sugerencia: usar el RUT del socio como contrasena inicial')
+        self.assertNotContains(response, 'name="password1"')
+        self.assertNotContains(response, 'name="password2"')
+        self.assertNotContains(response, 'Sugerencia: usar el RUT del socio como contrasena inicial')
         self.assertNotContains(response, 'name="username"')
 
     def test_telefono_movil_chileno_exige_prefijo_y_nueve_digitos(self):
@@ -3331,8 +3713,6 @@ class UsuariosModuloTests(TestCase):
                 'last_name': 'Telefono',
                 'rut': '76.666.666-6',
                 'telefono_movil': '+561234',
-                'password1': '76666666-6',
-                'password2': '76666666-6',
                 'is_active': 'on',
             },
         )
@@ -3354,10 +3734,10 @@ class UsuariosModuloTests(TestCase):
                 'email_confirmacion': 'otro.correo@example.com',
                 'first_name': 'Socio',
                 'last_name': 'Nuevo',
+                'apellido_materno': 'Materno',
                 'rut': '66.666.666-6',
                 'telefono_movil': '+56966666666',
-                'password1': '66666666-6',
-                'password2': '66666666-6',
+                'fecha_ingreso_proyecto': '',
                 'is_active': 'on',
             },
         )
@@ -3382,10 +3762,10 @@ class UsuariosModuloTests(TestCase):
                 'email_confirmacion': 'socio.nuevo@example.com',
                 'first_name': 'Socio',
                 'last_name': 'Nuevo',
+                'apellido_materno': 'Materno',
                 'rut': '66.666.666-6',
                 'telefono_movil': '+56966666666',
-                'password1': '66666666-6',
-                'password2': '66666666-6',
+                'fecha_ingreso_proyecto': '',
                 'is_active': 'on',
             },
         )
@@ -3394,8 +3774,10 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(usuario.rol, self.User.SOCIO)
         self.assertEqual(usuario.username, 'socio.nuevo@example.com')
         self.assertEqual(usuario.telefono_movil, '+56966666666')
-        self.assertTrue(usuario.check_password('66666666-6'))
-        self.assertNotEqual(usuario.password, '66666666-6')
+        self.assertEqual(usuario.apellido_materno, 'Materno')
+        self.assertEqual(usuario.fecha_ingreso_proyecto, timezone.localdate())
+        self.assertFalse(usuario.has_usable_password())
+        self.assertFalse(usuario.check_password('66666666-6'))
 
     def test_encargado_no_accede_a_registro_socio(self):
         """Impide que el encargado vea o use el alta de socios."""
@@ -3411,8 +3793,6 @@ class UsuariosModuloTests(TestCase):
                 'first_name': 'Socio',
                 'last_name': 'No Permitido',
                 'rut': '66.666.666-6',
-                'password1': '66666666-6',
-                'password2': '66666666-6',
                 'is_active': 'on',
             },
         )
@@ -3597,8 +3977,10 @@ class UsuariosModuloTests(TestCase):
                 'email_confirmacion': 'socio.admin@example.com',
                 'first_name': 'Socio',
                 'last_name': 'Admin',
+                'apellido_materno': 'Materno',
                 'rut': '99.999.999-9',
                 'telefono_movil': '+56977777777',
+                'fecha_ingreso_proyecto': '2026-05-20',
             },
         )
         self.assertRedirects(response, reverse('usuarios:listado_socios'))
@@ -3607,6 +3989,8 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(self.socio_user.username, 'socio')
         self.assertEqual(self.socio_user.rut, '22222222-2')
         self.assertEqual(self.socio_user.telefono_movil, '+56977777777')
+        self.assertEqual(self.socio_user.apellido_materno, 'Materno')
+        self.assertEqual(self.socio_user.fecha_ingreso_proyecto, date(2026, 5, 20))
         self.assertEqual(self.socio_user.rol, self.User.SOCIO)
 
     def test_modelo_impide_promover_socio_a_rol_interno(self):
@@ -3896,6 +4280,36 @@ class UsuariosModuloTests(TestCase):
         self.assertFalse(self.User.objects.filter(pk=encargado_pk).exists())
         self.assertContains(response, 'Usuario Encargado Registro eliminado correctamente.')
 
+    def test_administrador_no_elimina_usuario_con_historial_operativo(self):
+        """Bloquea eliminacion de usuarios internos referenciados por asistencia."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        AsistenciaReunion.objects.create(
+            reunion=reunion,
+            socio=self.socio_user,
+            estado=AsistenciaReunion.PRESENTE,
+            origen=AsistenciaReunion.ORIGEN_RUT,
+            registrada_por=self.encargado_user,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:eliminar_usuario', args=[self.encargado_user.pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_usuarios'))
+        self.assertTrue(self.User.objects.filter(pk=self.encargado_user.pk).exists())
+        self.assertContains(
+            response,
+            'No se puede eliminar este usuario porque tiene historial operativo registrado.',
+        )
+
     def test_administrador_no_puede_eliminarse_a_si_mismo(self):
         """Evita que un administrador elimine su propia cuenta."""
         self.client.login(username='admin', password='ClaveSegura123')
@@ -4023,15 +4437,19 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.wsgi_request.user.is_authenticated)
 
-    def test_comando_crea_usuarios_demo_con_username_como_password(self):
-        """Verifica que el comando demo cree passwords hasheados por username."""
+    def test_comando_crea_usuarios_demo_con_acceso_solo_para_roles_internos(self):
+        """Verifica que el comando demo no deje password utilizable en socios."""
         output = StringIO()
         call_command('crear_usuarios_prueba', stdout=output)
 
-        for username in ('admin_demo', 'encargado_demo', 'socio_demo'):
+        for username in ('admin_demo', 'encargado_demo'):
             usuario = self.User.objects.get(username=username)
             self.assertTrue(usuario.check_password(username))
             self.assertNotEqual(usuario.password, username)
+
+        socio = self.User.objects.get(username='socio_demo')
+        self.assertFalse(socio.has_usable_password())
+        self.assertIn('socio.demo@example.com / sin contrasena de acceso', output.getvalue())
 
     def test_comando_carga_encargados_paginacion_sin_validacion(self):
         """Carga encargados por bulk sin ejecutar validaciones del modelo."""
@@ -4054,7 +4472,7 @@ class UsuariosModuloTests(TestCase):
 
     @override_settings(DEBUG=True)
     def test_comando_resetea_asistencia_de_pruebas(self):
-        """Borra reuniones, asistencias y justificaciones sin eliminar usuarios."""
+        """Borra reuniones, asistencias, justificaciones y notificaciones sin eliminar usuarios."""
         reunion = Reunion.objects.create(
             fecha=date(2026, 5, 20),
             hora=time(18, 30),
@@ -4075,6 +4493,13 @@ class UsuariosModuloTests(TestCase):
             desbloqueado_por=self.admin_user,
             inasistencias_al_desbloquear=1,
         )
+        NotificacionBloqueoSocio.objects.create(
+            socio=self.socio_user,
+            enviada_por=self.admin_user,
+            firma_bloqueo='bloqueo-prueba',
+            email_destino=self.socio_user.email,
+            total_inasistencias_efectivas=2,
+        )
         output = StringIO()
 
         call_command('resetdata', '--confirmar=true', stdout=output)
@@ -4082,8 +4507,10 @@ class UsuariosModuloTests(TestCase):
         self.assertFalse(Reunion.objects.exists())
         self.assertFalse(AsistenciaReunion.objects.exists())
         self.assertFalse(DesbloqueoSocio.objects.exists())
+        self.assertFalse(NotificacionBloqueoSocio.objects.exists())
         self.assertTrue(self.User.objects.filter(pk=self.socio_user.pk).exists())
         self.assertIn('Reset de asistencia completado', output.getvalue())
+        self.assertIn('notificaciones eliminadas: 1', output.getvalue())
 
     @override_settings(DEBUG=True)
     def test_comando_reset_asistencia_exige_confirmacion(self):

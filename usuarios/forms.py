@@ -89,6 +89,29 @@ class TelefonoMovilFormMixin:
         return telefono
 
 
+class FechaIngresoProyectoFormMixin:
+    """Configura la fecha de ingreso de socios con default al dia actual."""
+
+    def configurar_fecha_ingreso_proyecto(self):
+        """Prepara el campo como fecha opcional con valor por defecto visible."""
+        valor_inicial = timezone.localdate()
+        if getattr(self, 'instance', None) and self.instance.pk:
+            valor_inicial = self.instance.fecha_ingreso_proyecto or valor_inicial
+        field = self.fields['fecha_ingreso_proyecto']
+        field.required = False
+        field.initial = valor_inicial
+        field.input_formats = ['%Y-%m-%d']
+        field.widget = forms.DateInput(
+            attrs={'type': 'date'},
+            format='%Y-%m-%d',
+        )
+        self.initial['fecha_ingreso_proyecto'] = valor_inicial
+
+    def clean_fecha_ingreso_proyecto(self):
+        """Usa la fecha actual cuando no se informa fecha de ingreso."""
+        return self.cleaned_data.get('fecha_ingreso_proyecto') or timezone.localdate()
+
+
 class LoginForm(AuthenticationForm):
     """Formulario de acceso que acepta username o correo electrónico."""
 
@@ -110,7 +133,7 @@ class LoginForm(AuthenticationForm):
 
 
 class RecuperarPasswordForm(PasswordResetForm):
-    """Formulario publico para solicitar enlace de recuperacion."""
+    """Formulario publico para solicitar enlace de recuperacion de usuarios internos."""
 
     email = forms.EmailField(
         label='Correo electrónico',
@@ -131,6 +154,14 @@ class RecuperarPasswordForm(PasswordResetForm):
         self.helper.layout = Layout(
             'email',
             Submit('submit', 'Enviar enlace', css_class='btn btn-primary w-100'),
+        )
+
+    def get_users(self, email):
+        """Excluye socios porque no usan contrasena para consultar asistencia."""
+        return (
+            usuario
+            for usuario in super().get_users(email)
+            if not rol_es_socio(usuario.rol)
         )
 
 
@@ -231,22 +262,10 @@ class UsuarioCreationForm(TelefonoMovilFormMixin, UserCreationForm):
         )
 
 
-class SocioCreationForm(TelefonoMovilFormMixin, forms.ModelForm):
-    """Formulario de alta de socios con contrasena inicial."""
+class SocioCreationForm(TelefonoMovilFormMixin, FechaIngresoProyectoFormMixin, forms.ModelForm):
+    """Formulario de alta de socios sin contrasena de acceso."""
 
     email_confirmacion = forms.EmailField(label='Confirmar correo electrónico')
-    password1 = forms.CharField(
-        label='Contrasena inicial',
-        widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
-        help_text=(
-            'Sugerencia: usar el RUT del socio como contrasena inicial, '
-            'sin puntos y con guion. Ejemplo: 12345678-9.'
-        ),
-    )
-    password2 = forms.CharField(
-        label='Confirmar contrasena inicial',
-        widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
-    )
 
     class Meta:
         """Campos requeridos para crear una cuenta de socio."""
@@ -255,16 +274,20 @@ class SocioCreationForm(TelefonoMovilFormMixin, forms.ModelForm):
         fields = (
             'first_name',
             'last_name',
+            'apellido_materno',
             'rut',
             'email',
             'telefono_movil',
+            'fecha_ingreso_proyecto',
             'is_active',
         )
         labels = {
             'first_name': 'Nombre',
-            'last_name': 'Apellido',
+            'last_name': 'Apellido paterno',
+            'apellido_materno': 'Apellido materno',
             'email': 'Correo electrónico',
             'telefono_movil': 'Teléfono móvil',
+            'fecha_ingreso_proyecto': 'Fecha de ingreso al proyecto',
             'is_active': 'Socio activo',
         }
 
@@ -274,24 +297,25 @@ class SocioCreationForm(TelefonoMovilFormMixin, forms.ModelForm):
         self.fields['is_active'].initial = True
         marcar_campo_rut(self.fields['rut'])
         self.configurar_telefono_movil()
+        self.configurar_fecha_ingreso_proyecto()
         self.helper = FormHelper()
         self.helper.form_method = 'post'
         self.helper.layout = Layout(
             Row(
-                Column('first_name', css_class='col-md-6'),
-                Column('last_name', css_class='col-md-6'),
+                Column('first_name', css_class='col-md-4'),
+                Column('last_name', css_class='col-md-4'),
+                Column('apellido_materno', css_class='col-md-4'),
             ),
             Row(
                 Column('rut', css_class='col-md-6'),
                 Column('telefono_movil', css_class='col-md-6'),
             ),
             Row(
-                Column('email', css_class='col-md-6'),
-                Column('email_confirmacion', css_class='col-md-6'),
+                Column('fecha_ingreso_proyecto', css_class='col-md-6'),
             ),
             Row(
-                Column('password1', css_class='col-md-6'),
-                Column('password2', css_class='col-md-6'),
+                Column('email', css_class='col-md-6'),
+                Column('email_confirmacion', css_class='col-md-6'),
             ),
             'is_active',
             Submit('submit', 'Guardar socio', css_class='btn btn-primary'),
@@ -314,27 +338,21 @@ class SocioCreationForm(TelefonoMovilFormMixin, forms.ModelForm):
         return rut
 
     def clean(self):
-        """Verifica correo y contrasena inicial del socio."""
+        """Verifica la confirmacion de correo del socio."""
         cleaned_data = super().clean()
         email = (cleaned_data.get('email') or '').strip().lower()
         email_confirmacion = (cleaned_data.get('email_confirmacion') or '').strip().lower()
         if email and email_confirmacion and email != email_confirmacion:
             self.add_error('email_confirmacion', 'La confirmación del correo no coincide.')
 
-        password1 = cleaned_data.get('password1')
-        password2 = cleaned_data.get('password2')
-        if password1 and password2 and password1 != password2:
-            self.add_error('password2', 'Las contrasenas no coinciden.')
-        elif password1:
-            validate_password(password1)
         return cleaned_data
 
     def save(self, commit=True):
-        """Crea un socio con username interno y contrasena inicial hasheada."""
+        """Crea un socio con username tecnico y contrasena no utilizable."""
         socio = super().save(commit=False)
         socio.rol = Usuario.SOCIO
         socio.username = socio.email
-        socio.set_password(self.cleaned_data['password1'])
+        socio.set_unusable_password()
         if commit:
             socio.save()
             self.save_m2m()
@@ -344,6 +362,25 @@ class SocioCreationForm(TelefonoMovilFormMixin, forms.ModelForm):
 class ReunionCreationForm(forms.ModelForm):
     """Formulario para programar una nueva reunion."""
 
+    HORA_24H_REGEX = r'([01][0-9]|2[0-3]):[0-5][0-9]'
+    HORA_24H_MENSAJE = 'Ingresa la hora en formato 24 horas HH:MM.'
+    hora = forms.TimeField(
+        label='Hora',
+        input_formats=['%H:%M'],
+        widget=forms.TextInput(
+            attrs={
+                'type': 'time',
+                'autocomplete': 'off',
+                'lang': 'es-CL',
+                'min': '00:00',
+                'max': '23:59',
+                'pattern': HORA_24H_REGEX,
+                'step': '60',
+                'title': HORA_24H_MENSAJE,
+            }
+        ),
+        error_messages={'invalid': HORA_24H_MENSAJE},
+    )
     REUNION_DUPLICADA_MENSAJE = (
         'Ya existe una reunion programada para la misma fecha y hora. '
         'Ajusta la fecha u hora antes de guardar.'
@@ -370,7 +407,6 @@ class ReunionCreationForm(forms.ModelForm):
         }
         widgets = {
             'fecha': forms.DateInput(attrs={'type': 'date'}),
-            'hora': forms.TimeInput(attrs={'type': 'time'}),
             'locacion': forms.TextInput(attrs={'autocomplete': 'off'}),
         }
 
@@ -414,6 +450,13 @@ class ReunionCreationForm(forms.ModelForm):
             ),
             Submit('submit', 'Guardar reunion', css_class='btn btn-primary'),
         )
+
+    def clean_hora(self):
+        """Exige hora en formato 24 horas con cero inicial."""
+        valor = self.data.get(self.add_prefix('hora'), '').strip()
+        if not re.fullmatch(self.HORA_24H_REGEX, valor):
+            raise forms.ValidationError(self.HORA_24H_MENSAJE)
+        return self.cleaned_data['hora']
 
     def clean(self):
         """Valida reglas de fecha, estado y duplicidad antes de guardar."""
@@ -660,7 +703,7 @@ class RegistroAsistenciaRutForm(forms.Form):
         )
 
 
-class SocioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
+class SocioUpdateForm(TelefonoMovilFormMixin, FechaIngresoProyectoFormMixin, forms.ModelForm):
     """Formulario específico para editar socios sin exponer rol ni password."""
 
     email_confirmacion = forms.EmailField(label='Confirmar correo electrónico')
@@ -672,13 +715,17 @@ class SocioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
         fields = (
             'first_name',
             'last_name',
+            'apellido_materno',
             'rut',
             'email',
             'telefono_movil',
+            'fecha_ingreso_proyecto',
         )
         labels = {
             'first_name': 'Nombre',
-            'last_name': 'Apellido',
+            'last_name': 'Apellido paterno',
+            'apellido_materno': 'Apellido materno',
+            'fecha_ingreso_proyecto': 'Fecha de ingreso al proyecto',
             'email': 'Correo electrónico',
             'telefono_movil': 'Teléfono móvil',
         }
@@ -689,6 +736,7 @@ class SocioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
         self.fields['rut'].disabled = True
         marcar_campo_rut(self.fields['rut'])
         self.configurar_telefono_movil()
+        self.configurar_fecha_ingreso_proyecto()
         self.fields['rut'].help_text = 'El RUT no puede modificarse una vez creado.'
         if self.instance.pk:
             self.initial['rut'] = normalizar_rut(self.instance.rut)
@@ -697,12 +745,16 @@ class SocioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
         self.helper.form_method = 'post'
         self.helper.layout = Layout(
             Row(
-                Column('first_name', css_class='col-md-6'),
-                Column('last_name', css_class='col-md-6'),
+                Column('first_name', css_class='col-md-4'),
+                Column('last_name', css_class='col-md-4'),
+                Column('apellido_materno', css_class='col-md-4'),
             ),
             Row(
                 Column('rut', css_class='col-md-6'),
                 Column('telefono_movil', css_class='col-md-6'),
+            ),
+            Row(
+                Column('fecha_ingreso_proyecto', css_class='col-md-6'),
             ),
             Row(
                 Column('email', css_class='col-md-6'),

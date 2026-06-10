@@ -1,0 +1,20 @@
+<span class="d-inline-flex gap-2 align-items-center justify-content-center">
+    <span
+        class="text-primary"
+        title="Email: {{ usuario.email }}"
+        aria-label="Email: {{ usuario.email }}"
+        data-bs-toggle="tooltip"
+        tabindex="0"
+    >
+        {% include "includes/icon.html" with name="envelope" %}
+    </span>
+    <span
+        class="{% if usuario.telefono_movil %}text-primary{% else %}text-muted{% endif %}"
+        title="{% if usuario.telefono_movil %}Telefono: {{ usuario.telefono_movil }}{% else %}Telefono no registrado{% endif %}"
+        aria-label="{% if usuario.telefono_movil %}Telefono: {{ usuario.telefono_movil }}{% else %}Telefono no registrado{% endif %}"
+        data-bs-toggle="tooltip"
+        tabindex="0"
+    >
+        {% include "includes/icon.html" with name="phone" %}
+    </span>
+</span>

@@ -26,4 +26,4 @@ Completar el alcance diferido desde Sprint 2 para mejorar la planificacion de re
 ## Fuera del alcance de Sprint 3
 
 - Seguridad de produccion: se realizara antes de subir a produccion, no como parte de este sprint funcional.
-- Activacion publica de cuentas de socios: los socios podran recuperar contrasena, pero no activar su cuenta por autoservicio.
+- Consulta publica de asistencias de socios: el socio digitara su RUT para revisar su historial sin contrasena.

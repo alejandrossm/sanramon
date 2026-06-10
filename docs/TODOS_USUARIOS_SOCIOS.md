@@ -15,7 +15,7 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
 
 - [x] Separar administradores web de superadministradores Django: `ADMINISTRADOR` queda para el sistema web y `SUPERADMINISTRADOR` queda reservado para cuentas `is_staff` e `is_superuser`.
 - [x] Ocultar superadministradores del listado web de usuarios e impedir que se editen, desactiven o eliminen desde las vistas del sistema.
-- [x] Recuperacion de contrasena por Gmail para usuarios activos con contrasena utilizable: administradores, encargados y socios.
+- [x] Recuperacion de contrasena por Gmail para usuarios internos activos con contrasena utilizable: administradores y encargados.
 - [ ] Antes de subir a produccion, endurecer configuracion HTTPS: activar `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE` y evaluar `SECURE_HSTS_SECONDS` despues de confirmar que todo el sitio opera solo por HTTPS.
 - [ ] Antes de subir a produccion, activar `Force HTTPS` en PythonAnywhere para que `http://alejandrossm.pythonanywhere.com/` redirija a `https://alejandrossm.pythonanywhere.com/`.
 - [ ] Antes de subir a produccion, agregar proteccion contra fuerza bruta en login, por ejemplo `django-axes` o rate limiting equivalente.
@@ -33,11 +33,12 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
   - Amarillo: una inasistencia.
   - Rojo: bloqueado por dos inasistencias.
 - [x] Agregar un campo de telefono movil a usuarios y socios para registrar un numero de contacto operativo.
-- [x] Definido: los socios podran recuperar contrasena propia, pero no podran activar su cuenta por autoservicio.
-- [x] Ajustar el alta de socios para crear contrasena inicial utilizable, sugerida como el RUT normalizado sin puntos y con guion.
+- [x] Definido: los socios consultaran sus asistencias por RUT en una vista publica futura, sin contrasena propia.
+- [x] Ajustar el alta de socios para no solicitar contrasena inicial y crear la cuenta tecnica sin password utilizable.
 - [x] Implementar bloqueo operativo de socios por inasistencias: un socio con 2 o mas ausencias no puede registrar nuevas asistencias.
 - [x] Agregar flujo de justificacion administrativa de inasistencias de socios bloqueados, con motivo obligatorio, usuario responsable y fecha.
 - [x] Mostrar la causa de las justificaciones de inasistencia en una vista operativa o historica, para que el administrador pueda revisar el motivo registrado.
+- [x] Revisar que un socio bloqueado no contabilice nuevas asistencias como ausente.
 
 ## Pendientes por definir
 

@@ -92,7 +92,7 @@
         <thead>
             <tr>
                 {% for columna in columnas_ordenables %}
-                    {% if columna.key != 'estado' %}
+                    {% if columna.key != 'estado' and columna.key != 'ingreso' %}
                         <th>
                             <div class="d-flex align-items-center gap-1">
                                 <span>{{ columna.label|upper }}</span>
@@ -155,9 +155,8 @@
             {% for socio in socios %}
                 <tr>
                     <td class="fw-semibold">{{ socio.rut }}</td>
-                    <td>{{ socio.first_name }}</td>
-                    <td>{{ socio.last_name }}</td>
-                    <td>{{ socio.email }}</td>
+                    <td><span class="table-cell-truncate is-name" title="{{ socio.first_name }}">{{ socio.first_name }}</span></td>
+                    <td><span class="table-cell-truncate is-name-wide" title="{{ socio.last_name }}{% if socio.apellido_materno %} {{ socio.apellido_materno }}{% endif %}">{{ socio.last_name }}{% if socio.apellido_materno %} {{ socio.apellido_materno }}{% endif %}</span></td>
                     <td>{{ socio.telefono_movil|default:"-" }}</td>
                     <td class="text-center">{{ socio.total_reuniones }}</td>
                     <td class="text-center">{{ socio.total_asistencias }}</td>
@@ -181,7 +180,7 @@
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="12" class="text-center text-muted py-4">No hay socios registrados.</td>
+                    <td colspan="11" class="text-center text-muted py-4">No hay socios registrados.</td>
                 </tr>
             {% endfor %}
         </tbody>
@@ -199,7 +198,7 @@
                             {{ socio.indicador_asistencia.label }}
                         </span>
                     </div>
-                    <div class="text-muted small text-break">{{ socio.first_name }} {{ socio.last_name }}</div>
+                    <div class="text-muted small text-break">{{ socio.nombre_completo }}</div>
                 </div>
                 <div class="flex-shrink-0">
                     {% include "usuarios/includes/acciones_asistencia_socio.html" %}
@@ -209,10 +208,8 @@
             <dl class="row g-2 small mt-3 mb-0">
                 <dt class="col-4 text-muted fw-semibold">NOMBRE</dt>
                 <dd class="col-8 mb-0 text-break">{{ socio.first_name }}</dd>
-                <dt class="col-4 text-muted fw-semibold">APELLIDO</dt>
-                <dd class="col-8 mb-0 text-break">{{ socio.last_name }}</dd>
-                <dt class="col-4 text-muted fw-semibold">EMAIL</dt>
-                <dd class="col-8 mb-0 text-break">{{ socio.email }}</dd>
+                <dt class="col-4 text-muted fw-semibold">APELLIDOS</dt>
+                <dd class="col-8 mb-0 text-break">{{ socio.last_name }}{% if socio.apellido_materno %} {{ socio.apellido_materno }}{% endif %}</dd>
                 <dt class="col-4 text-muted fw-semibold">TELÉFONO</dt>
                 <dd class="col-8 mb-0 text-break">{{ socio.telefono_movil|default:"-" }}</dd>
                 <dt class="col-4 text-muted fw-semibold">REUNIONES</dt>

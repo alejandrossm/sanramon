@@ -1,4 +1,46 @@
 <div class="d-inline-flex gap-2 justify-content-end">
+    {% if socio.indicador_asistencia.key == 'bloqueado' and socio.notificacion_bloqueo_enviada %}
+        <button
+            type="button"
+            class="btn btn-success btn-sm"
+            title="Notificacion de bloqueo ya enviada"
+            aria-label="Notificacion de bloqueo ya enviada"
+            disabled
+        >
+            {% include "includes/icon.html" with name="envelope-check" %}
+        </button>
+    {% elif puede_justificar_inasistencias and socio.indicador_asistencia.key == 'bloqueado' %}
+        <form
+            method="post"
+            action="{% url 'usuarios:notificar_bloqueo_socio' socio.pk %}"
+            class="d-inline"
+            data-confirm-submit
+            data-confirm-title="Enviar notificacion de bloqueo"
+            data-confirm-text="Se enviara un correo estandar al socio con su estado de bloqueo y la razon registrada por inasistencias."
+            data-confirm-button="Enviar notificacion"
+            data-confirm-icon="warning"
+        >
+            {% csrf_token %}
+            <button
+                type="submit"
+                class="btn btn-danger btn-sm"
+                title="Enviar notificacion de bloqueo"
+                aria-label="Enviar notificacion de bloqueo"
+            >
+                {% include "includes/icon.html" with name="envelope" %}
+            </button>
+        </form>
+    {% else %}
+        <button
+            type="button"
+            class="btn btn-outline-secondary btn-sm text-muted"
+            title="Notificacion de bloqueo no disponible"
+            aria-label="Notificacion de bloqueo no disponible"
+            disabled
+        >
+            {% include "includes/icon.html" with name="envelope" %}
+        </button>
+    {% endif %}
     {% if puede_justificar_inasistencias and socio.indicador_asistencia.key == 'bloqueado' %}
         <a
             href="{% url 'usuarios:detalle_asistencia_socio' socio.pk %}"

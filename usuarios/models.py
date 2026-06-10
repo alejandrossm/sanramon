@@ -1,3 +1,4 @@
+import hashlib
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, UserManager
 from django.core.exceptions import ValidationError
@@ -63,7 +64,12 @@ class Usuario(AbstractUser):
     ]
 
     first_name = models.CharField(max_length=150, verbose_name='Nombre')
-    last_name = models.CharField(max_length=150, verbose_name='Apellido')
+    last_name = models.CharField(max_length=150, verbose_name='Apellido paterno')
+    apellido_materno = models.CharField(
+        max_length=150,
+        blank=True,
+        verbose_name='Apellido materno',
+    )
     rut = models.CharField(
         max_length=12,
         unique=True,
@@ -87,6 +93,10 @@ class Usuario(AbstractUser):
             )
         ],
     )
+    fecha_ingreso_proyecto = models.DateField(
+        default=timezone.localdate,
+        verbose_name='Fecha de ingreso al proyecto',
+    )
     rol = models.CharField(max_length=20, choices=ROLES, default=SOCIO)
 
     objects = UsuarioManager()
@@ -96,7 +106,7 @@ class Usuario(AbstractUser):
     class Meta:
         """Orden y nombres legibles del modelo en Django."""
 
-        ordering = ['last_name', 'first_name', 'username']
+        ordering = ['last_name', 'apellido_materno', 'first_name', 'username']
         verbose_name = 'usuario'
         verbose_name_plural = 'usuarios'
         permissions = PERMISOS_USUARIO
@@ -142,6 +152,18 @@ class Usuario(AbstractUser):
     def nombre_completo(self):
         """Devuelve el nombre completo o el username cuando no hay nombres cargados."""
         return self.get_full_name() or self.username
+
+    def get_full_name(self):
+        """Devuelve nombre con apellido paterno y materno cuando existe."""
+        return ' '.join(
+            parte
+            for parte in (
+                (self.first_name or '').strip(),
+                (self.last_name or '').strip(),
+                (self.apellido_materno or '').strip(),
+            )
+            if parte
+        )
 
     def clean_fields(self, exclude=None):
         """Normaliza campos antes de ejecutar validadores de modelo."""
@@ -342,7 +364,18 @@ class Reunion(models.Model):
         socios_ausentes = Usuario.objects.filter(
             rol=Usuario.SOCIO,
             is_active=True,
-        ).exclude(pk__in=socios_con_asistencia)
+        ).exclude(pk__in=socios_con_asistencia).annotate(
+            total_ausencias_efectivas=models.Count(
+                'asistencias_reunion',
+                filter=models.Q(
+                    asistencias_reunion__estado=AsistenciaReunion.AUSENTE,
+                    asistencias_reunion__justificacion__isnull=True,
+                ),
+                distinct=True,
+            ),
+        ).filter(
+            total_ausencias_efectivas__lt=AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO
+        )
         ausencias = [
             AsistenciaReunion(
                 reunion=self,
@@ -525,6 +558,28 @@ class AsistenciaReunion(models.Model):
         return cls.obtener_ausencias_justificables(socio).count()
 
     @classmethod
+    def obtener_firmas_bloqueo_socios(cls, socios_ids):
+        """Calcula una firma estable del bloqueo vigente para varios socios."""
+        ausencias = cls.objects.filter(
+            socio_id__in=socios_ids,
+            estado=cls.AUSENTE,
+            justificacion__isnull=True,
+        ).order_by('socio_id', 'pk').values_list('socio_id', 'pk')
+        ausencias_por_socio = {}
+        for socio_id, asistencia_id in ausencias:
+            ausencias_por_socio.setdefault(socio_id, []).append(str(asistencia_id))
+
+        return {
+            socio_id: hashlib.sha256(','.join(ids).encode('ascii')).hexdigest()
+            for socio_id, ids in ausencias_por_socio.items()
+        }
+
+    @classmethod
+    def obtener_firma_bloqueo_socio(cls, socio):
+        """Devuelve la firma del bloqueo vigente de un socio."""
+        return cls.obtener_firmas_bloqueo_socios([socio.pk]).get(socio.pk, '')
+
+    @classmethod
     def obtener_ausencias_justificables(cls, socio):
         """Lista ausencias del socio que todavia pueden justificarse."""
         return cls.objects.filter(
@@ -659,4 +714,140 @@ class DesbloqueoSocio(models.Model):
             desbloqueado_por=usuario,
             fecha_desbloqueo=timezone.now(),
             inasistencias_al_desbloquear=total_inasistencias,
+        )
+
+
+class NotificacionBloqueoSocio(models.Model):
+    """Trazabilidad del aviso enviado para un bloqueo puntual por inasistencias."""
+
+    socio = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='notificaciones_bloqueo',
+        verbose_name='socio',
+    )
+    enviada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='notificaciones_bloqueo_enviadas',
+        verbose_name='enviada por',
+    )
+    firma_bloqueo = models.CharField(
+        max_length=64,
+        verbose_name='firma del bloqueo',
+    )
+    email_destino = models.EmailField(verbose_name='correo notificado')
+    fecha_envio = models.DateTimeField(
+        'fecha de notificacion',
+        default=timezone.now,
+    )
+    total_inasistencias_efectivas = models.PositiveIntegerField(
+        'inasistencias efectivas notificadas',
+    )
+
+    class Meta:
+        """Orden e invariantes del historial de notificaciones de bloqueo."""
+
+        ordering = ['-fecha_envio']
+        verbose_name = 'notificacion de bloqueo'
+        verbose_name_plural = 'notificaciones de bloqueo'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['socio', 'firma_bloqueo'],
+                name='notificacion_bloqueo_unica_por_socio_firma',
+            ),
+        ]
+
+    def __str__(self):
+        """Representa el envio por socio y fecha."""
+        return f'{self.socio.nombre_completo} - {self.fecha_envio:%d-%m-%Y %H:%M}'
+
+    def clean(self):
+        """Valida que la notificacion corresponda a un socio bloqueado real."""
+        super().clean()
+        errores = {}
+
+        if self.socio_id and self.socio.rol != Usuario.SOCIO:
+            errores['socio'] = 'Solo se pueden notificar bloqueos de socios.'
+
+        self.email_destino = (self.email_destino or '').strip().lower()
+        if not self.email_destino:
+            errores['email_destino'] = 'El correo del socio es obligatorio.'
+
+        if (
+            self.total_inasistencias_efectivas
+            < AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO
+        ):
+            errores['total_inasistencias_efectivas'] = (
+                'La notificacion solo aplica a socios bloqueados por inasistencias.'
+            )
+
+        if not self.firma_bloqueo:
+            errores['firma_bloqueo'] = 'La firma del bloqueo es obligatoria.'
+
+        if errores:
+            raise ValidationError(errores)
+
+    def save(self, *args, **kwargs):
+        """Valida la notificacion antes de persistirla."""
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def obtener_firmas_notificadas_socios(cls, socios_ids):
+        """Devuelve las firmas ya notificadas para varios socios."""
+        return set(
+            cls.objects.filter(socio_id__in=socios_ids).values_list(
+                'socio_id',
+                'firma_bloqueo',
+            )
+        )
+
+    @classmethod
+    def bloqueo_actual_ya_notificado(cls, socio):
+        """Indica si el bloqueo vigente del socio ya fue notificado."""
+        if not AsistenciaReunion.socio_esta_bloqueado(socio):
+            return False
+
+        firma_bloqueo = AsistenciaReunion.obtener_firma_bloqueo_socio(socio)
+        if not firma_bloqueo:
+            return False
+
+        return cls.objects.filter(
+            socio=socio,
+            firma_bloqueo=firma_bloqueo,
+        ).exists()
+
+    @classmethod
+    def registrar_bloqueo_actual(cls, socio, usuario):
+        """Registra la trazabilidad del aviso para el bloqueo vigente."""
+        total_efectivas = AsistenciaReunion.contar_inasistencias_efectivas_socio(socio)
+        if total_efectivas < AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO:
+            raise ValidationError(
+                {'socio': 'El socio no esta bloqueado por inasistencias.'}
+            )
+
+        firma_bloqueo = AsistenciaReunion.obtener_firma_bloqueo_socio(socio)
+        if not firma_bloqueo:
+            raise ValidationError(
+                {'socio': 'No fue posible determinar el bloqueo vigente del socio.'}
+            )
+
+        if cls.objects.filter(socio=socio, firma_bloqueo=firma_bloqueo).exists():
+            raise ValidationError(
+                {
+                    'socio': (
+                        'La notificacion de bloqueo ya fue enviada '
+                        'para el bloqueo actual.'
+                    )
+                }
+            )
+
+        return cls.objects.create(
+            socio=socio,
+            enviada_por=usuario,
+            firma_bloqueo=firma_bloqueo,
+            email_destino=socio.email,
+            fecha_envio=timezone.now(),
+            total_inasistencias_efectivas=total_efectivas,
         )
