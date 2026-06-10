@@ -540,20 +540,6 @@ class UsuariosModuloTests(TestCase):
             origen=AsistenciaReunion.ORIGEN_AUTOMATICO,
             registrada_por=self.admin_user,
         )
-        reunion_anio_anterior = Reunion.objects.create(
-            fecha=date(2025, 12, 10),
-            hora=time(18, 30),
-            locacion='Sede social',
-            creador=self.admin_user,
-            estado=Reunion.FINALIZADA,
-        )
-        AsistenciaReunion.objects.create(
-            reunion=reunion_anio_anterior,
-            socio=socio_ausente,
-            estado=AsistenciaReunion.AUSENTE,
-            origen=AsistenciaReunion.ORIGEN_AUTOMATICO,
-            registrada_por=self.admin_user,
-        )
         reunion = Reunion.objects.create(
             fecha=date(2026, 5, 20),
             hora=time(18, 30),
@@ -589,6 +575,110 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(asistencia_ausente.estado, AsistenciaReunion.AUSENTE)
         self.assertEqual(asistencia_ausente.origen, AsistenciaReunion.ORIGEN_AUTOMATICO)
         self.assertEqual(asistencia_ausente.registrada_por, self.admin_user)
+
+    def test_reunion_finalizada_no_marca_ausente_socio_bloqueado(self):
+        """No crea nuevas ausencias automaticas para socios ya bloqueados."""
+        socio_bloqueado = self.User.objects.create_user(
+            username='socio.bloqueado.finalizar',
+            email='socio.bloqueado.finalizar@example.com',
+            password='ClaveSegura123',
+            first_name='Socio',
+            last_name='Bloqueado',
+            rut='66.666.666-6',
+            rol=self.User.SOCIO,
+        )
+        self.registrar_asistencia_historica(
+            socio_bloqueado,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 4, 10),
+        )
+        self.registrar_asistencia_historica(
+            socio_bloqueado,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 4, 17),
+        )
+        self.assertTrue(AsistenciaReunion.socio_esta_bloqueado(socio_bloqueado))
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+        AsistenciaReunion.registrar_presente(
+            reunion=reunion,
+            socio=self.socio_user,
+            usuario=self.encargado_user,
+            origen=AsistenciaReunion.ORIGEN_RUT,
+        )
+
+        resultado = reunion.finalizar(self.admin_user)
+
+        self.assertEqual(resultado['ausencias_creadas'], 0)
+        self.assertEqual(resultado['inasistencias_anuales'][socio_bloqueado.pk], 2)
+        self.assertFalse(
+            AsistenciaReunion.objects.filter(
+                reunion=reunion,
+                socio=socio_bloqueado,
+            ).exists()
+        )
+
+    def test_reunion_finalizada_marca_ausente_socio_desbloqueado(self):
+        """Vuelve a contabilizar ausencias cuando el socio ya fue desbloqueado."""
+        socio_desbloqueado = self.User.objects.create_user(
+            username='socio.desbloqueado.finalizar',
+            email='socio.desbloqueado.finalizar@example.com',
+            password='ClaveSegura123',
+            first_name='Socio',
+            last_name='Desbloqueado',
+            rut='77.777.777-7',
+            rol=self.User.SOCIO,
+        )
+        ausencia_justificada = self.registrar_asistencia_historica(
+            socio_desbloqueado,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 4, 10),
+        )
+        self.registrar_asistencia_historica(
+            socio_desbloqueado,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 4, 17),
+        )
+        DesbloqueoSocio.registrar(
+            socio=socio_desbloqueado,
+            usuario=self.admin_user,
+            motivo='Justificacion administrativa',
+            asistencia=ausencia_justificada,
+        )
+        self.assertFalse(AsistenciaReunion.socio_esta_bloqueado(socio_desbloqueado))
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+        AsistenciaReunion.registrar_presente(
+            reunion=reunion,
+            socio=self.socio_user,
+            usuario=self.encargado_user,
+            origen=AsistenciaReunion.ORIGEN_RUT,
+        )
+
+        resultado = reunion.finalizar(self.admin_user)
+
+        self.assertEqual(resultado['ausencias_creadas'], 1)
+        self.assertEqual(resultado['inasistencias_anuales'][socio_desbloqueado.pk], 3)
+        nueva_ausencia = AsistenciaReunion.objects.get(
+            reunion=reunion,
+            socio=socio_desbloqueado,
+        )
+        self.assertEqual(nueva_ausencia.estado, AsistenciaReunion.AUSENTE)
+        self.assertEqual(
+            AsistenciaReunion.contar_inasistencias_efectivas_socio(socio_desbloqueado),
+            2,
+        )
+        self.assertTrue(AsistenciaReunion.socio_esta_bloqueado(socio_desbloqueado))
 
     def test_reunion_no_finaliza_si_no_esta_activa(self):
         """Impide cerrar reuniones programadas, historicas o ya finalizadas."""

@@ -364,7 +364,18 @@ class Reunion(models.Model):
         socios_ausentes = Usuario.objects.filter(
             rol=Usuario.SOCIO,
             is_active=True,
-        ).exclude(pk__in=socios_con_asistencia)
+        ).exclude(pk__in=socios_con_asistencia).annotate(
+            total_ausencias_efectivas=models.Count(
+                'asistencias_reunion',
+                filter=models.Q(
+                    asistencias_reunion__estado=AsistenciaReunion.AUSENTE,
+                    asistencias_reunion__justificacion__isnull=True,
+                ),
+                distinct=True,
+            ),
+        ).filter(
+            total_ausencias_efectivas__lt=AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO
+        )
         ausencias = [
             AsistenciaReunion(
                 reunion=self,
