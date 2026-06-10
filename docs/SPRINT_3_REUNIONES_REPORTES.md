@@ -1,29 +1,90 @@
-# Sprint 3 - Reuniones, reportes y carga historica
+# Sprint 3 - Consulta publica, reportes y auditoria
 
 ## Objetivo
 
-Completar el alcance diferido desde Sprint 2 para mejorar la planificacion de reuniones, exponer informacion publica y preparar reportes/carga historica.
+Completar el alcance diferido desde Sprint 2 para exponer informacion publica a socios, preparar reportes exportables y registrar trazabilidad operativa de acciones relevantes.
 
 ## Alcance propuesto
 
-1. HU-12 - Proxima reunion y landing publica
-   - Permitir que un administrador configure varias reuniones futuras.
-   - Marcar solo una reunion como `proxima reunion`.
-   - Validar que exista como maximo una reunion marcada como proxima.
-   - Usar la reunion destacada para mostrar informacion publica en el landing page solicitado por el cliente.
+### HU-12 - Consulta de informacion
 
-2. HU-13 - Reporte exportable de reuniones
-   - Crear reporte exportable a Excel con todas las reuniones.
-   - Incluir datos base de reunion, estado y responsables operativos cuando correspondan.
-   - Definir filtros minimos antes de implementar: periodo, estado y locacion.
+- Modulo: Consulta de informacion.
+- Accion: Consultar asistencia.
+- Actor: Socio.
+- Historia: Como socio, quiero consultar mi informacion de asistencia.
+- Beneficio: Conocer mi estado e historial.
+- Prioridad: Media.
+- Sprint: Sprint 3.
+- Estado: Pendiente.
 
-3. HU-14 - Carga historica de asistencias
-   - Soportar reuniones en estado `historica` para registrar asistencias posteriores mediante carga masiva CSV u otro mecanismo operativo.
-   - Definir permisos y flujo para carga historica.
-   - Validar si el registro historico podra ser realizado por administrador, socio o ambos.
-   - Mantener trazabilidad del usuario que carga la informacion historica.
+#### Criterios de aceptacion
+
+- [ ] La consulta requiere RUT.
+- [ ] Solo se muestra informacion si el RUT es valido.
+- [ ] El sistema muestra el estado del socio.
+- [ ] El sistema muestra historial de asistencia.
+- [ ] El sistema muestra resumen anual.
+- [ ] Si los datos no coinciden, se muestra un mensaje generico.
+
+#### Notas de alcance
+
+- La consulta debe estar disponible desde un landing page publico tipo `index`, con estructura visual similar a la referencia entregada por el cliente.
+- El landing debe redirigir a administradores y encargados al sistema interno de asistencia.
+- El landing debe redirigir a socios a la consulta publica por RUT.
+- La vista de socios debe mostrar reuniones totales, asistencias y ausencias.
+- La vista de socios debe incluir un recordatorio de la proxima reunion.
+- La proxima reunion no se marca manualmente: se asume la reunion en estado `programada` con fecha y hora mas cercana a la fecha actual.
+- Si se muestra historial, debe ser una vista acotada para el socio consultado por RUT; no corresponde a un reporte publico masivo.
+
+### HU-13 - Reportes
+
+- Modulo: Reportes.
+- Accion: Exportar resumen anual.
+- Actor: Administrador.
+- Historia: Como administrador, quiero exportar resumen anual de asistencia.
+- Beneficio: Analizar participacion de socios.
+- Prioridad: Media.
+- Sprint: Sprint 3.
+- Estado: Pendiente.
+
+#### Criterios de aceptacion
+
+- [ ] El sistema genera archivo `xlsx`, `csv` y `pdf`.
+- [ ] El reporte incluye datos completos del socio y reuniones realizadas.
+- [ ] El reporte incluye asistencias e inasistencias por socio.
+- [ ] El reporte incluye estado actual del socio.
+- [ ] El reporte corresponde al ano seleccionado.
+
+#### Notas de alcance
+
+- Definir filtros minimos antes de implementar. Base esperada: ano, estado del socio y estado de reunion si aplica.
+- El reporte debe respetar las reglas vigentes de bloqueo y justificacion: ausencias justificadas no deben contarse como ausencias efectivas.
+
+### HU-14 - Auditoria
+
+- Modulo: Auditoria.
+- Accion: Registrar acciones del sistema.
+- Actor: Sistema.
+- Historia: Como sistema, quiero registrar acciones relevantes.
+- Beneficio: Mantener trazabilidad.
+- Prioridad: Alta.
+- Sprint: Transversal.
+- Estado: Pendiente.
+
+#### Criterios de aceptacion
+
+- [ ] El sistema registra usuario que ejecuta la accion.
+- [ ] El sistema registra tipo de accion.
+- [ ] El sistema registra fecha y hora.
+- [ ] El sistema registra entidad afectada cuando corresponda.
+- [ ] Aplica a acciones criticas como asistencia, cancelacion, desbloqueo y edicion.
+
+#### Notas de alcance
+
+- La auditoria debe disenarse como capacidad transversal para flujos actuales y futuros.
+- Definir si se implementara como modelo propio de eventos, integracion con senales de Django o registros explicitos por caso de uso.
 
 ## Fuera del alcance de Sprint 3
 
 - Seguridad de produccion: se realizara antes de subir a produccion, no como parte de este sprint funcional.
-- Consulta publica de asistencias de socios: el socio digitara su RUT para revisar su historial sin contrasena.
+- Reportes publicos masivos: el acceso publico del socio debe limitarse a la informacion correspondiente al RUT consultado.

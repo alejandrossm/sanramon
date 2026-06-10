@@ -27,6 +27,7 @@ Archivo para registrar detalles importantes que conviene conservar entre sesione
 
 ## Pendientes
 
+- Sprint 3: HU-12 consulta publica por RUT desde landing tipo index; debe mostrar estado del socio, historial, resumen anual, reuniones totales, asistencias, ausencias y recordatorio de proxima reunion. La proxima reunion se calcula automaticamente como la reunion `programada` con fecha y hora mas cercana a hoy; no se marca manualmente. HU-13 exporta resumen anual en `xlsx`, `csv` y `pdf`. HU-14 agrega auditoria transversal de acciones criticas.
 - En una proxima version, ajustar en el listado de usuarios el boton de desactivacion del usuario autenticado: hoy puede verse como activo, pero debe mostrarse con estilo deshabilitado porque la propia cuenta no se puede desactivar.
 - Seguridad pendiente antes de subir a produccion: endurecer HTTPS/cookies, activar `Force HTTPS` en PythonAnywhere, agregar proteccion anti fuerza bruta en login, bloquear comandos demo y evitar colisiones globales entre `username` y `email`.
 
