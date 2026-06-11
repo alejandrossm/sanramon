@@ -4,6 +4,16 @@
 
 Completar el alcance diferido desde Sprint 2 para exponer informacion publica a socios, preparar reportes exportables y registrar trazabilidad operativa de acciones relevantes.
 
+## Preparacion tecnica
+
+- [x] Revisar modelos actuales involucrados: `Usuario`, `Reunion`, `AsistenciaReunion`, `DesbloqueoSocio` y `NotificacionBloqueoSocio`.
+- [x] Centralizar la logica de asistencia en `usuarios/servicios_asistencia.py` para reutilizarla en vistas publicas, reportes y vistas internas.
+- [x] Crear resumen reutilizable por socio y por ano con reuniones, asistencias, ausencias, ausencias efectivas y justificaciones.
+- [x] Crear historial reutilizable de asistencia por socio, filtrable por ano.
+- [x] Calcular la proxima reunion automaticamente desde reuniones `PROGRAMADA`, usando fecha y hora mas cercana a la fecha actual.
+- [x] Mantener las vistas existentes usando los nuevos servicios sin cambiar el comportamiento visible.
+- [x] Cubrir la preparacion con pruebas automatizadas.
+
 ## Alcance propuesto
 
 ### HU-12 - Consulta de informacion

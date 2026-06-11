@@ -44,18 +44,23 @@ from .permisos import (
     PERM_GESTIONAR_USUARIOS,
     ROLES_INTERNOS_GESTIONABLES,
 )
-from .views import (
-    ROLES_FILTRABLES_USUARIOS,
+from .servicios_asistencia import (
     agregar_resumen_asistencia_socios,
     anotar_resumen_asistencia_socios,
+    obtener_historial_asistencia_socio,
     obtener_indicador_asistencia,
+    obtener_proxima_reunion,
+    obtener_resumen_anual_asistencia_socio,
+    obtener_resumen_asistencia_socio,
+    puede_eliminar_socio_seguro,
+)
+from .views import (
+    ROLES_FILTRABLES_USUARIOS,
     obtener_resumen_estado_asistencia_socios,
     puede_acceder_asistencia,
-    puede_eliminar_socio_seguro,
     puede_gestionar_usuarios,
     puede_registrar_socios,
     puede_registrar_usuarios,
-    obtener_resumen_asistencia_socio,
 )
 
 
@@ -2134,9 +2139,119 @@ class UsuariosModuloTests(TestCase):
                 'total_reuniones': 1,
                 'total_asistencias': 1,
                 'total_ausencias': 0,
+                'total_ausencias_efectivas': 0,
+                'total_justificaciones': 0,
             },
         )
         self.assertFalse(puede_eliminar_socio_seguro(self.socio_user))
+
+    def test_resumen_anual_asistencia_socio_filtra_ano_y_ausencias_efectivas(self):
+        """Calcula resumen anual sin contar justificaciones como ausencias efectivas."""
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.PRESENTE,
+            date(2025, 5, 22),
+        )
+        ausencia_justificada = self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 21),
+        )
+        DesbloqueoSocio.registrar(
+            socio=self.socio_user,
+            usuario=self.admin_user,
+            motivo='Justificacion administrativa',
+            asistencia=ausencia_justificada,
+        )
+
+        resumen = obtener_resumen_anual_asistencia_socio(self.socio_user, 2026)
+
+        self.assertEqual(
+            resumen,
+            {
+                'anio': 2026,
+                'total_reuniones': 2,
+                'total_asistencias': 0,
+                'total_ausencias': 2,
+                'total_ausencias_efectivas': 1,
+                'total_justificaciones': 1,
+            },
+        )
+
+    def test_historial_asistencia_socio_filtra_ano_y_ordena_por_reunion(self):
+        """Entrega historial acotado al socio y ano seleccionado."""
+        asistencia_reciente = self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.PRESENTE,
+            date(2026, 6, 20),
+        )
+        asistencia_antigua = self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.PRESENTE,
+            date(2025, 5, 20),
+        )
+        otro_socio = self.User.objects.create_user(
+            username='otro.historial',
+            email='otro.historial@example.com',
+            password='ClaveSegura123',
+            first_name='Otro',
+            last_name='Historial',
+            rut='77.333.333-3',
+            rol=self.User.SOCIO,
+        )
+        self.registrar_asistencia_historica(
+            otro_socio,
+            AsistenciaReunion.PRESENTE,
+            date(2026, 7, 20),
+        )
+
+        historial = list(obtener_historial_asistencia_socio(self.socio_user, 2026))
+
+        self.assertEqual(historial, [asistencia_reciente, asistencia_antigua])
+
+    @patch('usuarios.servicios_asistencia.timezone.localtime')
+    def test_proxima_reunion_usa_programada_mas_cercana_desde_ahora(self, localtime_mock):
+        """Selecciona automaticamente la siguiente reunion programada por fecha y hora."""
+        localtime_mock.return_value = timezone.make_aware(
+            datetime(2026, 6, 10, 12, 0),
+        )
+        Reunion.objects.create(
+            fecha=date(2026, 6, 10),
+            hora=time(10, 0),
+            locacion='Sede anterior',
+            creador=self.admin_user,
+        )
+        reunion_esperada = Reunion.objects.create(
+            fecha=date(2026, 6, 10),
+            hora=time(18, 30),
+            locacion='Sede cercana',
+            creador=self.admin_user,
+        )
+        Reunion.objects.create(
+            fecha=date(2026, 6, 11),
+            hora=time(9, 0),
+            locacion='Sede futura',
+            creador=self.admin_user,
+        )
+        Reunion.objects.create(
+            fecha=date(2026, 6, 10),
+            hora=time(13, 0),
+            locacion='Sede finalizada',
+            creador=self.admin_user,
+            estado=Reunion.FINALIZADA,
+        )
+
+        self.assertEqual(obtener_proxima_reunion(), reunion_esperada)
 
     def test_resumen_asistencia_socios_anotado_no_consulta_por_socio(self):
         """Agrega resumenes de asistencia en lote para evitar N+1 consultas."""

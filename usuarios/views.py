@@ -16,7 +16,7 @@ from django.core.mail import BadHeaderError, send_mail
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import IntegrityError
-from django.db.models import Count, Q
+from django.db.models import Q
 from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
@@ -59,6 +59,14 @@ from .permisos import (
     rol_es_interno_gestionable,
     usuario_es_socio,
     usuario_tiene_permiso,
+)
+from .servicios_asistencia import (
+    agregar_resumen_asistencia_socios,
+    anotar_resumen_asistencia_socios,
+    filtrar_socios_por_indicador_asistencia,
+    obtener_indicador_asistencia,
+    obtener_resumen_asistencia_socio,
+    puede_eliminar_socio_seguro,
 )
 
 
@@ -729,34 +737,6 @@ def obtener_justificaciones_base():
     )
 
 
-def agregar_resumen_asistencia_socios(socios):
-    """Agrega indicadores derivados de contadores de asistencia anotados."""
-    socios_resumidos = []
-    for socio in socios:
-        if not hasattr(socio, 'total_reuniones'):
-            resumen = obtener_resumen_asistencia_socio(socio)
-            socio.total_reuniones = resumen['total_reuniones']
-            socio.total_asistencias = resumen['total_asistencias']
-            socio.total_ausencias = resumen['total_ausencias']
-            socio.total_justificaciones = DesbloqueoSocio.objects.filter(socio=socio).count()
-        if not hasattr(socio, 'total_ausencias_efectivas'):
-            socio.total_ausencias_efectivas = (
-                AsistenciaReunion.contar_inasistencias_efectivas_socio(socio)
-            )
-        socio.indicador_asistencia = obtener_indicador_asistencia(
-            socio.total_ausencias_efectivas,
-        )
-        socio.puede_eliminar_seguro = not resumen_tiene_asistencias_contabilizadas(
-            {
-                'total_reuniones': socio.total_reuniones,
-                'total_asistencias': socio.total_asistencias,
-                'total_ausencias': socio.total_ausencias,
-            }
-        )
-        socios_resumidos.append(socio)
-    return socios_resumidos
-
-
 def agregar_estado_notificacion_bloqueo_socios(socios):
     """Marca si el bloqueo vigente del socio ya fue notificado."""
     socios = list(socios)
@@ -786,98 +766,6 @@ def agregar_estado_notificacion_bloqueo_socios(socios):
         )
 
     return socios
-
-
-def anotar_resumen_asistencia_socios(socios):
-    """Agrega contadores de asistencia al queryset en una consulta agrupada."""
-    return socios.annotate(
-        total_reuniones=Count('asistencias_reunion', distinct=True),
-        total_asistencias=Count(
-            'asistencias_reunion',
-            filter=Q(asistencias_reunion__estado=AsistenciaReunion.PRESENTE),
-            distinct=True,
-        ),
-        total_ausencias=Count(
-            'asistencias_reunion',
-            filter=Q(asistencias_reunion__estado=AsistenciaReunion.AUSENTE),
-            distinct=True,
-        ),
-        total_justificaciones=Count('desbloqueos_asistencia', distinct=True),
-        total_ausencias_efectivas=Count(
-            'asistencias_reunion',
-            filter=Q(
-                asistencias_reunion__estado=AsistenciaReunion.AUSENTE,
-                asistencias_reunion__justificacion__isnull=True,
-            ),
-            distinct=True,
-        ),
-    )
-
-
-def filtrar_socios_por_indicador_asistencia(socios, indicador):
-    """Filtra un queryset anotado segun el indicador visual de asistencia."""
-    if indicador == 'sin_ausencias':
-        return socios.filter(total_ausencias_efectivas__lte=0)
-    if indicador == 'una_inasistencia':
-        return socios.filter(total_ausencias_efectivas=1)
-    if indicador == 'bloqueado':
-        return socios.filter(
-            total_ausencias_efectivas__gte=AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO
-        )
-    return socios
-
-
-def obtener_resumen_asistencia_socio(socio):
-    """Devuelve los contadores de asistencia usados por vistas y eliminacion segura."""
-    return AsistenciaReunion.objects.filter(socio=socio).aggregate(
-        total_reuniones=Count('pk'),
-        total_asistencias=Count(
-            'pk',
-            filter=Q(estado=AsistenciaReunion.PRESENTE),
-        ),
-        total_ausencias=Count(
-            'pk',
-            filter=Q(estado=AsistenciaReunion.AUSENTE),
-        ),
-    )
-
-
-def resumen_tiene_asistencias_contabilizadas(resumen):
-    """Indica si el socio ya tiene historial operativo que impide eliminarlo."""
-    return any(
-        resumen[campo] > 0
-        for campo in ('total_reuniones', 'total_asistencias', 'total_ausencias')
-    )
-
-
-def puede_eliminar_socio_seguro(socio):
-    """Permite eliminar solo socios sin asistencias, reuniones ni ausencias registradas."""
-    if socio.rol != Usuario.SOCIO:
-        return False
-    return not resumen_tiene_asistencias_contabilizadas(
-        obtener_resumen_asistencia_socio(socio)
-    )
-
-
-def obtener_indicador_asistencia(total_ausencias):
-    """Calcula el indicador visual segun la cantidad de ausencias."""
-    if total_ausencias >= 2:
-        return {
-            'key': 'bloqueado',
-            'label': 'Bloqueado',
-            'badge_class': 'text-bg-danger',
-        }
-    if total_ausencias == 1:
-        return {
-            'key': 'una_inasistencia',
-            'label': 'Una inasistencia',
-            'badge_class': 'text-bg-warning',
-        }
-    return {
-        'key': 'sin_ausencias',
-        'label': 'Sin ausencias',
-        'badge_class': 'text-bg-success',
-    }
 
 
 @login_required
