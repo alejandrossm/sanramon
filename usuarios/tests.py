@@ -804,16 +804,21 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, reverse('usuarios:password_reset'))
         self.assertContains(response, 'Olvide mi contrasena')
 
-    def test_index_publico_muestra_consulta_ancho_completo(self):
-        """Expone la portada publica enfocada solo en la consulta de asistencia."""
+    def test_index_publico_muestra_landing_y_navegacion(self):
+        """Expone la pagina de llegada con proyecto, menu, imagenes y footer."""
         response = self.client.get(reverse('usuarios:home'))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Consulta de asistencia')
+        self.assertContains(response, 'Proyecto San Ram&oacute;n')
+        self.assertContains(response, 'Ver mi asistencia')
+        self.assertContains(response, 'Acceso al sistema')
         self.assertContains(response, reverse('usuarios:consulta_publica_asistencia'))
-        self.assertContains(response, 'public-panel p-4 p-lg-5')
-        self.assertNotContains(response, 'Acceso interno')
-        self.assertNotContains(response, 'Pr&oacute;xima reuni&oacute;n')
+        self.assertContains(response, reverse('usuarios:login'))
+        self.assertContains(response, 'images/f01.png')
+        self.assertContains(response, 'images/f02.png')
+        self.assertContains(response, 'images/f03.png')
+        self.assertContains(response, 'Redes sociales')
+        self.assertContains(response, 'Contacto')
 
     def test_index_redirige_usuarios_autenticados_al_destino_por_rol(self):
         """Evita mostrar la portada publica a usuarios con sesion activa."""

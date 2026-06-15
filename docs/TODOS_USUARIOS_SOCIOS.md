@@ -10,7 +10,7 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
 - [x] Agregar filtro por rol en el listado de usuarios.
 - [x] Documentar la correccion de estilos del admin de Django en PythonAnywhere: ejecutar `collectstatic`, mapear `/static/` a `staticfiles` y verificar `/static/admin/css/base.css`.
 - [x] Corregir tildes faltantes en etiquetas, ayudas y mensajes de los formularios.
-- [x] Sprint 3 HU-12: crear landing page publica tipo index, con acceso al sistema interno y acceso de socios a consulta por RUT.
+- [x] Sprint 3 HU-12: crear landing page publica tipo index, con informacion del proyecto, imagenes, navbar, acceso al sistema interno, acceso de socios a consulta por RUT y footer con contacto/redes.
 
 ## Seguridad antes de produccion
 

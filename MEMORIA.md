@@ -27,7 +27,7 @@ Archivo para registrar detalles importantes que conviene conservar entre sesione
 
 ## Pendientes
 
-- Sprint 3: HU-12 completada con index publico enfocado en consulta por RUT, estado del socio, historial anual, resumen anual y totales generales. El calculo de proxima reunion queda disponible como servicio, pero se retiro de la vista publica por ajuste de interfaz. Pendiente: HU-13 exporta resumen anual en `xlsx`, `csv` y `pdf`; HU-14 agrega auditoria transversal de acciones criticas.
+- Sprint 3: HU-12 completada con landing publica del Proyecto San Ramon como punto de inicio, navbar con acceso al sistema y consulta de asistencia, galeria con imagenes `f01`, `f02`, `f03`, footer con contacto/redes, y consulta por RUT con estado del socio, historial anual, resumen anual y totales generales. El calculo de proxima reunion queda disponible como servicio, pero no se muestra en la vista publica. Pendiente: HU-13 exporta resumen anual en `xlsx`, `csv` y `pdf`; HU-14 agrega auditoria transversal de acciones criticas.
 - En una proxima version, ajustar en el listado de usuarios el boton de desactivacion del usuario autenticado: hoy puede verse como activo, pero debe mostrarse con estilo deshabilitado porque la propia cuenta no se puede desactivar.
 - Seguridad pendiente antes de subir a produccion: endurecer HTTPS/cookies, activar `Force HTTPS` en PythonAnywhere, agregar proteccion anti fuerza bruta en login, bloquear comandos demo y evitar colisiones globales entre `username` y `email`.
 

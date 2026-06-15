@@ -39,15 +39,15 @@ Completar el alcance diferido desde Sprint 2 para exponer informacion publica a 
 #### Notas de alcance
 
 - La consulta debe estar disponible desde un landing page publico tipo `index`, con estructura visual similar a la referencia entregada por el cliente.
-- El landing debe redirigir a administradores y encargados al sistema interno de asistencia.
-- El landing debe redirigir a socios a la consulta publica por RUT.
+- El landing funciona como punto de inicio de navegacion del sistema, con informacion del proyecto, imagenes referenciales, menu superior y footer.
+- El menu del landing incluye acceso al sistema interno y acceso de socios a la consulta publica por RUT.
 - La vista de socios debe mostrar reuniones totales, asistencias y ausencias.
 - El calculo de proxima reunion queda disponible como servicio reutilizable; por ajuste de interfaz no se muestra en la vista publica.
 - Si se muestra historial, debe ser una vista acotada para el socio consultado por RUT; no corresponde a un reporte publico masivo.
 
 #### Implementacion
 
-- Ruta publica `home` (`/`) con acceso a consulta de asistencia y acceso interno.
+- Ruta publica `home` (`/`) como landing del proyecto San Ramon, con navbar, secciones informativas, imagenes y footer con contacto/redes.
 - Ruta publica `consulta_publica_asistencia` (`/consulta-asistencia/`) para consultar por RUT.
 - Los usuarios autenticados que entran al index publico se redirigen al destino interno correspondiente.
 - La consulta muestra estado del socio, totales generales, resumen anual e historial anual.

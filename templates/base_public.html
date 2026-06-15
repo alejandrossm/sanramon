@@ -7,20 +7,55 @@
     <title>{% block title %}Valle San Ramon{% endblock %}</title>
     <link href="{% static 'vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet">
     <link href="{% static 'vendor/bootstrap-icons/bootstrap-icons.min.css' %}" rel="stylesheet">
-    <link href="{% static 'css/styles.css' %}?v=sprint-3-public-1" rel="stylesheet">
+    <link href="{% static 'css/styles.css' %}?v=sprint-3-landing-1" rel="stylesheet">
 </head>
 <body class="public-body">
     <div class="public-shell">
-        <header class="public-header border-bottom">
-            <div class="container d-flex flex-wrap align-items-center gap-3 py-3">
-                <a href="{% url 'usuarios:home' %}" class="d-flex align-items-center gap-3 text-decoration-none text-body">
-                    <img src="{% static 'images/logo.png' %}" alt="San Ramon" class="public-logo">
-                    <span>
-                        <span class="d-block text-uppercase text-primary fw-semibold small">Valle San Ramon</span>
-                        <span class="d-block h5 mb-0">Sistema de asistencia</span>
-                    </span>
-                </a>
-            </div>
+        <header class="public-header border-bottom sticky-top">
+            <nav class="navbar navbar-expand-lg public-navbar">
+                <div class="container gap-3">
+                    <div class="public-brand d-flex align-items-center gap-3 me-auto">
+                        <img src="{% static 'images/logo.png' %}" alt="San Ramon" class="public-logo">
+                        <span>
+                            <span class="d-block text-uppercase text-primary fw-semibold small">Valle San Ramon</span>
+                            <span class="d-block h5 mb-0">Sistema de asistencia</span>
+                        </span>
+                    </div>
+                    <button
+                        class="navbar-toggler"
+                        type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#public-navbar"
+                        aria-controls="public-navbar"
+                        aria-expanded="false"
+                        aria-label="Abrir menu"
+                    >
+                        <span class="navbar-toggler-icon"></span>
+                    </button>
+                    <div class="collapse navbar-collapse" id="public-navbar">
+                        <ul class="navbar-nav ms-auto align-items-lg-center gap-lg-2">
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'usuarios:home' %}#inicio">Inicio</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'usuarios:home' %}#proyecto">Proyecto</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="btn btn-primary public-nav-action" href="{% url 'usuarios:consulta_publica_asistencia' %}">
+                                    {% include "includes/icon.html" with name="clipboard-check" %}
+                                    <span>Ver mi asistencia</span>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="btn btn-outline-primary public-nav-action" href="{% url 'usuarios:login' %}">
+                                    {% include "includes/icon.html" with name="log-in" %}
+                                    <span>Acceso al sistema</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </nav>
         </header>
 
         <main class="public-main">
@@ -44,14 +79,55 @@
             {% block content %}{% endblock %}
         </main>
 
-        <footer class="public-footer border-top">
-            <div class="container py-3 text-muted small text-end">valle san ram&oacute;n</div>
+        <footer class="public-footer border-top" id="contacto">
+            <div class="container py-4">
+                <div class="row g-4 align-items-start">
+                    <div class="col-12 col-lg-5">
+                        <div class="d-flex align-items-center gap-3 mb-3">
+                            <img src="{% static 'images/logo.png' %}" alt="San Ramon" class="public-footer-logo">
+                            <div>
+                                <p class="text-uppercase text-primary fw-semibold small mb-1">Valle San Ramon</p>
+                                <h2 class="h5 mb-0">Proyecto San Ram&oacute;n</h2>
+                            </div>
+                        </div>
+                        <p class="text-muted mb-0">Canal informativo y de consulta de asistencia para socios del proyecto.</p>
+                    </div>
+                    <div class="col-12 col-md-6 col-lg-4">
+                        <h3 class="h6 mb-3">Contacto</h3>
+                        <ul class="list-unstyled d-grid gap-2 mb-0 text-muted">
+                            <li class="d-flex align-items-center gap-2">
+                                <i class="app-icon bi bi-envelope" aria-hidden="true"></i>
+                                <span>contacto@vallesanramon.cl</span>
+                            </li>
+                            <li class="d-flex align-items-center gap-2">
+                                <i class="app-icon bi bi-geo-alt" aria-hidden="true"></i>
+                                <span>Valle San Ram&oacute;n</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="col-12 col-md-6 col-lg-3">
+                        <h3 class="h6 mb-3">Redes sociales</h3>
+                        <div class="d-flex flex-wrap gap-2">
+                            <a href="#" class="btn btn-outline-primary btn-sm public-social-link" aria-label="Facebook Valle San Ramon">
+                                <i class="app-icon bi bi-facebook" aria-hidden="true"></i>
+                            </a>
+                            <a href="#" class="btn btn-outline-primary btn-sm public-social-link" aria-label="Instagram Valle San Ramon">
+                                <i class="app-icon bi bi-instagram" aria-hidden="true"></i>
+                            </a>
+                            <a href="#" class="btn btn-outline-primary btn-sm public-social-link" aria-label="WhatsApp Valle San Ramon">
+                                <i class="app-icon bi bi-whatsapp" aria-hidden="true"></i>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                <div class="border-top mt-4 pt-3 text-muted small text-end">valle san ram&oacute;n</div>
+            </div>
         </footer>
     </div>
 
     <script src="{% static 'vendor/bootstrap/bootstrap.bundle.min.js' %}"></script>
     <script src="{% static 'vendor/sweetalert2/sweetalert2.all.min.js' %}"></script>
-    <script src="{% static 'js/app.js' %}?v=sprint-3-public-1"></script>
+    <script src="{% static 'js/app.js' %}?v=sprint-3-landing-1"></script>
     {% block extra_js %}{% endblock %}
 </body>
 </html>

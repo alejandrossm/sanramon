@@ -516,13 +516,7 @@ def index(request):
     if request.user.is_authenticated:
         return redirect(obtener_url_post_login(request.user))
 
-    return render(
-        request,
-        'usuarios/index.html',
-        {
-            'consulta_form': ConsultaPublicaRutForm(),
-        },
-    )
+    return render(request, 'usuarios/index.html')
 
 
 class UsuarioLoginView(LoginView):

@@ -537,10 +537,21 @@ h6,
 
 .public-header {
     background: rgba(255, 252, 248, 0.92);
+    backdrop-filter: blur(10px);
 }
 
 .public-main {
     flex: 1;
+}
+
+.public-navbar {
+    border-bottom: 0;
+    box-shadow: none;
+}
+
+.public-brand {
+    min-width: 0;
+    color: var(--color-text);
 }
 
 .public-logo {
@@ -551,6 +562,58 @@ h6,
     border-radius: 50%;
     background: #fff;
     padding: 0.3rem;
+}
+
+.public-footer-logo {
+    width: 48px;
+    height: 48px;
+    object-fit: contain;
+    border: 1px solid var(--color-border);
+    border-radius: 50%;
+    background: #fff;
+    padding: 0.25rem;
+}
+
+.public-nav-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    min-width: 0;
+}
+
+.public-landing-hero {
+    position: relative;
+    min-height: clamp(420px, 72vh, 700px);
+    overflow: hidden;
+    color: #fff;
+    background: var(--color-sidebar);
+}
+
+.public-hero-image {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.public-hero-overlay {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-height: inherit;
+    background: linear-gradient(90deg, rgba(12, 47, 61, 0.78), rgba(12, 47, 61, 0.42) 48%, rgba(12, 47, 61, 0.16));
+}
+
+.public-hero-content {
+    max-width: 660px;
+    padding: 4rem 0;
+    text-shadow: 0 2px 18px rgba(12, 47, 61, 0.36);
+}
+
+.public-hero-content .btn {
+    text-shadow: none;
 }
 
 .public-panel {
@@ -570,6 +633,37 @@ h6,
 
 .public-footer {
     background: var(--color-surface);
+}
+
+.public-gallery-section {
+    background: var(--color-logo-sand-light);
+}
+
+.public-gallery-image {
+    display: block;
+    width: 100%;
+    object-fit: cover;
+    border-radius: 8px;
+    box-shadow: var(--shadow-panel-soft);
+}
+
+.public-gallery-image.is-large {
+    height: min(56vw, 560px);
+    min-height: 360px;
+}
+
+.public-gallery-image.is-wide {
+    height: min(56vw, 560px);
+    min-height: 360px;
+}
+
+.public-social-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
 }
 
 @media (max-width: 991.98px) {
@@ -609,6 +703,19 @@ h6,
         padding-top: 0.85rem;
     }
 
+    .public-navbar .navbar-nav {
+        align-items: stretch !important;
+        padding-top: 1rem;
+    }
+
+    .public-nav-action {
+        width: 100%;
+    }
+
+    .public-hero-overlay {
+        background: rgba(12, 47, 61, 0.62);
+    }
+
 }
 
 @media (max-width: 767.98px) {
@@ -619,6 +726,20 @@ h6,
     .app-footer {
         padding: 0 1rem 1rem;
         text-align: left;
+    }
+
+    .public-landing-hero {
+        min-height: 520px;
+    }
+
+    .public-hero-content {
+        padding: 3rem 0;
+    }
+
+    .public-gallery-image.is-large,
+    .public-gallery-image.is-wide {
+        height: 260px;
+        min-height: 0;
     }
 
 }
