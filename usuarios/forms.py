@@ -165,6 +165,70 @@ class RecuperarPasswordForm(PasswordResetForm):
         )
 
 
+class ConsultaPublicaRutForm(forms.Form):
+    """Formulario publico para consultar asistencia de un socio por RUT."""
+
+    MENSAJE_GENERICO = 'No fue posible encontrar informacion para los datos ingresados.'
+
+    rut = forms.CharField(
+        label='RUT',
+        max_length=12,
+        widget=forms.TextInput(
+            attrs={
+                'autocomplete': 'off',
+                'autofocus': True,
+                'class': 'form-control form-control-lg',
+                'inputmode': 'text',
+                'placeholder': '12.345.678-9',
+            }
+        ),
+    )
+    anio = forms.IntegerField(
+        label='Año',
+        required=False,
+        min_value=2000,
+        widget=forms.NumberInput(
+            attrs={
+                'class': 'form-control form-control-lg',
+                'inputmode': 'numeric',
+                'placeholder': '2026',
+            }
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        """Configura campos publicos y estado resuelto de socio."""
+        self.socio = None
+        super().__init__(*args, **kwargs)
+        self.fields['anio'].initial = timezone.localdate().year
+        self.fields['anio'].max_value = timezone.localdate().year + 1
+        marcar_campo_rut(self.fields['rut'])
+
+    def clean_rut(self):
+        """Normaliza el RUT y evita exponer si el dato no coincide."""
+        lectura_rut = parsear_lectura_rut(self.cleaned_data['rut'])
+        if not lectura_rut:
+            raise forms.ValidationError(self.MENSAJE_GENERICO)
+
+        socio = Usuario.objects.filter(
+            rut__iexact=lectura_rut.rut,
+            rol=Usuario.SOCIO,
+        ).first()
+        if not socio:
+            raise forms.ValidationError(self.MENSAJE_GENERICO)
+
+        self.socio = socio
+        return lectura_rut.rut
+
+    def clean_anio(self):
+        """Usa el año actual cuando la consulta no especifica periodo."""
+        anio = self.cleaned_data.get('anio') or timezone.localdate().year
+        maximo = timezone.localdate().year + 1
+        if anio > maximo:
+            raise forms.ValidationError('Ingrese un año válido.')
+        return anio
+
+
 class UsuarioCreationForm(TelefonoMovilFormMixin, UserCreationForm):
     """Formulario de alta de usuarios con control de roles según actor."""
 

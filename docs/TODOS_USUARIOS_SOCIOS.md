@@ -10,7 +10,7 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
 - [x] Agregar filtro por rol en el listado de usuarios.
 - [x] Documentar la correccion de estilos del admin de Django en PythonAnywhere: ejecutar `collectstatic`, mapear `/static/` a `staticfiles` y verificar `/static/admin/css/base.css`.
 - [x] Corregir tildes faltantes en etiquetas, ayudas y mensajes de los formularios.
-- [ ] Sprint 3 HU-12: crear landing page publica tipo index, con acceso al sistema interno y acceso de socios a consulta por RUT.
+- [x] Sprint 3 HU-12: crear landing page publica tipo index, con acceso al sistema interno y acceso de socios a consulta por RUT.
 
 ## Seguridad antes de produccion
 
@@ -40,8 +40,8 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
 - [x] Agregar flujo de justificacion administrativa de inasistencias de socios bloqueados, con motivo obligatorio, usuario responsable y fecha.
 - [x] Mostrar la causa de las justificaciones de inasistencia en una vista operativa o historica, para que el administrador pueda revisar el motivo registrado.
 - [x] Revisar que un socio bloqueado no contabilice nuevas asistencias como ausente.
-- [ ] Sprint 3 HU-12: consulta publica por RUT para socios, mostrando estado del socio, historial de asistencia, resumen anual, reuniones totales, asistencias, ausencias y recordatorio de la proxima reunion.
-- [ ] Sprint 3 HU-12: calcular la proxima reunion automaticamente como la reunion `programada` con fecha y hora mas cercana a la fecha actual; no requiere marca manual.
+- [x] Sprint 3 HU-12: consulta publica por RUT para socios, mostrando estado del socio, historial de asistencia, resumen anual, reuniones totales, asistencias y ausencias.
+- [x] Sprint 3 HU-12: calcular la proxima reunion automaticamente como servicio reutilizable; por ajuste de interfaz no se muestra en la vista publica.
 
 ## Reportes
 

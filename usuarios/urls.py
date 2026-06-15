@@ -5,7 +5,12 @@ from . import views
 app_name = 'usuarios'
 
 urlpatterns = [
-    path('', views.dashboard, name='home'),
+    path('', views.index, name='home'),
+    path(
+        'consulta-asistencia/',
+        views.consulta_publica_asistencia,
+        name='consulta_publica_asistencia',
+    ),
     path('dashboard/', views.dashboard, name='dashboard'),
     path('login/', views.UsuarioLoginView.as_view(), name='login'),
     path('logout/', views.UsuarioLogoutView.as_view(), name='logout'),

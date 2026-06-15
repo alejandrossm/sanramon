@@ -26,6 +26,7 @@ from django.views.decorators.http import require_POST
 from .identificacion import parsear_lectura_rut
 from .forms import (
     CambioPasswordForm,
+    ConsultaPublicaRutForm,
     JustificacionInasistenciaForm,
     LoginForm,
     RecuperarPasswordForm,
@@ -64,7 +65,9 @@ from .servicios_asistencia import (
     agregar_resumen_asistencia_socios,
     anotar_resumen_asistencia_socios,
     filtrar_socios_por_indicador_asistencia,
+    obtener_historial_asistencia_socio,
     obtener_indicador_asistencia,
+    obtener_resumen_anual_asistencia_socio,
     obtener_resumen_asistencia_socio,
     puede_eliminar_socio_seguro,
 )
@@ -501,6 +504,27 @@ def asistencia_required(view_func):
     return wrapper
 
 
+def obtener_url_post_login(user):
+    """Devuelve el destino interno permitido segun rol."""
+    if es_socio(user):
+        return reverse_lazy('usuarios:mis_asistencias')
+    return reverse_lazy('usuarios:dashboard')
+
+
+def index(request):
+    """Muestra la portada publica y redirige usuarios autenticados al sistema."""
+    if request.user.is_authenticated:
+        return redirect(obtener_url_post_login(request.user))
+
+    return render(
+        request,
+        'usuarios/index.html',
+        {
+            'consulta_form': ConsultaPublicaRutForm(),
+        },
+    )
+
+
 class UsuarioLoginView(LoginView):
     """Vista de login con redireccion por rol despues de autenticar."""
 
@@ -510,9 +534,7 @@ class UsuarioLoginView(LoginView):
 
     def get_success_url(self):
         """Redirige socios a asistencias y otros roles al dashboard."""
-        if es_socio(self.request.user):
-            return reverse_lazy('usuarios:mis_asistencias')
-        return reverse_lazy('usuarios:dashboard')
+        return obtener_url_post_login(self.request.user)
 
 
 class UsuarioLogoutView(LogoutView):
@@ -549,6 +571,34 @@ class UsuarioPasswordResetCompleteView(PasswordResetCompleteView):
     """Muestra el resultado final del restablecimiento de contrasena."""
 
     template_name = 'usuarios/password_reset_complete.html'
+
+
+def consulta_publica_asistencia(request):
+    """Permite a un socio consultar su asistencia publica por RUT."""
+    form = ConsultaPublicaRutForm(request.POST or None)
+    contexto = {
+        'form': form,
+    }
+
+    if request.method == 'POST' and form.is_valid():
+        socio = form.socio
+        anio = form.cleaned_data['anio']
+        resumen_general = obtener_resumen_asistencia_socio(socio)
+        resumen_anual = obtener_resumen_anual_asistencia_socio(socio, anio)
+        contexto.update(
+            {
+                'socio': socio,
+                'anio': anio,
+                'resumen_general': resumen_general,
+                'resumen_anual': resumen_anual,
+                'historial': obtener_historial_asistencia_socio(socio, anio),
+                'indicador_asistencia': obtener_indicador_asistencia(
+                    resumen_general['total_ausencias_efectivas'],
+                ),
+            }
+        )
+
+    return render(request, 'usuarios/consulta_publica_asistencia.html', contexto)
 
 
 @login_required

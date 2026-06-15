@@ -1,0 +1,57 @@
+{% load static %}
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Valle San Ramon{% endblock %}</title>
+    <link href="{% static 'vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet">
+    <link href="{% static 'vendor/bootstrap-icons/bootstrap-icons.min.css' %}" rel="stylesheet">
+    <link href="{% static 'css/styles.css' %}?v=sprint-3-public-1" rel="stylesheet">
+</head>
+<body class="public-body">
+    <div class="public-shell">
+        <header class="public-header border-bottom">
+            <div class="container d-flex flex-wrap align-items-center gap-3 py-3">
+                <a href="{% url 'usuarios:home' %}" class="d-flex align-items-center gap-3 text-decoration-none text-body">
+                    <img src="{% static 'images/logo.png' %}" alt="San Ramon" class="public-logo">
+                    <span>
+                        <span class="d-block text-uppercase text-primary fw-semibold small">Valle San Ramon</span>
+                        <span class="d-block h5 mb-0">Sistema de asistencia</span>
+                    </span>
+                </a>
+            </div>
+        </header>
+
+        <main class="public-main">
+            {% if messages %}
+                <div class="container pt-3">
+                    {% for message in messages %}
+                        <div
+                            class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show"
+                            role="alert"
+                            data-app-message
+                            data-message-level="{{ message.tags|default:'info' }}"
+                            data-message-text="{{ message|escape }}"
+                        >
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            {% block content %}{% endblock %}
+        </main>
+
+        <footer class="public-footer border-top">
+            <div class="container py-3 text-muted small text-end">valle san ram&oacute;n</div>
+        </footer>
+    </div>
+
+    <script src="{% static 'vendor/bootstrap/bootstrap.bundle.min.js' %}"></script>
+    <script src="{% static 'vendor/sweetalert2/sweetalert2.all.min.js' %}"></script>
+    <script src="{% static 'js/app.js' %}?v=sprint-3-public-1"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -804,6 +804,95 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, reverse('usuarios:password_reset'))
         self.assertContains(response, 'Olvide mi contrasena')
 
+    def test_index_publico_muestra_consulta_ancho_completo(self):
+        """Expone la portada publica enfocada solo en la consulta de asistencia."""
+        response = self.client.get(reverse('usuarios:home'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Consulta de asistencia')
+        self.assertContains(response, reverse('usuarios:consulta_publica_asistencia'))
+        self.assertContains(response, 'public-panel p-4 p-lg-5')
+        self.assertNotContains(response, 'Acceso interno')
+        self.assertNotContains(response, 'Pr&oacute;xima reuni&oacute;n')
+
+    def test_index_redirige_usuarios_autenticados_al_destino_por_rol(self):
+        """Evita mostrar la portada publica a usuarios con sesion activa."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:home'))
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+
+        self.client.logout()
+        self.client.login(username='socio', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:home'))
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+
+    def test_consulta_publica_rut_invalido_muestra_mensaje_generico(self):
+        """No diferencia entre RUT invalido y datos sin coincidencia."""
+        response = self.client.post(
+            reverse('usuarios:consulta_publica_asistencia'),
+            {'rut': 'rut-invalido', 'anio': '2026'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            'No fue posible encontrar informacion para los datos ingresados.',
+        )
+        self.assertNotIn('socio', response.context)
+
+        response = self.client.post(
+            reverse('usuarios:consulta_publica_asistencia'),
+            {'rut': self.admin_user.rut, 'anio': '2026'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            'No fue posible encontrar informacion para los datos ingresados.',
+        )
+        self.assertNotIn('socio', response.context)
+
+    def test_consulta_publica_muestra_estado_resumen_e_historial(self):
+        """Permite al socio consultar su estado e historial anual por RUT."""
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.PRESENTE,
+            date(2025, 5, 20),
+        )
+        asistencia_2026 = self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.PRESENTE,
+            date(2026, 5, 20),
+        )
+        ausencia_2026 = self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 21),
+        )
+
+        response = self.client.post(
+            reverse('usuarios:consulta_publica_asistencia'),
+            {'rut': self.socio_user.rut, 'anio': '2026'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['socio'], self.socio_user)
+        self.assertNotIn('proxima_reunion', response.context)
+        self.assertEqual(response.context['resumen_general']['total_reuniones'], 3)
+        self.assertEqual(response.context['resumen_general']['total_asistencias'], 2)
+        self.assertEqual(response.context['resumen_general']['total_ausencias'], 1)
+        self.assertEqual(response.context['resumen_anual']['total_reuniones'], 2)
+        self.assertEqual(response.context['resumen_anual']['total_asistencias'], 1)
+        self.assertEqual(response.context['resumen_anual']['total_ausencias'], 1)
+        self.assertEqual(
+            list(response.context['historial']),
+            [ausencia_2026, asistencia_2026],
+        )
+        self.assertContains(response, self.socio_user.nombre_completo)
+        self.assertContains(response, 'Resumen anual 2026')
+        self.assertNotContains(response, 'Pr&oacute;xima reuni&oacute;n')
+        self.assertNotContains(response, '2025')
+
     def test_recuperacion_password_muestra_link_a_home(self):
         """Permite volver a home desde el flujo publico de recuperacion."""
         response = self.client.get(reverse('usuarios:password_reset'))

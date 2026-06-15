@@ -1,0 +1,37 @@
+{% extends "base_public.html" %}
+
+{% block title %}Valle San Ramon | Consulta de asistencia{% endblock %}
+
+{% block content %}
+<section class="public-hero">
+    <div class="container py-4 py-lg-5">
+        <div class="public-panel p-4 p-lg-5">
+            <div class="d-flex align-items-center gap-3 mb-4">
+                {% include "includes/icon.html" with name="clipboard-check" classes="fs-3 text-primary" %}
+                <div>
+                    <p class="text-uppercase text-primary fw-semibold small mb-1">Consulta de asistencia</p>
+                    <h1 class="display-6 mb-0">Estado e historial de socio</h1>
+                </div>
+            </div>
+
+            <form method="post" action="{% url 'usuarios:consulta_publica_asistencia' %}" class="row g-3 align-items-end">
+                {% csrf_token %}
+                <div class="col-12 col-lg-6">
+                    <label for="{{ consulta_form.rut.id_for_label }}" class="form-label">{{ consulta_form.rut.label }}</label>
+                    {{ consulta_form.rut }}
+                </div>
+                <div class="col-12 col-sm-6 col-lg-3">
+                    <label for="{{ consulta_form.anio.id_for_label }}" class="form-label">{{ consulta_form.anio.label }}</label>
+                    {{ consulta_form.anio }}
+                </div>
+                <div class="col-12 col-sm-6 col-lg-3 d-grid">
+                    <button type="submit" class="btn btn-primary btn-lg public-form-button">
+                        {% include "includes/icon.html" with name="search" %}
+                        <span>Consultar</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</section>
+{% endblock %}

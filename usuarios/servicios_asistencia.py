@@ -54,6 +54,7 @@ def obtener_historial_asistencia_socio(socio, anio=None):
     ).select_related(
         'reunion',
         'registrada_por',
+        'justificacion',
     ).order_by(
         '-reunion__fecha',
         '-reunion__hora',

@@ -25,16 +25,16 @@ Completar el alcance diferido desde Sprint 2 para exponer informacion publica a 
 - Beneficio: Conocer mi estado e historial.
 - Prioridad: Media.
 - Sprint: Sprint 3.
-- Estado: Pendiente.
+- Estado: Completada.
 
 #### Criterios de aceptacion
 
-- [ ] La consulta requiere RUT.
-- [ ] Solo se muestra informacion si el RUT es valido.
-- [ ] El sistema muestra el estado del socio.
-- [ ] El sistema muestra historial de asistencia.
-- [ ] El sistema muestra resumen anual.
-- [ ] Si los datos no coinciden, se muestra un mensaje generico.
+- [x] La consulta requiere RUT.
+- [x] Solo se muestra informacion si el RUT es valido.
+- [x] El sistema muestra el estado del socio.
+- [x] El sistema muestra historial de asistencia.
+- [x] El sistema muestra resumen anual.
+- [x] Si los datos no coinciden, se muestra un mensaje generico.
 
 #### Notas de alcance
 
@@ -42,9 +42,15 @@ Completar el alcance diferido desde Sprint 2 para exponer informacion publica a 
 - El landing debe redirigir a administradores y encargados al sistema interno de asistencia.
 - El landing debe redirigir a socios a la consulta publica por RUT.
 - La vista de socios debe mostrar reuniones totales, asistencias y ausencias.
-- La vista de socios debe incluir un recordatorio de la proxima reunion.
-- La proxima reunion no se marca manualmente: se asume la reunion en estado `programada` con fecha y hora mas cercana a la fecha actual.
+- El calculo de proxima reunion queda disponible como servicio reutilizable; por ajuste de interfaz no se muestra en la vista publica.
 - Si se muestra historial, debe ser una vista acotada para el socio consultado por RUT; no corresponde a un reporte publico masivo.
+
+#### Implementacion
+
+- Ruta publica `home` (`/`) con acceso a consulta de asistencia y acceso interno.
+- Ruta publica `consulta_publica_asistencia` (`/consulta-asistencia/`) para consultar por RUT.
+- Los usuarios autenticados que entran al index publico se redirigen al destino interno correspondiente.
+- La consulta muestra estado del socio, totales generales, resumen anual e historial anual.
 
 ### HU-13 - Reportes
 

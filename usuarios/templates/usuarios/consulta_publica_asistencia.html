@@ -1,0 +1,202 @@
+{% extends "base_public.html" %}
+
+{% block title %}Consulta de asistencia | Valle San Ramon{% endblock %}
+
+{% block content %}
+<section class="container py-4 py-lg-5">
+    <div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-start mb-4">
+        <div class="d-flex align-items-center gap-3">
+            {% include "includes/icon.html" with name="search" classes="fs-4 text-primary" %}
+            <div>
+                <p class="text-uppercase text-primary fw-semibold small mb-1">Consulta p&uacute;blica</p>
+                <h1 class="h3 mb-1">Asistencia de socio</h1>
+                <p class="text-muted mb-0">Valle San Ram&oacute;n</p>
+            </div>
+        </div>
+        <a href="{% url 'usuarios:home' %}" class="btn btn-outline-secondary align-self-start">
+            {% include "includes/icon.html" with name="arrow-left" %}
+            <span>Volver</span>
+        </a>
+    </div>
+
+    <section class="public-panel p-4 mb-4" aria-label="Consulta por RUT">
+        <form method="post" class="row g-3 align-items-end">
+            {% csrf_token %}
+            <div class="col-12 col-md-5">
+                <label for="{{ form.rut.id_for_label }}" class="form-label">{{ form.rut.label }}</label>
+                {{ form.rut }}
+                {% for error in form.rut.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                {% endfor %}
+            </div>
+            <div class="col-12 col-md-3">
+                <label for="{{ form.anio.id_for_label }}" class="form-label">{{ form.anio.label }}</label>
+                {{ form.anio }}
+                {% for error in form.anio.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                {% endfor %}
+            </div>
+            <div class="col-12 col-md-4 d-grid d-sm-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-lg flex-sm-fill public-form-button">
+                    {% include "includes/icon.html" with name="search" %}
+                    <span>Consultar</span>
+                </button>
+                <a href="{% url 'usuarios:consulta_publica_asistencia' %}" class="btn btn-outline-secondary btn-lg flex-sm-fill public-form-button">
+                    {% include "includes/icon.html" with name="x-circle" %}
+                    <span>Limpiar</span>
+                </a>
+            </div>
+        </form>
+    </section>
+
+    {% if socio %}
+        <section class="row g-3 mb-4" aria-label="Estado del socio">
+            <div class="col-12">
+                <div class="border rounded bg-white p-3 h-100">
+                    <h2 class="h5 mb-3 d-flex align-items-center gap-2">
+                        {% include "includes/icon.html" with name="id-card" classes="text-primary" %}
+                        <span>{{ socio.nombre_completo }}</span>
+                    </h2>
+                    <dl class="row g-2 mb-0">
+                        <dt class="col-sm-4 text-muted fw-semibold">RUT</dt>
+                        <dd class="col-sm-8 mb-0">{{ socio.rut }}</dd>
+                        <dt class="col-sm-4 text-muted fw-semibold">Estado cuenta</dt>
+                        <dd class="col-sm-8 mb-0">
+                            {% if socio.is_active %}
+                                <span class="badge text-bg-success">Activo</span>
+                            {% else %}
+                                <span class="badge text-bg-secondary">Inactivo</span>
+                            {% endif %}
+                        </dd>
+                        <dt class="col-sm-4 text-muted fw-semibold">Estado asistencia</dt>
+                        <dd class="col-sm-8 mb-0">
+                            <span class="badge {{ indicador_asistencia.badge_class }}">{{ indicador_asistencia.label }}</span>
+                        </dd>
+                    </dl>
+                </div>
+            </div>
+        </section>
+
+        <section class="row g-3 mb-4" aria-label="Totales de asistencia">
+            <div class="col-6 col-lg-3">
+                <div class="border rounded bg-white p-3 h-100">
+                    <span class="d-block text-muted small fw-semibold">Reuniones totales</span>
+                    <strong class="fs-4">{{ resumen_general.total_reuniones }}</strong>
+                </div>
+            </div>
+            <div class="col-6 col-lg-3">
+                <div class="border rounded bg-white p-3 h-100">
+                    <span class="d-block text-muted small fw-semibold">Asistencias</span>
+                    <strong class="fs-4">{{ resumen_general.total_asistencias }}</strong>
+                </div>
+            </div>
+            <div class="col-6 col-lg-3">
+                <div class="border rounded bg-white p-3 h-100">
+                    <span class="d-block text-muted small fw-semibold">Ausencias</span>
+                    <strong class="fs-4">{{ resumen_general.total_ausencias }}</strong>
+                </div>
+            </div>
+            <div class="col-6 col-lg-3">
+                <div class="border rounded bg-white p-3 h-100">
+                    <span class="d-block text-muted small fw-semibold">Ausencias efectivas</span>
+                    <strong class="fs-4">{{ resumen_general.total_ausencias_efectivas }}</strong>
+                </div>
+            </div>
+        </section>
+
+        <section class="public-panel p-4 mb-4" aria-label="Resumen anual">
+            <div class="d-flex align-items-center gap-2 mb-3">
+                {% include "includes/icon.html" with name="chart-bar" classes="text-primary" %}
+                <h2 class="h5 mb-0">Resumen anual {{ anio }}</h2>
+            </div>
+            <div class="row g-3">
+                <div class="col-6 col-md">
+                    <span class="d-block text-muted small fw-semibold">Reuniones</span>
+                    <strong class="fs-5">{{ resumen_anual.total_reuniones }}</strong>
+                </div>
+                <div class="col-6 col-md">
+                    <span class="d-block text-muted small fw-semibold">Asistencias</span>
+                    <strong class="fs-5">{{ resumen_anual.total_asistencias }}</strong>
+                </div>
+                <div class="col-6 col-md">
+                    <span class="d-block text-muted small fw-semibold">Ausencias</span>
+                    <strong class="fs-5">{{ resumen_anual.total_ausencias }}</strong>
+                </div>
+                <div class="col-6 col-md">
+                    <span class="d-block text-muted small fw-semibold">Justificaciones</span>
+                    <strong class="fs-5">{{ resumen_anual.total_justificaciones }}</strong>
+                </div>
+            </div>
+        </section>
+
+        <section aria-label="Historial de asistencia">
+            <div class="d-flex align-items-center gap-2 mb-3">
+                {% include "includes/icon.html" with name="clipboard-check" classes="text-primary" %}
+                <h2 class="h5 mb-0">Historial {{ anio }}</h2>
+            </div>
+
+            <div class="table-responsive rounded overflow-hidden shadow-sm border bg-white d-none d-md-block">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>FECHA</th>
+                            <th>HORA</th>
+                            <th>LOCACI&Oacute;N</th>
+                            <th>ESTADO</th>
+                            <th>JUSTIFICACI&Oacute;N</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for asistencia in historial %}
+                            <tr>
+                                <td>{{ asistencia.reunion.fecha|date:"d-m-Y" }}</td>
+                                <td>{{ asistencia.reunion.hora|time:"H:i" }}</td>
+                                <td>{{ asistencia.reunion.locacion }}</td>
+                                <td>
+                                    {% if asistencia.estado == "PRESENTE" %}
+                                        <span class="badge text-bg-success">{{ asistencia.get_estado_display }}</span>
+                                    {% else %}
+                                        <span class="badge text-bg-secondary">{{ asistencia.get_estado_display }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if asistencia.justificacion %}
+                                        <span class="badge text-bg-info">Justificada</span>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="5" class="text-center text-muted py-4">No hay asistencias registradas para el a&ntilde;o seleccionado.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="list-group shadow-sm border rounded overflow-hidden d-md-none">
+                {% for asistencia in historial %}
+                    <div class="list-group-item p-3">
+                        <div class="d-flex justify-content-between gap-3 align-items-start mb-2">
+                            <strong>{{ asistencia.reunion.fecha|date:"d-m-Y" }} {{ asistencia.reunion.hora|time:"H:i" }}</strong>
+                            {% if asistencia.estado == "PRESENTE" %}
+                                <span class="badge text-bg-success">{{ asistencia.get_estado_display }}</span>
+                            {% else %}
+                                <span class="badge text-bg-secondary">{{ asistencia.get_estado_display }}</span>
+                            {% endif %}
+                        </div>
+                        <p class="text-muted mb-1">{{ asistencia.reunion.locacion }}</p>
+                        {% if asistencia.justificacion %}
+                            <span class="badge text-bg-info">Justificada</span>
+                        {% endif %}
+                    </div>
+                {% empty %}
+                    <div class="list-group-item text-center text-muted py-4">No hay asistencias registradas para el a&ntilde;o seleccionado.</div>
+                {% endfor %}
+            </div>
+        </section>
+    {% endif %}
+</section>
+{% endblock %}
