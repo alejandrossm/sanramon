@@ -1,5 +1,7 @@
+import csv
+import zipfile
 from datetime import date, datetime, time
-from io import StringIO
+from io import BytesIO, StringIO
 from urllib.parse import urlparse
 from unittest.mock import patch
 
@@ -2413,6 +2415,148 @@ class UsuariosModuloTests(TestCase):
         self.assertNotContains(response, 'admin@example.com')
         self.assertNotContains(response, 'encargado@example.com')
 
+    def test_listado_asistencia_muestra_exportacion_solo_a_administrador(self):
+        """Expone reportes anuales descargables solo a administradores."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
+
+        self.assertContains(response, 'aria-label="Exportar resumen anual"')
+        self.assertContains(response, 'Descargar reporte anual CSV')
+        self.assertContains(response, 'Descargar reporte anual XLSX')
+        self.assertContains(response, 'Descargar reporte anual PDF')
+        self.assertContains(
+            response,
+            reverse('usuarios:exportar_asistencia_anual', args=['csv']),
+        )
+        self.assertContains(
+            response,
+            f'anio={timezone.localdate().year}',
+        )
+        self.assertContains(response, 'name="estado"')
+        self.assertContains(response, 'name="anio"')
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
+
+        self.assertNotContains(response, 'aria-label="Exportar resumen anual"')
+        self.assertNotContains(
+            response,
+            reverse('usuarios:exportar_asistencia_anual', args=['csv']),
+        )
+
+    def test_exportar_asistencia_csv_usa_dataset_completo_no_paginado(self):
+        """El reporte CSV usa todos los socios filtrados y no solo la pagina actual."""
+        for indice in range(55):
+            self.User.objects.create_user(
+                username=f'exportable_{indice:02d}',
+                email=f'exportable_{indice:02d}@example.com',
+                password='ClaveSegura123',
+                first_name='Exportable',
+                last_name=f'Completo {indice:02d}',
+                rut=f'95.000.{indice:03d}-{indice % 10}',
+                rol=self.User.SOCIO,
+            )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:exportar_asistencia_anual', args=['csv']),
+            {'nombre': 'Exportable', 'anio': 2026},
+        )
+        contenido = response.content.decode('utf-8-sig')
+        filas = list(csv.DictReader(StringIO(contenido)))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'text/csv; charset=utf-8')
+        self.assertIn('attachment;', response['Content-Disposition'])
+        self.assertIn('reporte_asistencia_anual_2026.csv', response['Content-Disposition'])
+        self.assertEqual(len(filas), 55)
+        self.assertEqual(filas[-1]['Correo electronico'], 'exportable_54@example.com')
+        self.assertIn('Usuario', filas[-1])
+        self.assertIn('Telefono movil', filas[-1])
+        self.assertNotIn('Nombre completo', filas[-1])
+
+    def test_exportar_asistencia_csv_respeta_anio_y_estado(self):
+        """El reporte anual cuenta solo reuniones del ano seleccionado."""
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.PRESENTE,
+            date(2025, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 21),
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:exportar_asistencia_anual', args=['csv']),
+            {
+                'rut': self.socio_user.rut,
+                'estado': 'activo',
+                'anio': 2026,
+            },
+        )
+        filas = list(csv.DictReader(StringIO(response.content.decode('utf-8-sig'))))
+
+        self.assertEqual(len(filas), 1)
+        self.assertEqual(filas[0]['Ano'], '2026')
+        self.assertEqual(filas[0]['RUT'], self.socio_user.rut)
+        self.assertEqual(filas[0]['Estado actual'], 'Activo')
+        self.assertEqual(filas[0]['Reuniones realizadas'], '1')
+        self.assertEqual(filas[0]['Asistencias'], '0')
+        self.assertEqual(filas[0]['Inasistencias'], '1')
+        self.assertEqual(filas[0]['Inasistencias efectivas'], '1')
+
+    def test_exportar_asistencia_xlsx_y_pdf_descargan_datos_completos(self):
+        """Genera XLSX y PDF descargables con datos no visibles en la tabla."""
+        self.client.login(username='admin', password='ClaveSegura123')
+
+        response_xlsx = self.client.get(
+            reverse('usuarios:exportar_asistencia_anual', args=['xlsx']),
+            {'rut': self.socio_user.rut, 'anio': 2026},
+        )
+        with zipfile.ZipFile(BytesIO(response_xlsx.content)) as archivo:
+            worksheet = archivo.read('xl/worksheets/sheet1.xml').decode('utf-8')
+            styles = archivo.read('xl/styles.xml').decode('utf-8')
+
+        self.assertEqual(response_xlsx.status_code, 200)
+        self.assertEqual(
+            response_xlsx['Content-Type'],
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        self.assertIn('attachment;', response_xlsx['Content-Disposition'])
+        self.assertIn('Correo electronico', worksheet)
+        self.assertIn('socio@example.com', worksheet)
+        self.assertIn('Telefono movil', worksheet)
+        self.assertIn('+56922222222', worksheet)
+        self.assertNotIn('Nombre completo', worksheet)
+        self.assertLess(worksheet.index('<sheetViews>'), worksheet.index('<cols>'))
+        self.assertLess(worksheet.index('<cols>'), worksheet.index('<sheetData>'))
+        self.assertIn('patternType="gray125"', styles)
+
+        response_pdf = self.client.get(
+            reverse('usuarios:exportar_asistencia_anual', args=['pdf']),
+            {'rut': self.socio_user.rut, 'anio': 2026},
+        )
+
+        self.assertEqual(response_pdf.status_code, 200)
+        self.assertEqual(response_pdf['Content-Type'], 'application/pdf')
+        self.assertIn('attachment;', response_pdf['Content-Disposition'])
+        self.assertTrue(response_pdf.content.startswith(b'%PDF-1.4'))
+        self.assertIn(b'socio@example.com', response_pdf.content)
+        self.assertIn(b'+56922222222', response_pdf.content)
+        self.assertNotIn(b'Nombre completo', response_pdf.content)
+
+    def test_exportar_asistencia_restringe_encargados(self):
+        """Solo administradores pueden descargar reportes anuales."""
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:exportar_asistencia_anual', args=['csv']),
+        )
+
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+
     def test_listado_asistencia_filtra_y_concatena_apellidos(self):
         """Aplica filtros operativos y muestra apellidos en una sola columna."""
         socio_filtrado = self.User.objects.create_user(
@@ -3033,8 +3177,87 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'data-confirm-title="Eliminar socio"')
         self.assertContains(response, 'class="btn btn-danger btn-sm"')
         self.assertContains(response, 'bi-trash-fill')
+        self.assertContains(response, 'aria-label="Exportar resumen anual"')
+        self.assertContains(response, 'btn-group btn-group-sm')
+        self.assertContains(response, 'Descargar reporte anual CSV')
+        self.assertContains(
+            response,
+            reverse('usuarios:exportar_socios_asistencia_anual', args=['csv']),
+        )
+        self.assertContains(response, 'name="anio"')
         self.assertNotContains(response, 'admin@example.com')
         self.assertNotContains(response, 'encargado@example.com')
+
+    def test_exportar_socios_csv_usa_dataset_completo_no_paginado(self):
+        """Exporta todos los socios filtrados desde el listado administrativo."""
+        for indice in range(55):
+            self.User.objects.create_user(
+                username=f'socio_exportable_{indice:02d}',
+                email=f'socio_exportable_{indice:02d}@example.com',
+                password='ClaveSegura123',
+                first_name='SocioExportable',
+                last_name=f'Completo {indice:02d}',
+                rut=f'96.000.{indice:03d}-{indice % 10}',
+                telefono_movil='+56933333333',
+                rol=self.User.SOCIO,
+            )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:exportar_socios_asistencia_anual', args=['csv']),
+            {'nombre': 'SocioExportable', 'anio': 2026},
+        )
+        filas = list(csv.DictReader(StringIO(response.content.decode('utf-8-sig'))))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'text/csv; charset=utf-8')
+        self.assertIn('attachment;', response['Content-Disposition'])
+        self.assertIn(
+            'reporte_socios_asistencia_anual_2026.csv',
+            response['Content-Disposition'],
+        )
+        self.assertEqual(len(filas), 55)
+        self.assertEqual(
+            filas[-1]['Correo electronico'],
+            'socio_exportable_54@example.com',
+        )
+        self.assertEqual(filas[-1]['Telefono movil'], '+56933333333')
+        self.assertIn('Reuniones realizadas', filas[-1])
+        self.assertNotIn('Nombre completo', filas[-1])
+
+    def test_exportar_socios_xlsx_pdf_y_restringe_encargados(self):
+        """Descarga XLSX/PDF desde socios y conserva permisos administrativos."""
+        self.client.login(username='admin', password='ClaveSegura123')
+
+        response_xlsx = self.client.get(
+            reverse('usuarios:exportar_socios_asistencia_anual', args=['xlsx']),
+            {'rut': self.socio_user.rut, 'anio': 2026},
+        )
+        with zipfile.ZipFile(BytesIO(response_xlsx.content)) as archivo:
+            worksheet = archivo.read('xl/worksheets/sheet1.xml').decode('utf-8')
+
+        self.assertEqual(response_xlsx.status_code, 200)
+        self.assertIn('attachment;', response_xlsx['Content-Disposition'])
+        self.assertIn('socio@example.com', worksheet)
+        self.assertIn('+56922222222', worksheet)
+        self.assertNotIn('Nombre completo', worksheet)
+
+        response_pdf = self.client.get(
+            reverse('usuarios:exportar_socios_asistencia_anual', args=['pdf']),
+            {'rut': self.socio_user.rut, 'anio': 2026},
+        )
+
+        self.assertEqual(response_pdf.status_code, 200)
+        self.assertEqual(response_pdf['Content-Type'], 'application/pdf')
+        self.assertTrue(response_pdf.content.startswith(b'%PDF-1.4'))
+        self.assertNotIn(b'Nombre completo', response_pdf.content)
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:exportar_socios_asistencia_anual', args=['csv']),
+        )
+
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
 
     def test_listado_socios_filtra_y_separa_nombre_apellido(self):
         """Aplica filtros administrativos y muestra nombre y apellido separados."""

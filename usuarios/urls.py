@@ -36,6 +36,11 @@ urlpatterns = [
     ),
     path('mis-asistencias/', views.mis_asistencias, name='mis_asistencias'),
     path('asistencia/', views.listado_socios_asistencia, name='listado_socios_asistencia'),
+    path(
+        'asistencia/reportes/anual/<str:formato>/',
+        views.exportar_asistencia_anual,
+        name='exportar_asistencia_anual',
+    ),
     path('asistencia/registrar/', views.registrar_asistencia_activa, name='registrar_asistencia_activa'),
     path(
         'asistencia/justificaciones/',
@@ -71,6 +76,11 @@ urlpatterns = [
         'socios/<int:pk>/notificar-bloqueo/',
         views.notificar_bloqueo_socio,
         name='notificar_bloqueo_socio',
+    ),
+    path(
+        'socios/reportes/anual/<str:formato>/',
+        views.exportar_socios_asistencia_anual,
+        name='exportar_socios_asistencia_anual',
     ),
     path('socios/<int:pk>/eliminar/', views.eliminar_socio, name='eliminar_socio'),
     path('mi-contrasena/', views.cambiar_mi_password, name='cambiar_mi_password'),
