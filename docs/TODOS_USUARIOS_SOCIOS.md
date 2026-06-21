@@ -11,6 +11,7 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
 - [x] Documentar la correccion de estilos del admin de Django en PythonAnywhere: ejecutar `collectstatic`, mapear `/static/` a `staticfiles` y verificar `/static/admin/css/base.css`.
 - [x] Corregir tildes faltantes en etiquetas, ayudas y mensajes de los formularios.
 - [x] Sprint 3 HU-12: crear landing page publica tipo index, con informacion del proyecto, imagenes, navbar, acceso al sistema interno, acceso de socios a consulta por RUT y footer con contacto/redes.
+- [ ] Revisar estilos de placeholder en inputs: el texto de ayuda se percibe como valor ingresado por el usuario y debe diferenciarse visualmente.
 
 ## Seguridad antes de produccion
 
@@ -47,10 +48,11 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
 
 - [x] Sprint 3 HU-13: exportar resumen anual para administradores en `xlsx`, `csv` y `pdf`, con datos del socio, reuniones realizadas, asistencias, inasistencias, estado actual y ano seleccionado.
   - [x] Primera entrega: listados de asistencia y socios con botones de descarga `csv`, `xlsx` y `pdf`, filtro de ano/estado, datos completos y exportacion del conjunto filtrado completo.
+- [x] Carga historica: permitir cargar asistencias de reuniones `HISTORICA` desde CSV separado por `;` o `,`, con plantilla base XLSX exportable y lectura registro por registro.
 
 ## Auditoria
 
-- [ ] Sprint 3 HU-14: registrar acciones relevantes del sistema con usuario ejecutor, tipo de accion, fecha y hora, entidad afectada cuando corresponda y cobertura para asistencia, cancelacion, desbloqueo y edicion.
+- [x] Sprint 3 HU-14: registrar acciones relevantes en `auditoria.log` con usuario ejecutor, tipo de accion, fecha y hora, entidad afectada y cobertura para desactivacion/activacion de usuarios, cancelacion de reuniones, borrado de reuniones, borrado de usuarios/socios y respaldo de base de datos.
 
 ## Pendientes por definir
 

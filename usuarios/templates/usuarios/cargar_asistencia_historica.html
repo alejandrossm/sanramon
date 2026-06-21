@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% load crispy_forms_tags %}
+
+{% block title %}Carga historica | Sistema San Ramon{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-start mb-4">
+    <div class="d-flex align-items-center gap-3">
+        {% include "includes/icon.html" with name="file-spreadsheet" classes="fs-4 text-primary" %}
+        <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Reuniones</p>
+            <h1 class="h3 mb-1">Carga hist&oacute;rica de asistencia</h1>
+            <p class="text-muted mb-0">{{ reunion.fecha|date:"d-m-Y" }} {{ reunion.hora|time:"H:i" }} &middot; {{ reunion.locacion }}</p>
+        </div>
+    </div>
+    <a href="{% url 'usuarios:descargar_plantilla_asistencia_historica' %}" class="btn btn-outline-primary d-inline-flex align-items-center gap-2">
+        {% include "includes/icon.html" with name="file-spreadsheet" %}
+        <span>Plantilla XLSX</span>
+    </a>
+</div>
+
+<section class="card shadow-sm border-0 p-4">
+    <div class="alert alert-info" role="alert">
+        El CSV debe incluir las columnas RUT y Estado. Estado acepta Presente o Ausente. Se admite separador coma o punto y coma.
+    </div>
+    {% crispy form %}
+</section>
+{% endblock %}

@@ -3,16 +3,18 @@ import zipfile
 from datetime import date, datetime, time
 from io import BytesIO, StringIO
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, gettempdir
 from urllib.parse import urlparse
 from unittest.mock import patch
 
+from django.conf import settings
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.contrib.staticfiles import finders
 from django.core import mail
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
@@ -21,6 +23,15 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .admin import UsuarioAdmin
+from .auditoria import (
+    ACCION_RESPALDO_BASE_DATOS,
+    ACCION_REUNION_CANCELADA,
+    ACCION_REUNION_ELIMINADA,
+    ACCION_SOCIO_ELIMINADO,
+    ACCION_USUARIO_DESACTIVADO,
+    ACCION_USUARIO_ELIMINADO,
+    leer_eventos_auditoria,
+)
 from .forms import (
     JustificacionInasistenciaForm,
     ReunionCancelacionForm,
@@ -71,12 +82,14 @@ from .views import (
 @override_settings(
     PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'],
     EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+    AUDITORIA_LOG_PATH=Path(gettempdir()) / 'sanramon_test_auditoria.log',
 )
 class UsuariosModuloTests(TestCase):
     """Pruebas de autenticacion, roles, permisos y gestion de usuarios."""
 
     def setUp(self):
         """Crea usuarios base para validar reglas por rol."""
+        Path(settings.AUDITORIA_LOG_PATH).unlink(missing_ok=True)
         self.User = get_user_model()
         self.admin_user = self.User.objects.create_user(
             username='admin',
@@ -1242,23 +1255,31 @@ class UsuariosModuloTests(TestCase):
             archivo.write(b'SQLite format 3\x00')
             ruta_respaldo = Path(archivo.name)
         mock_ruta_respaldo.return_value = ruta_respaldo
+        with NamedTemporaryFile(delete=False, suffix='.log') as archivo_auditoria:
+            ruta_auditoria = Path(archivo_auditoria.name)
 
         self.client.login(username='admin', password='ClaveSegura123')
 
         try:
-            response = self.client.get(reverse('usuarios:registro_logs'))
-            self.assertEqual(response.status_code, 200)
-            self.assertContains(response, 'Registro de logs')
-            self.assertContains(response, 'Exportar base de datos')
+            with self.settings(AUDITORIA_LOG_PATH=ruta_auditoria):
+                response = self.client.get(reverse('usuarios:registro_logs'))
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, 'Registro de logs')
+                self.assertContains(response, 'Exportar base de datos')
 
-            response = self.client.get(reverse('usuarios:exportar_base_datos_respaldo'))
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(response['Content-Type'], 'application/vnd.sqlite3')
-            self.assertIn('attachment;', response['Content-Disposition'])
-            self.assertIn('respaldo_sanramon_', response['Content-Disposition'])
-            response.close()
+                response = self.client.get(reverse('usuarios:exportar_base_datos_respaldo'))
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response['Content-Type'], 'application/vnd.sqlite3')
+                self.assertIn('attachment;', response['Content-Disposition'])
+                self.assertIn('respaldo_sanramon_', response['Content-Disposition'])
+                response.close()
+
+                eventos = leer_eventos_auditoria()
+                self.assertEqual(eventos[0]['accion'], ACCION_RESPALDO_BASE_DATOS)
+                self.assertEqual(eventos[0]['usuario'], 'admin')
         finally:
             ruta_respaldo.unlink(missing_ok=True)
+            ruta_auditoria.unlink(missing_ok=True)
 
     def test_configuracion_restringe_encargado_y_socio(self):
         """Bloquea opciones criticas de configuracion fuera del rol administrador."""
@@ -1273,6 +1294,91 @@ class UsuariosModuloTests(TestCase):
         self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
         response = self.client.get(reverse('usuarios:exportar_base_datos_respaldo'))
         self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+
+    def test_auditoria_registra_acciones_criticas_en_auditoria_log(self):
+        """Registra eventos criticos en auditoria.log con actor y entidad."""
+        with NamedTemporaryFile(delete=False, suffix='.log') as archivo_auditoria:
+            ruta_auditoria = Path(archivo_auditoria.name)
+
+        self.client.login(username='admin', password='ClaveSegura123')
+
+        try:
+            with self.settings(AUDITORIA_LOG_PATH=ruta_auditoria):
+                self.client.post(
+                    reverse('usuarios:cambiar_estado_usuario', args=[self.encargado_user.pk]),
+                )
+
+                reunion_cancelada = Reunion.objects.create(
+                    fecha=date(2026, 5, 20),
+                    hora=time(18, 30),
+                    locacion='Sede social',
+                    creador=self.admin_user,
+                )
+                self.client.post(
+                    reverse('usuarios:cancelar_reunion', args=[reunion_cancelada.pk]),
+                    {'motivo_cancelacion': 'Suspension administrativa'},
+                )
+
+                reunion_eliminada = Reunion.objects.create(
+                    fecha=date(2026, 6, 20),
+                    hora=time(18, 30),
+                    locacion='Sede social',
+                    creador=self.admin_user,
+                )
+                self.client.post(
+                    reverse('usuarios:eliminar_reunion', args=[reunion_eliminada.pk]),
+                )
+
+                usuario_borrable = self.User.objects.create_user(
+                    username='usuario.borrable',
+                    email='usuario.borrable@example.com',
+                    password='ClaveSegura123',
+                    first_name='Usuario',
+                    last_name='Borrable',
+                    rut='55.555.555-5',
+                    rol=self.User.ENCARGADO_REGISTRO,
+                )
+                self.client.post(
+                    reverse('usuarios:eliminar_usuario', args=[usuario_borrable.pk]),
+                )
+
+                socio_borrable = self.User.objects.create_user(
+                    username='socio.borrable',
+                    email='socio.borrable@example.com',
+                    password='ClaveSegura123',
+                    first_name='Socio',
+                    last_name='Borrable',
+                    rut='66.666.666-6',
+                    rol=self.User.SOCIO,
+                )
+                self.client.post(
+                    reverse('usuarios:eliminar_socio', args=[socio_borrable.pk]),
+                )
+
+                eventos = leer_eventos_auditoria()
+                acciones = {evento['accion'] for evento in eventos}
+
+                self.assertEqual(len(eventos), 5)
+                self.assertIn(ACCION_USUARIO_DESACTIVADO, acciones)
+                self.assertIn(ACCION_REUNION_CANCELADA, acciones)
+                self.assertIn(ACCION_REUNION_ELIMINADA, acciones)
+                self.assertIn(ACCION_USUARIO_ELIMINADO, acciones)
+                self.assertIn(ACCION_SOCIO_ELIMINADO, acciones)
+                for evento in eventos:
+                    self.assertEqual(evento['usuario'], 'admin')
+                    self.assertTrue(evento['entidad_tipo'])
+                    self.assertTrue(evento['entidad'])
+                    self.assertTrue(evento['fecha_hora'])
+
+                response = self.client.get(reverse('usuarios:registro_logs'))
+                self.assertContains(response, 'Usuario desactivado')
+                self.assertContains(response, 'Reunion cancelada')
+                self.assertContains(response, 'Reunion eliminada')
+                self.assertContains(response, 'Usuario eliminado')
+                self.assertContains(response, 'Socio eliminado')
+                self.assertContains(response, 'Suspension administrativa')
+        finally:
+            ruta_auditoria.unlink(missing_ok=True)
 
     @patch('usuarios.forms.timezone.localtime', return_value=datetime(2026, 5, 14, 12, 0))
     def test_crear_reunion_solo_disponible_para_administrador(self, _localtime):
@@ -1524,6 +1630,164 @@ class UsuariosModuloTests(TestCase):
         )
         self.assertEqual(response.context['anio_actual'], '')
         self.assertIn(reunion_2026, response.context['reuniones'])
+
+    def test_listado_reuniones_activa_carga_solo_en_historicas(self):
+        """Expone carga historica solo para reuniones en estado historico."""
+        reunion_historica = Reunion.objects.create(
+            fecha=date(2025, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede historica',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        reunion_programada = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede programada',
+            creador=self.admin_user,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_reuniones'))
+
+        self.assertContains(response, 'Carga hist')
+        self.assertContains(
+            response,
+            reverse('usuarios:cargar_asistencia_historica', args=[reunion_historica.pk]),
+        )
+        self.assertNotContains(
+            response,
+            reverse('usuarios:cargar_asistencia_historica', args=[reunion_programada.pk]),
+        )
+
+    def test_plantilla_asistencia_historica_descarga_xlsx_base(self):
+        """Propone una plantilla XLSX exportable a CSV para la carga historica."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:descargar_plantilla_asistencia_historica'),
+        )
+
+        with zipfile.ZipFile(BytesIO(response.content)) as archivo:
+            worksheet = archivo.read('xl/worksheets/sheet1.xml').decode('utf-8')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response['Content-Type'],
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        self.assertIn('attachment;', response['Content-Disposition'])
+        self.assertIn('plantilla_asistencia_historica.xlsx', response['Content-Disposition'])
+        self.assertIn('RUT', worksheet)
+        self.assertIn('Estado', worksheet)
+        self.assertIn(self.socio_user.rut, worksheet)
+
+    def test_carga_asistencia_historica_csv_semicolon_registro_por_registro(self):
+        """Carga asistencia historica desde CSV separado por punto y coma."""
+        socio_ausente = self.User.objects.create_user(
+            username='socio.ausente',
+            email='socio.ausente@example.com',
+            password='ClaveSegura123',
+            first_name='Socio',
+            last_name='Ausente',
+            rut='77.777.777-7',
+            rol=self.User.SOCIO,
+        )
+        reunion = Reunion.objects.create(
+            fecha=date(2025, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede historica',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        archivo = SimpleUploadedFile(
+            'asistencia.csv',
+            (
+                'sep=;\n'
+                'RUT;Estado\n'
+                f'{self.socio_user.rut};Presente\n'
+                f'{socio_ausente.rut};Ausente\n'
+            ).encode('utf-8'),
+            content_type='text/csv',
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:cargar_asistencia_historica', args=[reunion.pk]),
+            {'archivo': archivo},
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'Carga historica completada')
+        asistencias = AsistenciaReunion.objects.filter(reunion=reunion).order_by('socio_id')
+        self.assertEqual(asistencias.count(), 2)
+        self.assertTrue(
+            asistencias.filter(
+                socio=self.socio_user,
+                estado=AsistenciaReunion.PRESENTE,
+                origen=AsistenciaReunion.ORIGEN_MANUAL,
+                registrada_por=self.admin_user,
+            ).exists()
+        )
+        self.assertTrue(
+            asistencias.filter(
+                socio=socio_ausente,
+                estado=AsistenciaReunion.AUSENTE,
+                origen=AsistenciaReunion.ORIGEN_MANUAL,
+                registrada_por=self.admin_user,
+            ).exists()
+        )
+
+    def test_carga_asistencia_historica_csv_coma_y_rollback_por_error(self):
+        """Revierte toda la carga si una fila CSV no cumple reglas de negocio."""
+        reunion = Reunion.objects.create(
+            fecha=date(2025, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede historica',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        archivo = SimpleUploadedFile(
+            'asistencia.csv',
+            (
+                'RUT,Estado\n'
+                f'{self.socio_user.rut},Presente\n'
+                '99.999.999-9,Presente\n'
+            ).encode('utf-8'),
+            content_type='text/csv',
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:cargar_asistencia_historica', args=[reunion.pk]),
+            {'archivo': archivo},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Fila 3')
+        self.assertContains(response, 'socio no encontrado')
+        self.assertEqual(AsistenciaReunion.objects.filter(reunion=reunion).count(), 0)
+
+    def test_carga_asistencia_historica_bloquea_reuniones_no_historicas(self):
+        """Impide cargar CSV en reuniones programadas, activas o cerradas."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede programada',
+            creador=self.admin_user,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:cargar_asistencia_historica', args=[reunion.pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(
+            response,
+            'La carga historica solo esta disponible para reuniones historicas.',
+        )
 
     def test_administrador_elimina_reunion_sin_asistencias(self):
         """Permite eliminar reuniones, incluidas historicas, sin asistencias."""

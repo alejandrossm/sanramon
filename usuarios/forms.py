@@ -593,6 +593,38 @@ class ReunionCancelacionForm(forms.Form):
         return motivo
 
 
+class CargaAsistenciaHistoricaForm(forms.Form):
+    """Formulario para cargar asistencia historica desde CSV."""
+
+    archivo = forms.FileField(
+        label='Archivo CSV',
+        required=True,
+        widget=forms.ClearableFileInput(
+            attrs={
+                'accept': '.csv,text/csv',
+            }
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        """Configura layout y enctype para carga de archivos."""
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.form_enctype = 'multipart/form-data'
+        self.helper.layout = Layout(
+            'archivo',
+            Submit('submit', 'Cargar asistencia', css_class='btn btn-primary'),
+        )
+
+    def clean_archivo(self):
+        """Acepta archivos CSV exportados desde planillas."""
+        archivo = self.cleaned_data['archivo']
+        if not archivo.name.lower().endswith('.csv'):
+            raise forms.ValidationError('El archivo debe tener extension .csv.')
+        return archivo
+
+
 class JustificacionInasistenciaForm(forms.Form):
     """Formulario para registrar el motivo obligatorio de justificacion."""
 

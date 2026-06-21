@@ -46,6 +46,16 @@
         <span class="text-muted small">No disponible</span>
     {% endif %}
 
+    {% if reunion.estado == reunion.HISTORICA %}
+        <a
+            href="{% url 'usuarios:cargar_asistencia_historica' reunion.pk %}"
+            class="btn btn-outline-primary btn-sm"
+        >
+            {% include "includes/icon.html" with name="arrow-up" %}
+            <span>Carga hist&oacute;rica</span>
+        </a>
+    {% endif %}
+
     {% if reunion.puede_cancelarse %}
         <a
             href="{% url 'usuarios:cancelar_reunion' reunion.pk %}"

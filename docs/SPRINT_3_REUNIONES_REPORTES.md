@@ -13,6 +13,7 @@ Completar el alcance diferido desde Sprint 2 para exponer informacion publica a 
 - [x] Calcular la proxima reunion automaticamente desde reuniones `PROGRAMADA`, usando fecha y hora mas cercana a la fecha actual.
 - [x] Mantener las vistas existentes usando los nuevos servicios sin cambiar el comportamiento visible.
 - [x] Cubrir la preparacion con pruebas automatizadas.
+- [x] Habilitar carga historica de asistencia para reuniones `HISTORICA` mediante plantilla XLSX y CSV separado por `;` o `,`.
 
 ## Alcance propuesto
 
@@ -92,20 +93,20 @@ Completar el alcance diferido desde Sprint 2 para exponer informacion publica a 
 - Beneficio: Mantener trazabilidad.
 - Prioridad: Alta.
 - Sprint: Transversal.
-- Estado: Pendiente.
+- Estado: Completada.
 
 #### Criterios de aceptacion
 
-- [ ] El sistema registra usuario que ejecuta la accion.
-- [ ] El sistema registra tipo de accion.
-- [ ] El sistema registra fecha y hora.
-- [ ] El sistema registra entidad afectada cuando corresponda.
-- [ ] Aplica a acciones criticas como asistencia, cancelacion, desbloqueo y edicion.
+- [x] El sistema registra usuario que ejecuta la accion.
+- [x] El sistema registra tipo de accion.
+- [x] El sistema registra fecha y hora.
+- [x] El sistema registra entidad afectada cuando corresponda.
+- [x] Aplica a las acciones criticas definidas para esta entrega: desactivacion/activacion de usuarios, cancelacion de reuniones, borrado de reuniones, borrado de usuarios/socios y respaldo de base de datos.
 
 #### Notas de alcance
 
-- La auditoria debe disenarse como capacidad transversal para flujos actuales y futuros.
-- Definir si se implementara como modelo propio de eventos, integracion con senales de Django o registros explicitos por caso de uso.
+- La auditoria se registra en `auditoria.log` como eventos JSON Lines para conservar usuario ejecutor, accion, fecha/hora, entidad afectada y detalle.
+- No se duplican en este log los eventos que ya quedan trazados en vistas operativas, como registros de asistencia y justificaciones.
 
 ## Fuera del alcance de Sprint 3
 

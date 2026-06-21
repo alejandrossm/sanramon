@@ -1,4 +1,3 @@
-from datetime import datetime
 from functools import wraps
 from pathlib import Path
 from smtplib import SMTPException
@@ -29,7 +28,19 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .identificacion import parsear_lectura_rut
+from .auditoria import (
+    ACCION_RESPALDO_BASE_DATOS,
+    ACCION_REUNION_CANCELADA,
+    ACCION_REUNION_ELIMINADA,
+    ACCION_SOCIO_ELIMINADO,
+    ACCION_USUARIO_ACTIVADO,
+    ACCION_USUARIO_DESACTIVADO,
+    ACCION_USUARIO_ELIMINADO,
+    leer_eventos_auditoria,
+    registrar_evento_auditoria,
+)
 from .forms import (
+    CargaAsistenciaHistoricaForm,
     CambioPasswordForm,
     ConsultaPublicaRutForm,
     JustificacionInasistenciaForm,
@@ -43,6 +54,11 @@ from .forms import (
     SocioUpdateForm,
     UsuarioCreationForm,
     UsuarioUpdateForm,
+)
+from .carga_historica import (
+    ErrorCargaAsistenciaHistorica,
+    cargar_asistencia_historica_desde_csv,
+    construir_plantilla_carga_historica,
 )
 from .models import (
     AsistenciaReunion,
@@ -520,54 +536,6 @@ def responder_reporte_asistencia_anual(formato, consulta, prefijo_archivo):
     return response
 
 
-def formatear_tamano_archivo(tamano_bytes):
-    """Devuelve un tamano legible para archivos de configuracion."""
-    tamano = float(tamano_bytes)
-    for unidad in ('B', 'KB', 'MB', 'GB'):
-        if tamano < 1024 or unidad == 'GB':
-            if unidad == 'B':
-                return f'{int(tamano)} {unidad}'
-            return f'{tamano:.1f} {unidad}'
-        tamano /= 1024
-    return f'{tamano_bytes} B'
-
-
-def obtener_archivos_log_sistema():
-    """Lista archivos .log conocidos dentro del proyecto."""
-    base_dir = Path(settings.BASE_DIR).resolve()
-    directorios = [base_dir, base_dir / 'logs']
-    logs_por_ruta = {}
-
-    for directorio in directorios:
-        if not directorio.exists() or not directorio.is_dir():
-            continue
-
-        for ruta in directorio.glob('*.log'):
-            if not ruta.is_file():
-                continue
-            ruta_resuelta = ruta.resolve()
-            estadisticas = ruta.stat()
-            try:
-                ruta_relativa = ruta_resuelta.relative_to(base_dir).as_posix()
-            except ValueError:
-                ruta_relativa = ruta.name
-            logs_por_ruta[str(ruta_resuelta)] = {
-                'nombre': ruta.name,
-                'ruta': ruta_relativa,
-                'tamano': formatear_tamano_archivo(estadisticas.st_size),
-                'modificado': datetime.fromtimestamp(
-                    estadisticas.st_mtime,
-                    tz=timezone.get_current_timezone(),
-                ),
-            }
-
-    return sorted(
-        logs_por_ruta.values(),
-        key=lambda archivo: archivo['modificado'],
-        reverse=True,
-    )
-
-
 def obtener_ruta_sqlite_respaldo():
     """Devuelve la ruta fisica de la base SQLite configurada."""
     configuracion = settings.DATABASES.get('default', {})
@@ -957,12 +925,12 @@ def exportar_socios_asistencia_anual(request, formato):
 
 @gestor_usuarios_required
 def registro_logs(request):
-    """Muestra el registro de archivos de log disponibles para administradores."""
+    """Muestra los eventos criticos registrados en auditoria.log."""
     return render(
         request,
         'usuarios/registro_logs.html',
         {
-            'logs': obtener_archivos_log_sistema(),
+            'eventos': leer_eventos_auditoria(),
         },
     )
 
@@ -980,6 +948,14 @@ def exportar_base_datos_respaldo(request):
 
     marca_tiempo = timezone.localtime().strftime('%Y%m%d_%H%M%S')
     nombre_archivo = f'respaldo_sanramon_{marca_tiempo}.sqlite3'
+    registrar_evento_auditoria(
+        request.user,
+        ACCION_RESPALDO_BASE_DATOS,
+        entidad_tipo='Base de datos',
+        entidad_id=ruta_base_datos.name,
+        entidad='Base de datos SQLite',
+        detalle=f'Respaldo descargado como {nombre_archivo}.',
+    )
     return FileResponse(
         open(ruta_base_datos, 'rb'),
         as_attachment=True,
@@ -1174,6 +1150,66 @@ def listado_reuniones(request):
     )
 
 
+@gestor_usuarios_required
+def descargar_plantilla_asistencia_historica(request):
+    """Descarga plantilla XLSX para preparar carga historica."""
+    contenido = construir_plantilla_carga_historica()
+    response = HttpResponse(
+        contenido,
+        content_type=FORMATOS_REPORTE_ASISTENCIA['xlsx'],
+    )
+    response['Content-Disposition'] = (
+        'attachment; filename="plantilla_asistencia_historica.xlsx"'
+    )
+    return response
+
+
+@gestor_usuarios_required
+def cargar_asistencia_historica(request, pk):
+    """Carga asistencia desde CSV para reuniones historicas."""
+    reunion = get_object_or_404(Reunion, pk=pk)
+
+    if reunion.estado != Reunion.HISTORICA:
+        messages.error(
+            request,
+            'La carga historica solo esta disponible para reuniones historicas.',
+        )
+        return redirect('usuarios:listado_reuniones')
+
+    if request.method == 'POST':
+        form = CargaAsistenciaHistoricaForm(request.POST, request.FILES)
+        if form.is_valid():
+            try:
+                resultado = cargar_asistencia_historica_desde_csv(
+                    reunion,
+                    form.cleaned_data['archivo'],
+                    request.user,
+                )
+            except ErrorCargaAsistenciaHistorica as error:
+                form.add_error(None, str(error))
+            else:
+                messages.success(
+                    request,
+                    (
+                        f'Carga historica completada. Registros: {resultado["total"]}. '
+                        f'Presentes: {resultado["presentes"]}. '
+                        f'Ausentes: {resultado["ausentes"]}.'
+                    ),
+                )
+                return redirect('usuarios:listado_reuniones')
+    else:
+        form = CargaAsistenciaHistoricaForm()
+
+    return render(
+        request,
+        'usuarios/cargar_asistencia_historica.html',
+        {
+            'form': form,
+            'reunion': reunion,
+        },
+    )
+
+
 @require_POST
 @gestor_usuarios_required
 def iniciar_reunion(request, pk):
@@ -1246,6 +1282,17 @@ def cancelar_reunion(request, pk):
             except ValidationError as error:
                 form.add_error(None, obtener_mensaje_validacion(error))
             else:
+                registrar_evento_auditoria(
+                    request.user,
+                    ACCION_REUNION_CANCELADA,
+                    entidad_tipo='Reunion',
+                    entidad_id=reunion.pk,
+                    entidad=f'{reunion.fecha:%d-%m-%Y} {reunion.hora:%H:%M} - {reunion.locacion}',
+                    detalle=(
+                        f'Motivo: {reunion.motivo_cancelacion}. '
+                        f'Asistencias eliminadas: {resultado["asistencias_eliminadas"]}.'
+                    ),
+                )
                 messages.success(
                     request,
                     (
@@ -1282,6 +1329,14 @@ def eliminar_reunion(request, pk):
         return redirect('usuarios:listado_reuniones')
 
     descripcion = f'{reunion.fecha:%d-%m-%Y} a las {reunion.hora:%H:%M}'
+    registrar_evento_auditoria(
+        request.user,
+        ACCION_REUNION_ELIMINADA,
+        entidad_tipo='Reunion',
+        entidad_id=reunion.pk,
+        entidad=f'{descripcion} - {reunion.locacion}',
+        detalle='Reunion eliminada sin asistencias registradas.',
+    )
     reunion.delete()
     messages.success(request, f'Reunion del {descripcion} eliminada correctamente.')
     return redirect('usuarios:listado_reuniones')
@@ -1723,6 +1778,14 @@ def cambiar_estado_usuario(request, pk):
     usuario.save(update_fields=['is_active'])
 
     estado = 'activado' if usuario.is_active else 'desactivado'
+    registrar_evento_auditoria(
+        request.user,
+        ACCION_USUARIO_ACTIVADO if usuario.is_active else ACCION_USUARIO_DESACTIVADO,
+        entidad_tipo='Usuario',
+        entidad_id=usuario.pk,
+        entidad=f'{usuario.username} - {usuario.nombre_completo}',
+        detalle=f'Usuario {estado}. Rol: {usuario.get_rol_display()}.',
+    )
     messages.success(request, f'Usuario {usuario.username} {estado} correctamente.')
     if usuario.rol == Usuario.SOCIO:
         return redirect('usuarios:listado_socios')
@@ -1747,6 +1810,9 @@ def eliminar_usuario(request, pk):
         return redirect('usuarios:listado_usuarios')
 
     nombre_usuario = usuario.nombre_completo
+    usuario_id = usuario.pk
+    usuario_entidad = f'{usuario.username} - {nombre_usuario}'
+    usuario_detalle = f'Rol: {usuario.get_rol_display()}. Correo: {usuario.email}.'
     try:
         usuario.delete()
     except ProtectedError:
@@ -1759,6 +1825,14 @@ def eliminar_usuario(request, pk):
         )
         return redirect('usuarios:listado_usuarios')
 
+    registrar_evento_auditoria(
+        request.user,
+        ACCION_USUARIO_ELIMINADO,
+        entidad_tipo='Usuario',
+        entidad_id=usuario_id,
+        entidad=usuario_entidad,
+        detalle=usuario_detalle,
+    )
     messages.success(request, f'Usuario {nombre_usuario} eliminado correctamente.')
     return redirect('usuarios:listado_usuarios')
 
@@ -1778,6 +1852,17 @@ def eliminar_socio(request, pk):
         return redirect('usuarios:listado_socios')
 
     nombre_socio = socio.nombre_completo
+    socio_id = socio.pk
+    socio_entidad = f'{socio.username} - {nombre_socio}'
+    socio_detalle = f'RUT: {socio.rut}. Correo: {socio.email}.'
     socio.delete()
+    registrar_evento_auditoria(
+        request.user,
+        ACCION_SOCIO_ELIMINADO,
+        entidad_tipo='Socio',
+        entidad_id=socio_id,
+        entidad=socio_entidad,
+        detalle=socio_detalle,
+    )
     messages.success(request, f'Socio {nombre_socio} eliminado correctamente.')
     return redirect('usuarios:listado_socios')

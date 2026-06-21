@@ -213,3 +213,5 @@ EMAIL_BACKEND = os.environ.get(
 AUTHENTICATION_BACKENDS = [
     'usuarios.backends.EmailOrUsernameBackend',
 ]
+
+AUDITORIA_LOG_PATH = BASE_DIR / 'auditoria.log'

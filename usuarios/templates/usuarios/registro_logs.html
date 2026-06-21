@@ -9,7 +9,7 @@
         <div>
             <p class="text-uppercase text-primary fw-semibold small mb-1">Configuraci&oacute;n</p>
             <h1 class="h3 mb-1">Registro de logs</h1>
-            <p class="text-muted mb-0">Archivos de log disponibles en el entorno del sistema.</p>
+            <p class="text-muted mb-0">Eventos criticos registrados en auditoria.log.</p>
         </div>
     </div>
     <a href="{% url 'usuarios:exportar_base_datos_respaldo' %}" class="btn btn-outline-primary d-inline-flex align-items-center gap-2">
@@ -22,23 +22,31 @@
     <table class="table table-hover align-middle mb-0">
         <thead>
             <tr>
-                <th>ARCHIVO</th>
-                <th>UBICACI&Oacute;N</th>
-                <th>TAMA&Ntilde;O</th>
-                <th>&Uacute;LTIMA MODIFICACI&Oacute;N</th>
+                <th>FECHA Y HORA</th>
+                <th>USUARIO</th>
+                <th>ACCI&Oacute;N</th>
+                <th>ENTIDAD AFECTADA</th>
+                <th>DETALLE</th>
             </tr>
         </thead>
         <tbody>
-            {% for log in logs %}
+            {% for evento in eventos %}
                 <tr>
-                    <td class="fw-semibold">{{ log.nombre }}</td>
-                    <td><span class="table-cell-truncate is-name-wide" title="{{ log.ruta }}">{{ log.ruta }}</span></td>
-                    <td>{{ log.tamano }}</td>
-                    <td>{{ log.modificado|date:"d-m-Y H:i" }}</td>
+                    <td>{{ evento.fecha_hora|date:"d-m-Y H:i:s" }}</td>
+                    <td>
+                        <span class="d-block fw-semibold">{{ evento.usuario_nombre }}</span>
+                        <span class="d-block text-muted small">{{ evento.usuario }}</span>
+                    </td>
+                    <td>{{ evento.accion_label }}</td>
+                    <td>
+                        <span class="d-block fw-semibold">{{ evento.entidad_tipo }}</span>
+                        <span class="d-block text-muted small">{{ evento.entidad }}</span>
+                    </td>
+                    <td class="text-break">{{ evento.detalle }}</td>
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="4" class="text-center text-muted py-4">No hay archivos de log registrados.</td>
+                    <td colspan="5" class="text-center text-muted py-4">No hay eventos de auditoria registrados.</td>
                 </tr>
             {% endfor %}
         </tbody>
@@ -46,15 +54,16 @@
 </div>
 
 <div class="list-group shadow-sm border rounded overflow-hidden d-md-none">
-    {% for log in logs %}
+    {% for evento in eventos %}
         <div class="list-group-item p-3">
-            <strong class="d-block">{{ log.nombre }}</strong>
-            <span class="d-block text-muted small">{{ log.ruta }}</span>
-            <span class="d-block small mt-2">{{ log.tamano }} &middot; {{ log.modificado|date:"d-m-Y H:i" }}</span>
+            <strong class="d-block">{{ evento.accion_label }}</strong>
+            <span class="d-block text-muted small">{{ evento.fecha_hora|date:"d-m-Y H:i:s" }} &middot; {{ evento.usuario_nombre }}</span>
+            <span class="d-block mt-2">{{ evento.entidad }}</span>
+            <span class="d-block small text-muted">{{ evento.detalle }}</span>
         </div>
     {% empty %}
         <div class="list-group-item text-center text-muted py-4">
-            No hay archivos de log registrados.
+            No hay eventos de auditoria registrados.
         </div>
     {% endfor %}
 </div>
