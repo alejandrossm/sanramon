@@ -82,6 +82,12 @@ urlpatterns = [
         views.exportar_socios_asistencia_anual,
         name='exportar_socios_asistencia_anual',
     ),
+    path('configuracion/logs/', views.registro_logs, name='registro_logs'),
+    path(
+        'configuracion/respaldo/base-datos/',
+        views.exportar_base_datos_respaldo,
+        name='exportar_base_datos_respaldo',
+    ),
     path('socios/<int:pk>/eliminar/', views.eliminar_socio, name='eliminar_socio'),
     path('mi-contrasena/', views.cambiar_mi_password, name='cambiar_mi_password'),
     path('usuarios/', views.listado_usuarios, name='listado_usuarios'),

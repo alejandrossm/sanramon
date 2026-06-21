@@ -2,6 +2,8 @@ import csv
 import zipfile
 from datetime import date, datetime, time
 from io import BytesIO, StringIO
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 from urllib.parse import urlparse
 from unittest.mock import patch
 
@@ -1112,6 +1114,9 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Listado asistencia')
         self.assertNotContains(response, 'Justificaciones')
         self.assertNotContains(response, reverse('usuarios:listado_justificaciones'))
+        self.assertNotContains(response, 'Configuraci')
+        self.assertNotContains(response, 'Registro de logs')
+        self.assertNotContains(response, 'Exportar base de datos')
         self.assertNotContains(
             response,
             '<p class="sidebar-section-title text-uppercase fw-bold small mb-1 mt-3 px-3">Socios</p>',
@@ -1172,6 +1177,9 @@ class UsuariosModuloTests(TestCase):
         self.assertNotContains(response, 'Listado asistencia')
         self.assertNotContains(response, 'Reuniones')
         self.assertNotContains(response, 'Crear reuni')
+        self.assertNotContains(response, 'Configuraci')
+        self.assertNotContains(response, 'Registro de logs')
+        self.assertNotContains(response, 'Exportar base de datos')
 
     def test_menu_lateral_admin_separa_socios_y_asistencias(self):
         """Separa gestion de socios y asistencia en secciones del sidebar."""
@@ -1201,6 +1209,11 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Listado reuniones')
         self.assertContains(response, reverse('usuarios:listado_reuniones'))
         self.assertContains(response, 'bi-list-ul')
+        self.assertContains(response, 'Configuraci')
+        self.assertContains(response, 'Registro de logs')
+        self.assertContains(response, reverse('usuarios:registro_logs'))
+        self.assertContains(response, 'Exportar base de datos')
+        self.assertContains(response, reverse('usuarios:exportar_base_datos_respaldo'))
         self.assertLess(
             response.content.decode().index('Crear reuni'),
             response.content.decode().index('Listado reuniones'),
@@ -1217,6 +1230,49 @@ class UsuariosModuloTests(TestCase):
             response.content.decode().index('Registrar socio'),
             response.content.decode().index('Listado usuarios'),
         )
+        self.assertLess(
+            response.content.decode().index('Mi contrase'),
+            response.content.decode().index('Configuraci'),
+        )
+
+    @patch('usuarios.views.obtener_ruta_sqlite_respaldo')
+    def test_configuracion_admin_accede_logs_y_respaldo(self, mock_ruta_respaldo):
+        """Permite al administrador revisar logs y descargar respaldo."""
+        with NamedTemporaryFile(delete=False, suffix='.sqlite3') as archivo:
+            archivo.write(b'SQLite format 3\x00')
+            ruta_respaldo = Path(archivo.name)
+        mock_ruta_respaldo.return_value = ruta_respaldo
+
+        self.client.login(username='admin', password='ClaveSegura123')
+
+        try:
+            response = self.client.get(reverse('usuarios:registro_logs'))
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, 'Registro de logs')
+            self.assertContains(response, 'Exportar base de datos')
+
+            response = self.client.get(reverse('usuarios:exportar_base_datos_respaldo'))
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response['Content-Type'], 'application/vnd.sqlite3')
+            self.assertIn('attachment;', response['Content-Disposition'])
+            self.assertIn('respaldo_sanramon_', response['Content-Disposition'])
+            response.close()
+        finally:
+            ruta_respaldo.unlink(missing_ok=True)
+
+    def test_configuracion_restringe_encargado_y_socio(self):
+        """Bloquea opciones criticas de configuracion fuera del rol administrador."""
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:registro_logs'))
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+        response = self.client.get(reverse('usuarios:exportar_base_datos_respaldo'))
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+
+        self.client.login(username='socio', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:registro_logs'))
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+        response = self.client.get(reverse('usuarios:exportar_base_datos_respaldo'))
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
 
     @patch('usuarios.forms.timezone.localtime', return_value=datetime(2026, 5, 14, 12, 0))
     def test_crear_reunion_solo_disponible_para_administrador(self, _localtime):

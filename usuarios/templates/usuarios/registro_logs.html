@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}Registro de logs | Sistema San Ramon{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-start mb-4">
+    <div class="d-flex align-items-center gap-3">
+        {% include "includes/icon.html" with name="list" classes="fs-4 text-primary" %}
+        <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Configuraci&oacute;n</p>
+            <h1 class="h3 mb-1">Registro de logs</h1>
+            <p class="text-muted mb-0">Archivos de log disponibles en el entorno del sistema.</p>
+        </div>
+    </div>
+    <a href="{% url 'usuarios:exportar_base_datos_respaldo' %}" class="btn btn-outline-primary d-inline-flex align-items-center gap-2">
+        {% include "includes/icon.html" with name="download" %}
+        <span>Exportar base de datos</span>
+    </a>
+</div>
+
+<div class="table-responsive rounded overflow-hidden shadow-sm border bg-white d-none d-md-block">
+    <table class="table table-hover align-middle mb-0">
+        <thead>
+            <tr>
+                <th>ARCHIVO</th>
+                <th>UBICACI&Oacute;N</th>
+                <th>TAMA&Ntilde;O</th>
+                <th>&Uacute;LTIMA MODIFICACI&Oacute;N</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for log in logs %}
+                <tr>
+                    <td class="fw-semibold">{{ log.nombre }}</td>
+                    <td><span class="table-cell-truncate is-name-wide" title="{{ log.ruta }}">{{ log.ruta }}</span></td>
+                    <td>{{ log.tamano }}</td>
+                    <td>{{ log.modificado|date:"d-m-Y H:i" }}</td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="4" class="text-center text-muted py-4">No hay archivos de log registrados.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="list-group shadow-sm border rounded overflow-hidden d-md-none">
+    {% for log in logs %}
+        <div class="list-group-item p-3">
+            <strong class="d-block">{{ log.nombre }}</strong>
+            <span class="d-block text-muted small">{{ log.ruta }}</span>
+            <span class="d-block small mt-2">{{ log.tamano }} &middot; {{ log.modificado|date:"d-m-Y H:i" }}</span>
+        </div>
+    {% empty %}
+        <div class="list-group-item text-center text-muted py-4">
+            No hay archivos de log registrados.
+        </div>
+    {% endfor %}
+</div>
+{% endblock %}

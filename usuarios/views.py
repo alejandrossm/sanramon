@@ -1,6 +1,9 @@
+from datetime import datetime
 from functools import wraps
+from pathlib import Path
 from smtplib import SMTPException
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
@@ -14,7 +17,7 @@ from django.contrib.auth.views import (
 )
 from django.core.mail import BadHeaderError, send_mail
 from django.core.exceptions import ValidationError
-from django.http import HttpResponse
+from django.http import FileResponse, HttpResponse
 from django.core.paginator import Paginator
 from django.db import IntegrityError
 from django.db.models import Q
@@ -231,6 +234,7 @@ FORMATOS_REPORTE_ASISTENCIA = {
     'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'pdf': 'application/pdf',
 }
+TIPO_CONTENIDO_SQLITE = 'application/vnd.sqlite3'
 
 
 def obtener_columnas_ordenables(params, orden_actual, direccion_actual, columnas_base):
@@ -514,6 +518,73 @@ def responder_reporte_asistencia_anual(formato, consulta, prefijo_archivo):
     response = HttpResponse(contenido, content_type=FORMATOS_REPORTE_ASISTENCIA[formato])
     response['Content-Disposition'] = f'attachment; filename="{nombre_archivo}"'
     return response
+
+
+def formatear_tamano_archivo(tamano_bytes):
+    """Devuelve un tamano legible para archivos de configuracion."""
+    tamano = float(tamano_bytes)
+    for unidad in ('B', 'KB', 'MB', 'GB'):
+        if tamano < 1024 or unidad == 'GB':
+            if unidad == 'B':
+                return f'{int(tamano)} {unidad}'
+            return f'{tamano:.1f} {unidad}'
+        tamano /= 1024
+    return f'{tamano_bytes} B'
+
+
+def obtener_archivos_log_sistema():
+    """Lista archivos .log conocidos dentro del proyecto."""
+    base_dir = Path(settings.BASE_DIR).resolve()
+    directorios = [base_dir, base_dir / 'logs']
+    logs_por_ruta = {}
+
+    for directorio in directorios:
+        if not directorio.exists() or not directorio.is_dir():
+            continue
+
+        for ruta in directorio.glob('*.log'):
+            if not ruta.is_file():
+                continue
+            ruta_resuelta = ruta.resolve()
+            estadisticas = ruta.stat()
+            try:
+                ruta_relativa = ruta_resuelta.relative_to(base_dir).as_posix()
+            except ValueError:
+                ruta_relativa = ruta.name
+            logs_por_ruta[str(ruta_resuelta)] = {
+                'nombre': ruta.name,
+                'ruta': ruta_relativa,
+                'tamano': formatear_tamano_archivo(estadisticas.st_size),
+                'modificado': datetime.fromtimestamp(
+                    estadisticas.st_mtime,
+                    tz=timezone.get_current_timezone(),
+                ),
+            }
+
+    return sorted(
+        logs_por_ruta.values(),
+        key=lambda archivo: archivo['modificado'],
+        reverse=True,
+    )
+
+
+def obtener_ruta_sqlite_respaldo():
+    """Devuelve la ruta fisica de la base SQLite configurada."""
+    configuracion = settings.DATABASES.get('default', {})
+    if 'sqlite3' not in configuracion.get('ENGINE', ''):
+        return None
+
+    nombre_base = configuracion.get('NAME')
+    if not nombre_base or str(nombre_base) == ':memory:':
+        return None
+
+    ruta = Path(nombre_base)
+    if not ruta.is_absolute():
+        ruta = Path(settings.BASE_DIR) / ruta
+    if not ruta.exists() or not ruta.is_file():
+        return None
+
+    return ruta
 
 
 def redireccion_sin_permiso(user):
@@ -881,6 +952,39 @@ def exportar_socios_asistencia_anual(request, formato):
         formato,
         consulta,
         'reporte_socios_asistencia_anual',
+    )
+
+
+@gestor_usuarios_required
+def registro_logs(request):
+    """Muestra el registro de archivos de log disponibles para administradores."""
+    return render(
+        request,
+        'usuarios/registro_logs.html',
+        {
+            'logs': obtener_archivos_log_sistema(),
+        },
+    )
+
+
+@gestor_usuarios_required
+def exportar_base_datos_respaldo(request):
+    """Descarga la base SQLite configurada como respaldo operativo."""
+    ruta_base_datos = obtener_ruta_sqlite_respaldo()
+    if not ruta_base_datos:
+        messages.error(
+            request,
+            'No hay una base de datos SQLite disponible para exportar.',
+        )
+        return redirect('usuarios:dashboard')
+
+    marca_tiempo = timezone.localtime().strftime('%Y%m%d_%H%M%S')
+    nombre_archivo = f'respaldo_sanramon_{marca_tiempo}.sqlite3'
+    return FileResponse(
+        open(ruta_base_datos, 'rb'),
+        as_attachment=True,
+        filename=nombre_archivo,
+        content_type=TIPO_CONTENIDO_SQLITE,
     )
 
 
