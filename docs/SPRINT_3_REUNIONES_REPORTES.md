@@ -61,7 +61,7 @@ Completar el alcance diferido desde Sprint 2 para exponer informacion publica a 
 - Beneficio: Analizar participacion de socios.
 - Prioridad: Media.
 - Sprint: Sprint 3.
-- Estado: En progreso.
+- Estado: Completada.
 
 #### Criterios de aceptacion
 
@@ -76,7 +76,7 @@ Completar el alcance diferido desde Sprint 2 para exponer informacion publica a 
 - Definir filtros minimos antes de implementar. Base esperada: ano, estado del socio y estado de reunion si aplica.
 - El reporte debe respetar las reglas vigentes de bloqueo y justificacion: ausencias justificadas no deben contarse como ausencias efectivas.
 
-#### Implementacion inicial
+#### Implementacion
 
 - El listado operativo de asistencia y el listado administrativo de socios permiten filtrar por ano de reporte y estado del socio.
 - Los administradores pueden descargar el resumen anual filtrado en `csv`, `xlsx` y `pdf` desde ambos listados.

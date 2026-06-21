@@ -27,7 +27,7 @@ Archivo para registrar detalles importantes que conviene conservar entre sesione
 
 ## Pendientes
 
-- Sprint 3: HU-12 completada con landing publica del Proyecto San Ramon como punto de inicio, navbar con acceso al sistema y consulta de asistencia, galeria con imagenes `f01`, `f02`, `f03`, footer con contacto/redes, y consulta por RUT con estado del socio, historial anual, resumen anual y totales generales. El calculo de proxima reunion queda disponible como servicio, pero no se muestra en la vista publica. HU-13 queda iniciada con reportes descargables desde los listados de asistencia y socios en `xlsx`, `csv` y `pdf`. Pendiente: completar otros reportes si se definen y HU-14 agrega auditoria transversal de acciones criticas.
+- Sprint 3: HU-12 completada con landing publica del Proyecto San Ramon como punto de inicio, navbar con acceso al sistema y consulta de asistencia, galeria con imagenes `f01`, `f02`, `f03`, footer con contacto/redes, y consulta por RUT con estado del socio, historial anual, resumen anual y totales generales. El calculo de proxima reunion queda disponible como servicio, pero no se muestra en la vista publica. HU-13 completada con reportes descargables desde los listados de asistencia y socios en `xlsx`, `csv` y `pdf`, filtrados por ano/estado y con exportacion del conjunto completo. Pendiente: HU-14 agrega auditoria transversal de acciones criticas.
 - Seguridad pendiente antes de subir a produccion: endurecer HTTPS/cookies, activar `Force HTTPS` en PythonAnywhere, agregar proteccion anti fuerza bruta en login, bloquear comandos demo y evitar colisiones globales entre `username` y `email`.
 
 ## Despliegue PythonAnywhere
