@@ -61,20 +61,27 @@ Completar el alcance diferido desde Sprint 2 para exponer informacion publica a 
 - Beneficio: Analizar participacion de socios.
 - Prioridad: Media.
 - Sprint: Sprint 3.
-- Estado: Pendiente.
+- Estado: Completada.
 
 #### Criterios de aceptacion
 
-- [ ] El sistema genera archivo `xlsx`, `csv` y `pdf`.
-- [ ] El reporte incluye datos completos del socio y reuniones realizadas.
-- [ ] El reporte incluye asistencias e inasistencias por socio.
-- [ ] El reporte incluye estado actual del socio.
-- [ ] El reporte corresponde al ano seleccionado.
+- [x] El sistema genera archivo `xlsx`, `csv` y `pdf` desde el listado operativo de asistencia.
+- [x] El reporte incluye datos completos del socio y reuniones realizadas.
+- [x] El reporte incluye asistencias e inasistencias por socio.
+- [x] El reporte incluye estado actual del socio.
+- [x] El reporte corresponde al ano seleccionado.
 
 #### Notas de alcance
 
 - Definir filtros minimos antes de implementar. Base esperada: ano, estado del socio y estado de reunion si aplica.
 - El reporte debe respetar las reglas vigentes de bloqueo y justificacion: ausencias justificadas no deben contarse como ausencias efectivas.
+
+#### Implementacion
+
+- El listado operativo de asistencia y el listado administrativo de socios permiten filtrar por ano de reporte y estado del socio.
+- Los administradores pueden descargar el resumen anual filtrado en `csv`, `xlsx` y `pdf` desde ambos listados.
+- Los archivos exportan el conjunto completo filtrado, no solo la pagina visible.
+- Los reportes incluyen datos completos de usuario del socio, correo, telefono, estado, totales anuales e indicador.
 
 ### HU-14 - Auditoria
 

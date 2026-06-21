@@ -45,7 +45,8 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
 
 ## Reportes
 
-- [ ] Sprint 3 HU-13: exportar resumen anual para administradores en `xlsx`, `csv` y `pdf`, con datos del socio, reuniones realizadas, asistencias, inasistencias, estado actual y ano seleccionado.
+- [x] Sprint 3 HU-13: exportar resumen anual para administradores en `xlsx`, `csv` y `pdf`, con datos del socio, reuniones realizadas, asistencias, inasistencias, estado actual y ano seleccionado.
+  - [x] Primera entrega: listados de asistencia y socios con botones de descarga `csv`, `xlsx` y `pdf`, filtro de ano/estado, datos completos y exportacion del conjunto filtrado completo.
 
 ## Auditoria
 

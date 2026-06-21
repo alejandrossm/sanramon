@@ -14,6 +14,7 @@ from django.contrib.auth.views import (
 )
 from django.core.mail import BadHeaderError, send_mail
 from django.core.exceptions import ValidationError
+from django.http import HttpResponse
 from django.core.paginator import Paginator
 from django.db import IntegrityError
 from django.db.models import Q
@@ -21,6 +22,7 @@ from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse_lazy
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .identificacion import parsear_lectura_rut
@@ -45,6 +47,12 @@ from .models import (
     NotificacionBloqueoSocio,
     Reunion,
     Usuario,
+)
+from .reportes_asistencia import (
+    construir_csv,
+    construir_dataset_asistencia_anual,
+    construir_pdf,
+    construir_xlsx,
 )
 from .permisos import (
     PERM_ACCEDER_ASISTENCIA,
@@ -216,6 +224,14 @@ INDICADORES_FILTRABLES_ASISTENCIA = [
     ('bloqueado', 'Bloqueado'),
 ]
 
+ANIO_REPORTE_MINIMO = 2000
+
+FORMATOS_REPORTE_ASISTENCIA = {
+    'csv': 'text/csv; charset=utf-8',
+    'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'pdf': 'application/pdf',
+}
+
 
 def obtener_columnas_ordenables(params, orden_actual, direccion_actual, columnas_base):
     """Construye metadatos de ordenamiento conservando filtros activos."""
@@ -351,6 +367,153 @@ def aplicar_filtros_orden_socios(request, socios, columnas_ordenables):
         'orden_actual': orden_actual,
         'direccion_actual': direccion_actual,
     }
+
+
+def obtener_anio_reporte_asistencia(params, usar_anio_actual_por_defecto=False):
+    """Normaliza el ano de reporte usado por listado y exportaciones."""
+    anio_actual = timezone.localdate().year
+    valor = (params.get('anio') or '').strip()
+    if not valor:
+        return (anio_actual if usar_anio_actual_por_defecto else None), False
+
+    try:
+        anio = int(valor)
+    except ValueError:
+        return (anio_actual if usar_anio_actual_por_defecto else None), False
+
+    if anio < ANIO_REPORTE_MINIMO or anio > anio_actual + 1:
+        return (anio_actual if usar_anio_actual_por_defecto else None), False
+
+    return anio, True
+
+
+def obtener_consulta_listado_asistencia(request, forzar_anio=False):
+    """Devuelve socios filtrados para listado o reporte sin aplicar paginacion."""
+    socios_base = Usuario.objects.filter(rol=Usuario.SOCIO)
+    total_socios = socios_base.count()
+    socios_activos = socios_base.filter(is_active=True).count()
+    consulta = aplicar_filtros_orden_socios(
+        request,
+        socios_base,
+        COLUMNAS_ORDENABLES_ASISTENCIA,
+    )
+    filtros = consulta['filtros'].copy()
+
+    anio_reporte, anio_filtro_activo = obtener_anio_reporte_asistencia(
+        request.GET,
+        usar_anio_actual_por_defecto=forzar_anio,
+    )
+    filtros['anio'] = anio_reporte or ''
+
+    indicador_actual = request.GET.get('indicador', '').strip()
+    indicadores_validos = {
+        indicador for indicador, _label in INDICADORES_FILTRABLES_ASISTENCIA
+    }
+    if indicador_actual not in indicadores_validos:
+        indicador_actual = ''
+    filtros['indicador'] = indicador_actual
+    socios_filtrados_por_indicador = bool(indicador_actual)
+
+    socios = anotar_resumen_asistencia_socios(
+        consulta['socios'],
+        anio=anio_reporte,
+    )
+    if socios_filtrados_por_indicador:
+        socios = filtrar_socios_por_indicador_asistencia(socios, indicador_actual)
+
+    anio_exportacion = anio_reporte or timezone.localdate().year
+    params_exportacion = request.GET.copy()
+    if 'page' in params_exportacion:
+        del params_exportacion['page']
+    params_exportacion['anio'] = str(anio_exportacion)
+
+    return {
+        **consulta,
+        'socios': socios,
+        'filtros': filtros,
+        'filtros_activos': (
+            consulta['filtros_activos']
+            or anio_filtro_activo
+            or socios_filtrados_por_indicador
+        ),
+        'anio_reporte': anio_reporte,
+        'anio_exportacion': anio_exportacion,
+        'total_socios': total_socios,
+        'socios_activos': socios_activos,
+        'socios_inactivos': total_socios - socios_activos,
+        'export_query': params_exportacion.urlencode(),
+    }
+
+
+def obtener_consulta_listado_socios(request, forzar_anio=False):
+    """Devuelve socios administrativos filtrados para listado o reporte."""
+    socios_base = Usuario.objects.filter(rol=Usuario.SOCIO)
+    total_socios = socios_base.count()
+    socios_activos = socios_base.filter(is_active=True).count()
+    consulta = aplicar_filtros_orden_socios(
+        request,
+        socios_base,
+        COLUMNAS_ORDENABLES_SOCIOS,
+    )
+    filtros = consulta['filtros'].copy()
+
+    anio_reporte, anio_filtro_activo = obtener_anio_reporte_asistencia(
+        request.GET,
+        usar_anio_actual_por_defecto=forzar_anio,
+    )
+    filtros['anio'] = anio_reporte or ''
+    socios = anotar_resumen_asistencia_socios(
+        consulta['socios'],
+        anio=anio_reporte,
+    )
+
+    anio_exportacion = anio_reporte or timezone.localdate().year
+    params_exportacion = request.GET.copy()
+    if 'page' in params_exportacion:
+        del params_exportacion['page']
+    params_exportacion['anio'] = str(anio_exportacion)
+
+    return {
+        **consulta,
+        'socios': socios,
+        'filtros': filtros,
+        'filtros_activos': consulta['filtros_activos'] or anio_filtro_activo,
+        'anio_reporte': anio_reporte,
+        'anio_exportacion': anio_exportacion,
+        'total_socios': total_socios,
+        'socios_activos': socios_activos,
+        'socios_inactivos': total_socios - socios_activos,
+        'export_query': params_exportacion.urlencode(),
+    }
+
+
+def responder_reporte_asistencia_anual(formato, consulta, prefijo_archivo):
+    """Construye la respuesta descargable para reportes anuales de socios."""
+    socios = agregar_resumen_asistencia_socios(
+        consulta['socios'],
+        anio=consulta['anio_reporte'],
+    )
+    encabezados, filas = construir_dataset_asistencia_anual(
+        socios,
+        consulta['anio_reporte'],
+    )
+
+    if formato == 'csv':
+        contenido = construir_csv(encabezados, filas)
+    elif formato == 'xlsx':
+        contenido = construir_xlsx(encabezados, filas)
+    else:
+        contenido = construir_pdf(
+            encabezados,
+            filas,
+            'Reporte anual de asistencia',
+            f"Ano {consulta['anio_reporte']} - socios exportados: {len(filas)}",
+        )
+
+    nombre_archivo = f"{prefijo_archivo}_{consulta['anio_reporte']}.{formato}"
+    response = HttpResponse(contenido, content_type=FORMATOS_REPORTE_ASISTENCIA[formato])
+    response['Content-Disposition'] = f'attachment; filename="{nombre_archivo}"'
+    return response
 
 
 def redireccion_sin_permiso(user):
@@ -640,32 +803,15 @@ def mis_asistencias(request):
 @asistencia_required
 def listado_socios_asistencia(request):
     """Lista socios disponibles para los futuros flujos de asistencia."""
-    socios = Usuario.objects.filter(rol=Usuario.SOCIO)
-    total_socios = socios.count()
-    socios_activos = socios.filter(is_active=True).count()
-    consulta = aplicar_filtros_orden_socios(
-        request,
-        socios,
-        COLUMNAS_ORDENABLES_ASISTENCIA,
-    )
+    consulta = obtener_consulta_listado_asistencia(request)
     socios = consulta['socios']
-    filtros = consulta['filtros'].copy()
-    indicador_actual = request.GET.get('indicador', '').strip()
-    indicadores_validos = {
-        indicador for indicador, _label in INDICADORES_FILTRABLES_ASISTENCIA
-    }
-    if indicador_actual not in indicadores_validos:
-        indicador_actual = ''
-    filtros['indicador'] = indicador_actual
-    socios_filtrados_por_indicador = bool(indicador_actual)
-
-    socios = anotar_resumen_asistencia_socios(socios)
-    if socios_filtrados_por_indicador:
-        socios = filtrar_socios_por_indicador_asistencia(socios, indicador_actual)
 
     paginator = Paginator(socios, 50)
     page_obj = paginator.get_page(request.GET.get('page'))
-    page_obj.object_list = agregar_resumen_asistencia_socios(page_obj.object_list)
+    page_obj.object_list = agregar_resumen_asistencia_socios(
+        page_obj.object_list,
+        anio=consulta['anio_reporte'],
+    )
     page_obj.object_list = agregar_estado_notificacion_bloqueo_socios(
         page_obj.object_list
     )
@@ -682,8 +828,8 @@ def listado_socios_asistencia(request):
             'page_numbers': paginator.get_elided_page_range(page_obj.number),
             'pagination_ellipsis': Paginator.ELLIPSIS,
             'pagination_query': pagination_params.urlencode(),
-            'filtros': filtros,
-            'filtros_activos': consulta['filtros_activos'] or socios_filtrados_por_indicador,
+            'filtros': consulta['filtros'],
+            'filtros_activos': consulta['filtros_activos'],
             'estados_filtrables': ESTADOS_FILTRABLES,
             'indicadores_filtrables': INDICADORES_FILTRABLES_ASISTENCIA,
             'columnas_ordenables': obtener_columnas_ordenables_asistencia(
@@ -693,13 +839,48 @@ def listado_socios_asistencia(request):
             ),
             'orden_actual': consulta['orden_actual'],
             'direccion_actual': consulta['direccion_actual'],
-            'total_socios': total_socios,
-            'socios_activos': socios_activos,
-            'socios_inactivos': total_socios - socios_activos,
+            'total_socios': consulta['total_socios'],
+            'socios_activos': consulta['socios_activos'],
+            'socios_inactivos': consulta['socios_inactivos'],
+            'anio_exportacion': consulta['anio_exportacion'],
+            'export_query': consulta['export_query'],
+            'puede_exportar_reportes': puede_gestionar_usuarios(request.user),
             'puede_registrar_socios': puede_registrar_socios(request.user),
             'puede_editar_socios': puede_editar_socios(request.user),
             'puede_justificar_inasistencias': puede_gestionar_usuarios(request.user),
         },
+    )
+
+
+@gestor_usuarios_required
+def exportar_asistencia_anual(request, formato):
+    """Descarga el resumen anual completo del listado operativo de asistencia."""
+    formato = (formato or '').lower()
+    if formato not in FORMATOS_REPORTE_ASISTENCIA:
+        messages.error(request, 'Formato de reporte no disponible.')
+        return redirect('usuarios:listado_socios_asistencia')
+
+    consulta = obtener_consulta_listado_asistencia(request, forzar_anio=True)
+    return responder_reporte_asistencia_anual(
+        formato,
+        consulta,
+        'reporte_asistencia_anual',
+    )
+
+
+@gestor_usuarios_required
+def exportar_socios_asistencia_anual(request, formato):
+    """Descarga el resumen anual completo desde el listado de socios."""
+    formato = (formato or '').lower()
+    if formato not in FORMATOS_REPORTE_ASISTENCIA:
+        messages.error(request, 'Formato de reporte no disponible.')
+        return redirect('usuarios:listado_socios')
+
+    consulta = obtener_consulta_listado_socios(request, forzar_anio=True)
+    return responder_reporte_asistencia_anual(
+        formato,
+        consulta,
+        'reporte_socios_asistencia_anual',
     )
 
 
@@ -1151,19 +1332,14 @@ def listado_usuarios(request):
 @gestor_usuarios_required
 def listado_socios(request):
     """Lista socios en una vista administrativa separada de usuarios internos."""
-    socios = Usuario.objects.filter(rol=Usuario.SOCIO)
-    total_socios = socios.count()
-    socios_activos = socios.filter(is_active=True).count()
-    consulta = aplicar_filtros_orden_socios(
-        request,
-        socios,
-        COLUMNAS_ORDENABLES_SOCIOS,
-    )
+    consulta = obtener_consulta_listado_socios(request)
     socios = consulta['socios']
-    socios = anotar_resumen_asistencia_socios(socios)
     paginator = Paginator(socios, 50)
     page_obj = paginator.get_page(request.GET.get('page'))
-    page_obj.object_list = agregar_resumen_asistencia_socios(page_obj.object_list)
+    page_obj.object_list = agregar_resumen_asistencia_socios(
+        page_obj.object_list,
+        anio=consulta['anio_reporte'],
+    )
     page_obj.object_list = agregar_estado_notificacion_bloqueo_socios(
         page_obj.object_list
     )
@@ -1190,9 +1366,12 @@ def listado_socios(request):
             ),
             'orden_actual': consulta['orden_actual'],
             'direccion_actual': consulta['direccion_actual'],
-            'total_socios': total_socios,
-            'socios_activos': socios_activos,
-            'socios_inactivos': total_socios - socios_activos,
+            'total_socios': consulta['total_socios'],
+            'socios_activos': consulta['socios_activos'],
+            'socios_inactivos': consulta['socios_inactivos'],
+            'anio_exportacion': consulta['anio_exportacion'],
+            'export_query': consulta['export_query'],
+            'puede_exportar_reportes': puede_gestionar_usuarios(request.user),
         },
     )
 
