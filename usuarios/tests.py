@@ -1223,10 +1223,10 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, reverse('usuarios:listado_reuniones'))
         self.assertContains(response, 'bi-list-ul')
         self.assertContains(response, 'Configuraci')
-        self.assertContains(response, 'Registro de logs')
-        self.assertContains(response, reverse('usuarios:registro_logs'))
-        self.assertContains(response, 'Exportar base de datos')
-        self.assertContains(response, reverse('usuarios:exportar_base_datos_respaldo'))
+        self.assertContains(response, reverse('usuarios:configuracion'))
+        self.assertContains(response, 'bi-gear')
+        self.assertNotContains(response, reverse('usuarios:descargar_registro_logs'))
+        self.assertNotContains(response, reverse('usuarios:exportar_base_datos_respaldo'))
         self.assertLess(
             response.content.decode().index('Crear reuni'),
             response.content.decode().index('Listado reuniones'),
@@ -1250,22 +1250,44 @@ class UsuariosModuloTests(TestCase):
 
     @patch('usuarios.views.obtener_ruta_sqlite_respaldo')
     def test_configuracion_admin_accede_logs_y_respaldo(self, mock_ruta_respaldo):
-        """Permite al administrador revisar logs y descargar respaldo."""
+        """Centraliza descargas de logs y respaldo para el administrador."""
         with NamedTemporaryFile(delete=False, suffix='.sqlite3') as archivo:
             archivo.write(b'SQLite format 3\x00')
             ruta_respaldo = Path(archivo.name)
         mock_ruta_respaldo.return_value = ruta_respaldo
         with NamedTemporaryFile(delete=False, suffix='.log') as archivo_auditoria:
+            archivo_auditoria.write(b'evento-test\n')
             ruta_auditoria = Path(archivo_auditoria.name)
 
         self.client.login(username='admin', password='ClaveSegura123')
 
         try:
             with self.settings(AUDITORIA_LOG_PATH=ruta_auditoria):
+                response = self.client.get(reverse('usuarios:configuracion'))
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, 'Configuraci')
+                self.assertContains(response, 'Registro de logs')
+                self.assertContains(response, 'Descargar .log')
+                self.assertContains(response, reverse('usuarios:descargar_registro_logs'))
+                self.assertContains(response, 'Respaldo de base de datos')
+                self.assertContains(response, 'Respaldar base de datos')
+                self.assertContains(response, reverse('usuarios:exportar_base_datos_respaldo'))
+                self.assertNotContains(response, '<th>FECHA Y HORA</th>', html=True)
+                self.assertNotContains(response, 'evento-test')
+
                 response = self.client.get(reverse('usuarios:registro_logs'))
                 self.assertEqual(response.status_code, 200)
-                self.assertContains(response, 'Registro de logs')
-                self.assertContains(response, 'Exportar base de datos')
+                self.assertContains(response, 'Configuraci')
+                self.assertContains(response, 'Descargar .log')
+                self.assertNotContains(response, '<th>FECHA Y HORA</th>', html=True)
+
+                response = self.client.get(reverse('usuarios:descargar_registro_logs'))
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response['Content-Type'], 'text/plain')
+                self.assertIn('attachment;', response['Content-Disposition'])
+                self.assertIn('.log', response['Content-Disposition'])
+                self.assertEqual(b''.join(response.streaming_content), b'evento-test\n')
+                response.close()
 
                 response = self.client.get(reverse('usuarios:exportar_base_datos_respaldo'))
                 self.assertEqual(response.status_code, 200)
@@ -1284,13 +1306,17 @@ class UsuariosModuloTests(TestCase):
     def test_configuracion_restringe_encargado_y_socio(self):
         """Bloquea opciones criticas de configuracion fuera del rol administrador."""
         self.client.login(username='encargado', password='ClaveSegura123')
-        response = self.client.get(reverse('usuarios:registro_logs'))
+        response = self.client.get(reverse('usuarios:configuracion'))
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+        response = self.client.get(reverse('usuarios:descargar_registro_logs'))
         self.assertRedirects(response, reverse('usuarios:dashboard'))
         response = self.client.get(reverse('usuarios:exportar_base_datos_respaldo'))
         self.assertRedirects(response, reverse('usuarios:dashboard'))
 
         self.client.login(username='socio', password='ClaveSegura123')
-        response = self.client.get(reverse('usuarios:registro_logs'))
+        response = self.client.get(reverse('usuarios:configuracion'))
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+        response = self.client.get(reverse('usuarios:descargar_registro_logs'))
         self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
         response = self.client.get(reverse('usuarios:exportar_base_datos_respaldo'))
         self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
@@ -1370,13 +1396,24 @@ class UsuariosModuloTests(TestCase):
                     self.assertTrue(evento['entidad'])
                     self.assertTrue(evento['fecha_hora'])
 
-                response = self.client.get(reverse('usuarios:registro_logs'))
-                self.assertContains(response, 'Usuario desactivado')
-                self.assertContains(response, 'Reunion cancelada')
-                self.assertContains(response, 'Reunion eliminada')
-                self.assertContains(response, 'Usuario eliminado')
-                self.assertContains(response, 'Socio eliminado')
-                self.assertContains(response, 'Suspension administrativa')
+                response = self.client.get(reverse('usuarios:configuracion'))
+                self.assertContains(response, 'Registro de logs')
+                self.assertNotContains(response, 'Usuario desactivado')
+                self.assertNotContains(response, 'Reunion cancelada')
+                self.assertNotContains(response, 'Reunion eliminada')
+                self.assertNotContains(response, 'Usuario eliminado')
+                self.assertNotContains(response, 'Socio eliminado')
+                self.assertNotContains(response, 'Suspension administrativa')
+
+                response = self.client.get(reverse('usuarios:descargar_registro_logs'))
+                contenido_log = b''.join(response.streaming_content).decode('utf-8')
+                response.close()
+                self.assertIn(ACCION_USUARIO_DESACTIVADO, contenido_log)
+                self.assertIn(ACCION_REUNION_CANCELADA, contenido_log)
+                self.assertIn(ACCION_REUNION_ELIMINADA, contenido_log)
+                self.assertIn(ACCION_USUARIO_ELIMINADO, contenido_log)
+                self.assertIn(ACCION_SOCIO_ELIMINADO, contenido_log)
+                self.assertIn('Suspension administrativa', contenido_log)
         finally:
             ruta_auditoria.unlink(missing_ok=True)
 
@@ -1414,7 +1451,7 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'js/reuniones.js')
         self.assertContains(response, 'Hist')
         self.assertContains(response, 'Plantilla CSV')
-        self.assertContains(response, 'Sirve para preparar')
+        self.assertContains(response, 'Plantilla CSV para la carga')
         self.assertContains(response, 'Situaci')
         self.assertContains(
             response,
@@ -1431,7 +1468,7 @@ class UsuariosModuloTests(TestCase):
         )
         self.assertLess(
             contenido.index('Plantilla CSV'),
-            contenido.index('Sirve para preparar'),
+            contenido.index('Plantilla CSV para la carga'),
         )
 
         response = self.client.post(

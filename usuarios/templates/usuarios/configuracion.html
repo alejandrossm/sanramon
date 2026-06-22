@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Configuraci&oacute;n | Sistema San Ramon{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-start mb-4">
+    <div class="d-flex align-items-center gap-3">
+        {% include "includes/icon.html" with name="settings" classes="fs-4 text-primary" %}
+        <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Configuraci&oacute;n</p>
+            <h1 class="h3 mb-1">Configuraci&oacute;n</h1>
+            <p class="text-muted mb-0">Acciones administrativas de auditor&iacute;a y respaldo.</p>
+        </div>
+    </div>
+</div>
+
+<section class="bg-white border rounded shadow-sm overflow-hidden">
+    <div class="row g-3 align-items-center p-4 border-bottom">
+        <div class="col-12 col-lg">
+            <div class="d-flex align-items-start gap-3">
+                {% include "includes/icon.html" with name="list" classes="fs-4 text-primary flex-shrink-0" %}
+                <div>
+                    <h2 class="h5 mb-1">Registro de logs</h2>
+                    <p class="text-muted mb-0">Descarga el archivo auditoria.log para revisar eventos cr&iacute;ticos fuera del sistema.</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-lg-auto">
+            <a href="{% url 'usuarios:descargar_registro_logs' %}" class="btn btn-outline-primary d-inline-flex align-items-center gap-2">
+                {% include "includes/icon.html" with name="download" %}
+                <span>Descargar .log</span>
+            </a>
+        </div>
+    </div>
+
+    <div class="row g-3 align-items-center p-4">
+        <div class="col-12 col-lg">
+            <div class="d-flex align-items-start gap-3">
+                {% include "includes/icon.html" with name="download" classes="fs-4 text-primary flex-shrink-0" %}
+                <div>
+                    <h2 class="h5 mb-1">Respaldo de base de datos</h2>
+                    <p class="text-muted mb-0">Descarga una copia operativa de la base SQLite configurada.</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-lg-auto">
+            <a href="{% url 'usuarios:exportar_base_datos_respaldo' %}" class="btn btn-primary d-inline-flex align-items-center gap-2">
+                {% include "includes/icon.html" with name="download" %}
+                <span>Respaldar base de datos</span>
+            </a>
+        </div>
+    </div>
+</section>
+{% endblock %}

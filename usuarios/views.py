@@ -36,7 +36,7 @@ from .auditoria import (
     ACCION_USUARIO_ACTIVADO,
     ACCION_USUARIO_DESACTIVADO,
     ACCION_USUARIO_ELIMINADO,
-    leer_eventos_auditoria,
+    obtener_ruta_auditoria,
     registrar_evento_auditoria,
 )
 from .forms import (
@@ -925,14 +925,26 @@ def exportar_socios_asistencia_anual(request, formato):
 
 
 @gestor_usuarios_required
-def registro_logs(request):
-    """Muestra los eventos criticos registrados en auditoria.log."""
-    return render(
-        request,
-        'usuarios/registro_logs.html',
-        {
-            'eventos': leer_eventos_auditoria(),
-        },
+def configuracion(request):
+    """Centraliza acciones criticas de configuracion."""
+    return render(request, 'usuarios/configuracion.html')
+
+
+@gestor_usuarios_required
+def descargar_registro_logs(request):
+    """Descarga auditoria.log sin exponer su contenido en pantalla."""
+    ruta_auditoria = obtener_ruta_auditoria()
+    if not ruta_auditoria.exists() or not ruta_auditoria.is_file():
+        messages.error(request, 'No hay un archivo de auditoria disponible para descargar.')
+        return redirect('usuarios:configuracion')
+
+    marca_tiempo = timezone.localtime().strftime('%Y%m%d_%H%M%S')
+    nombre_archivo = f'auditoria_sanramon_{marca_tiempo}.log'
+    return FileResponse(
+        open(ruta_auditoria, 'rb'),
+        as_attachment=True,
+        filename=nombre_archivo,
+        content_type='text/plain',
     )
 
 
@@ -945,7 +957,7 @@ def exportar_base_datos_respaldo(request):
             request,
             'No hay una base de datos SQLite disponible para exportar.',
         )
-        return redirect('usuarios:dashboard')
+        return redirect('usuarios:configuracion')
 
     marca_tiempo = timezone.localtime().strftime('%Y%m%d_%H%M%S')
     nombre_archivo = f'respaldo_sanramon_{marca_tiempo}.sqlite3'

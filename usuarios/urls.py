@@ -97,7 +97,13 @@ urlpatterns = [
         views.exportar_socios_asistencia_anual,
         name='exportar_socios_asistencia_anual',
     ),
-    path('configuracion/logs/', views.registro_logs, name='registro_logs'),
+    path('configuracion/', views.configuracion, name='configuracion'),
+    path('configuracion/logs/', views.configuracion, name='registro_logs'),
+    path(
+        'configuracion/logs/descargar/',
+        views.descargar_registro_logs,
+        name='descargar_registro_logs',
+    ),
     path(
         'configuracion/respaldo/base-datos/',
         views.exportar_base_datos_respaldo,

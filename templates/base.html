@@ -127,13 +127,9 @@
 
                     {% if nav_puede_gestionar_usuarios %}
                         <p class="sidebar-section-title text-uppercase fw-bold small mb-1 mt-3 px-3">Configuraci&oacute;n</p>
-                        <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:registro_logs' %}">
-                            {% include "includes/icon.html" with name="list" classes="sidebar-icon flex-shrink-0" %}
-                            <span>Registro de logs</span>
-                        </a>
-                        <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:exportar_base_datos_respaldo' %}">
-                            {% include "includes/icon.html" with name="download" classes="sidebar-icon flex-shrink-0" %}
-                            <span>Exportar base de datos</span>
+                        <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:configuracion' %}">
+                            {% include "includes/icon.html" with name="settings" classes="sidebar-icon flex-shrink-0" %}
+                            <span>Configuraci&oacute;n</span>
                         </a>
                     {% endif %}
                 </nav>
