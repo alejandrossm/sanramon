@@ -42,6 +42,7 @@ from .forms import (
 from .identificacion import (
     ORIGEN_QR_REGISTRO_CIVIL,
     ORIGEN_RUT_MANUAL,
+    calcular_digito_verificador_rut,
     parsear_lectura_rut,
 )
 from .models import (
@@ -121,6 +122,12 @@ class UsuariosModuloTests(TestCase):
             telefono_movil='+56944444444',
             rol=self.User.ENCARGADO_REGISTRO,
         )
+
+    @staticmethod
+    def rut_prueba(cuerpo):
+        """Construye un RUT de prueba con digito verificador valido."""
+        cuerpo = str(cuerpo)
+        return f'{cuerpo}-{calcular_digito_verificador_rut(cuerpo)}'
 
     def registrar_asistencia_historica(self, socio, estado, fecha):
         """Crea un registro historico de asistencia para pruebas de resumen."""
@@ -1066,6 +1073,7 @@ class UsuariosModuloTests(TestCase):
         self.assertNotContains(response, 'cdn.jsdelivr.net')
         self.assertContains(response, 'vendor/bootstrap/bootstrap.min.css')
         self.assertContains(response, 'vendor/bootstrap-icons/bootstrap-icons.min.css')
+        self.assertContains(response, 'css/styles.css?v=placeholder-1')
         self.assertContains(response, 'vendor/bootstrap/bootstrap.bundle.min.js')
         self.assertContains(response, 'vendor/sweetalert2/sweetalert2.all.min.js')
         self.assertContains(response, 'vendor/chart.js/chart.min.js')
@@ -1090,6 +1098,19 @@ class UsuariosModuloTests(TestCase):
         for ruta in rutas_estaticas:
             with self.subTest(ruta=ruta):
                 self.assertIsNotNone(finders.find(ruta))
+
+        ruta_css = finders.find('css/styles.css')
+        with open(ruta_css, encoding='utf-8') as archivo_css:
+            estilos = archivo_css.read()
+        self.assertIn('--color-placeholder', estilos)
+        self.assertIn('.form-control::placeholder', estilos)
+
+    def test_layout_publico_usa_css_con_placeholders_diferenciados(self):
+        """Carga la misma hoja global actualizada en la vista publica."""
+        response = self.client.get(reverse('usuarios:consulta_publica_asistencia'))
+
+        self.assertContains(response, 'css/styles.css?v=placeholder-1')
+        self.assertContains(response, 'placeholder="12.345.678-5"')
 
     def test_dashboard_encargado_no_muestra_registro_socio(self):
         """Oculta el acceso de registro de socio para encargados."""
@@ -2233,6 +2254,12 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(lectura_manual.origen, ORIGEN_RUT_MANUAL)
         self.assertEqual(lectura_qr.rut, '14333689-1')
         self.assertEqual(lectura_qr.origen, ORIGEN_QR_REGISTRO_CIVIL)
+        self.assertIsNone(parsear_lectura_rut('22.222.222-3'))
+        self.assertIsNone(
+            parsear_lectura_rut(
+                "httpsÃ‘--portal.sidiv.registrocivil.cl-docstatus_RUNÂ¿14333689'2/typeÂ¿CEDULA"
+            )
+        )
 
     def test_encargado_registra_asistencia_por_rut(self):
         """Crea asistencia presente para un socio existente en reunion activa."""
@@ -2698,7 +2725,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Otro',
             last_name='Historial',
-            rut='77.333.333-3',
+            rut='77.333.333-5',
             rol=self.User.SOCIO,
         )
         self.registrar_asistencia_historica(
@@ -2753,7 +2780,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Ausente',
             last_name='Resumen',
-            rut='77.222.222-2',
+            rut='77.222.222-K',
             rol=self.User.SOCIO,
         )
         self.registrar_asistencia_historica(
@@ -2849,7 +2876,7 @@ class UsuariosModuloTests(TestCase):
                 password='ClaveSegura123',
                 first_name='Exportable',
                 last_name=f'Completo {indice:02d}',
-                rut=f'95.000.{indice:03d}-{indice % 10}',
+                rut=self.rut_prueba(95000000 + indice),
                 rol=self.User.SOCIO,
             )
 
@@ -3018,7 +3045,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Riesgo',
             last_name='Asistencia',
-            rut='88.111.111-1',
+            rut='88.111.111-K',
             rol=self.User.SOCIO,
         )
         socio_bloqueado = self.User.objects.create_user(
@@ -3027,7 +3054,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Bloqueado',
             last_name='Asistencia',
-            rut='88.222.222-2',
+            rut='88.222.222-5',
             rol=self.User.SOCIO,
         )
         self.registrar_asistencia_historica(
@@ -3070,7 +3097,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Bloqueado',
             last_name='Filtro',
-            rut='88.333.333-3',
+            rut='88.333.333-0',
             rol=self.User.SOCIO,
         )
         socio_justificado = self.User.objects.create_user(
@@ -3079,7 +3106,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Justificado',
             last_name='Filtro',
-            rut='88.444.444-4',
+            rut='88.444.444-6',
             rol=self.User.SOCIO,
         )
         ausencia_justificada = None
@@ -3145,7 +3172,7 @@ class UsuariosModuloTests(TestCase):
                 password='ClaveSegura123',
                 first_name='AsistenciaFiltro',
                 last_name=f'Paginacion {indice:02d}',
-                rut=f'91.000.{indice:03d}-{indice % 10}',
+                rut=self.rut_prueba(91000000 + indice),
                 rol=self.User.SOCIO,
             )
 
@@ -3167,7 +3194,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Aaron',
             last_name='Orden',
-            rut='92.222.222-2',
+            rut='92.222.222-3',
             rol=self.User.SOCIO,
         )
         self.User.objects.create_user(
@@ -3176,7 +3203,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Zulu',
             last_name='Orden',
-            rut='93.333.333-3',
+            rut='93.333.333-7',
             rol=self.User.SOCIO,
         )
 
@@ -3296,7 +3323,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Super',
             last_name='Oculto',
-            rut='12.000.000-1',
+            rut='12.000.000-4',
         )
 
         self.client.login(username='admin', password='ClaveSegura123')
@@ -3342,7 +3369,7 @@ class UsuariosModuloTests(TestCase):
                 password='ClaveSegura123',
                 first_name='Usuario',
                 last_name=f'Paginado {indice:02d}',
-                rut=f'70.000.{indice:03d}-{indice % 10}',
+                rut=self.rut_prueba(70000000 + indice),
                 rol=self.User.ENCARGADO_REGISTRO,
             )
 
@@ -3466,7 +3493,7 @@ class UsuariosModuloTests(TestCase):
                 password='ClaveSegura123',
                 first_name='Filtro',
                 last_name=f'Paginacion {indice:02d}',
-                rut=f'71.000.{indice:03d}-{indice % 10}',
+                rut=self.rut_prueba(71000000 + indice),
                 rol=self.User.ENCARGADO_REGISTRO,
             )
 
@@ -3488,7 +3515,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Aaron',
             last_name='Orden',
-            rut='72.222.222-2',
+            rut='72.222.222-9',
             rol=self.User.ENCARGADO_REGISTRO,
         )
         self.User.objects.create_user(
@@ -3497,7 +3524,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Zulu',
             last_name='Orden',
-            rut='73.333.333-3',
+            rut='73.333.333-2',
             rol=self.User.ENCARGADO_REGISTRO,
         )
 
@@ -3529,7 +3556,7 @@ class UsuariosModuloTests(TestCase):
                 password='ClaveSegura123',
                 first_name='Orden',
                 last_name=f'Paginacion {indice:02d}',
-                rut=f'74.000.{indice:03d}-{indice % 10}',
+                rut=self.rut_prueba(74000000 + indice),
                 rol=self.User.ENCARGADO_REGISTRO,
             )
 
@@ -3593,7 +3620,7 @@ class UsuariosModuloTests(TestCase):
                 password='ClaveSegura123',
                 first_name='SocioExportable',
                 last_name=f'Completo {indice:02d}',
-                rut=f'96.000.{indice:03d}-{indice % 10}',
+                rut=self.rut_prueba(96000000 + indice),
                 telefono_movil='+56933333333',
                 rol=self.User.SOCIO,
             )
@@ -4194,7 +4221,7 @@ class UsuariosModuloTests(TestCase):
                 password='ClaveSegura123',
                 first_name='JustificacionFiltro',
                 last_name=f'Paginacion {indice:02d}',
-                rut=f'61.000.{indice:03d}-{indice % 10}',
+                rut=self.rut_prueba(61000000 + indice),
                 rol=self.User.SOCIO,
             )
             ausencia_justificada = self.registrar_asistencia_historica(
@@ -4294,7 +4321,7 @@ class UsuariosModuloTests(TestCase):
                 password='ClaveSegura123',
                 first_name='FiltroSocio',
                 last_name=f'Paginacion {indice:02d}',
-                rut=f'81.000.{indice:03d}-{indice % 10}',
+                rut=self.rut_prueba(81000000 + indice),
                 rol=self.User.SOCIO,
             )
 
@@ -4316,7 +4343,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Aaron',
             last_name='Orden',
-            rut='82.222.222-2',
+            rut='82.222.222-6',
             rol=self.User.SOCIO,
         )
         self.User.objects.create_user(
@@ -4325,7 +4352,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Zulu',
             last_name='Orden',
-            rut='83.333.333-3',
+            rut='83.333.333-K',
             rol=self.User.SOCIO,
         )
 
@@ -4357,7 +4384,7 @@ class UsuariosModuloTests(TestCase):
                 password='ClaveSegura123',
                 first_name='OrdenSocio',
                 last_name=f'Paginacion {indice:02d}',
-                rut=f'84.000.{indice:03d}-{indice % 10}',
+                rut=self.rut_prueba(84000000 + indice),
                 rol=self.User.SOCIO,
             )
 
@@ -4480,6 +4507,40 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'data-message-level="success"')
         self.assertContains(response, 'js/app.js')
 
+    def test_formularios_rechazan_rut_con_digito_verificador_incorrecto(self):
+        """Valida el digito verificador chileno en ingresos de RUT."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:registro_usuario'),
+            {
+                'username': 'rut_invalido',
+                'email': 'rut.invalido@example.com',
+                'first_name': 'Rut',
+                'last_name': 'Invalido',
+                'rut': '33.333.333-4',
+                'telefono_movil': '+56933333333',
+                'rol': self.User.ENCARGADO_REGISTRO,
+                'is_active': 'on',
+                'password1': 'ClaveSegura123',
+                'password2': 'ClaveSegura123',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Ingrese un RUT valido.')
+        self.assertFalse(self.User.objects.filter(username='rut_invalido').exists())
+
+        usuario = self.User(
+            username='modelo.rut.invalido',
+            email='modelo.rut.invalido@example.com',
+            first_name='Modelo',
+            last_name='Invalido',
+            rut='33.333.333-4',
+            rol=self.User.ENCARGADO_REGISTRO,
+        )
+        with self.assertRaises(ValidationError):
+            usuario.full_clean()
+
     def test_registro_usuario_interno_no_ofrece_rol_socio(self):
         """Reserva el formulario interno para administradores y encargados."""
         self.client.login(username='admin', password='ClaveSegura123')
@@ -4539,7 +4600,7 @@ class UsuariosModuloTests(TestCase):
                 'email_confirmacion': 'socio.telefono@example.com',
                 'first_name': 'Socio',
                 'last_name': 'Telefono',
-                'rut': '76.666.666-6',
+                'rut': '76.666.666-3',
                 'telefono_movil': '+561234',
                 'is_active': 'on',
             },
@@ -4903,7 +4964,7 @@ class UsuariosModuloTests(TestCase):
             email='super.rol.manual@example.com',
             first_name='Super',
             last_name='Manual',
-            rut='14.444.444-4',
+            rut='14.444.444-2',
             rol=self.User.SUPERADMINISTRADOR,
             is_staff=False,
             is_superuser=False,
@@ -4949,7 +5010,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Super',
             last_name='Admin',
-            rut='98.765.432-1',
+            rut='98.765.432-5',
         )
         self.client.force_login(superusuario)
 
@@ -4965,7 +5026,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Super',
             last_name='Protegido',
-            rut='15.555.555-5',
+            rut='15.555.555-6',
         )
 
         self.client.login(username='admin', password='ClaveSegura123')
@@ -4976,7 +5037,7 @@ class UsuariosModuloTests(TestCase):
                 'email': 'super.editado@example.com',
                 'first_name': 'Super',
                 'last_name': 'Editado',
-                'rut': '15.555.555-5',
+                'rut': '15.555.555-6',
                 'rol': self.User.ADMINISTRADOR,
             },
         )

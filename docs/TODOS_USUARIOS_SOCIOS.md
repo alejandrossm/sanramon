@@ -11,7 +11,7 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
 - [x] Documentar la correccion de estilos del admin de Django en PythonAnywhere: ejecutar `collectstatic`, mapear `/static/` a `staticfiles` y verificar `/static/admin/css/base.css`.
 - [x] Corregir tildes faltantes en etiquetas, ayudas y mensajes de los formularios.
 - [x] Sprint 3 HU-12: crear landing page publica tipo index, con informacion del proyecto, imagenes, navbar, acceso al sistema interno, acceso de socios a consulta por RUT y footer con contacto/redes.
-- [ ] Revisar estilos de placeholder en inputs: el texto de ayuda se percibe como valor ingresado por el usuario y debe diferenciarse visualmente.
+- [x] Revisar estilos de placeholder en inputs: el texto de ayuda se percibe como valor ingresado por el usuario y debe diferenciarse visualmente.
 
 ## Seguridad antes de produccion
 

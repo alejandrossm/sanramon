@@ -6,7 +6,7 @@ from django.core.validators import RegexValidator
 from django.db import models, transaction
 from django.utils import timezone
 
-from .identificacion import normalizar_rut
+from .identificacion import MENSAJE_RUT_INVALIDO, normalizar_rut, validar_rut_chileno
 from .permisos import (
     GRUPO_POR_ROL,
     GRUPOS_OPERATIVOS,
@@ -76,8 +76,9 @@ class Usuario(AbstractUser):
         validators=[
             RegexValidator(
                 regex=r'^[0-9kK.\-\s]+$',
-                message='Ingrese un RUT válido.',
-            )
+                message=MENSAJE_RUT_INVALIDO,
+            ),
+            validar_rut_chileno,
         ],
         verbose_name='RUT',
     )

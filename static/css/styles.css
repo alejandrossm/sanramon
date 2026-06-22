@@ -7,6 +7,7 @@
     --color-accent: #c9964a;
     --color-text: #24313a;
     --color-text-muted: #5d6b74;
+    --color-placeholder: #9aa4aa;
     --color-bg: #f7f4ef;
     --color-surface: #fffcf8;
     --color-border: #e3d7ca;
@@ -439,6 +440,11 @@ h6,
     background-color: #fff;
     border-color: var(--color-secondary);
     box-shadow: 0 0 0 0.2rem rgba(60, 122, 115, 0.18);
+}
+
+.form-control::placeholder {
+    color: var(--color-placeholder);
+    opacity: 1;
 }
 
 .form-check-input:checked {

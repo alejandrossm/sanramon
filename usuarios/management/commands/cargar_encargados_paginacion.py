@@ -1,6 +1,8 @@
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 
+from usuarios.identificacion import calcular_digito_verificador_rut
+
 
 class Command(BaseCommand):
     """Carga encargados de prueba para validar paginacion sin validar modelos."""
@@ -39,11 +41,12 @@ class Command(BaseCommand):
         actualizados = []
 
         for indice, username in enumerate(usernames, start=1):
+            cuerpo_rut = f'90001{indice:03d}'
             datos = {
                 'email': f'encargado.paginacion.{indice:03d}@example.com',
                 'first_name': 'Encargado',
                 'last_name': f'Paginacion {indice:03d}',
-                'rut': f'90.001.{indice:03d}-{indice % 10}',
+                'rut': f'{cuerpo_rut}-{calcular_digito_verificador_rut(cuerpo_rut)}',
                 'rol': User.ENCARGADO_REGISTRO,
                 'is_active': True,
                 'is_staff': False,

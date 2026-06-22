@@ -14,6 +14,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 
 from .identificacion import (
+    MENSAJE_RUT_INVALIDO,
     ORIGEN_QR_REGISTRO_CIVIL,
     normalizar_rut,
     parsear_lectura_rut,
@@ -48,6 +49,14 @@ def marcar_campo_rut(field):
             'inputmode': 'text',
         }
     )
+
+
+def normalizar_rut_formulario(valor):
+    """Normaliza un RUT ingresado por formulario y valida su digito verificador."""
+    lectura_rut = parsear_lectura_rut(valor)
+    if not lectura_rut:
+        raise forms.ValidationError(MENSAJE_RUT_INVALIDO)
+    return lectura_rut.rut
 
 
 def configurar_campo_telefono_movil(field, valor_inicial=None):
@@ -179,7 +188,7 @@ class ConsultaPublicaRutForm(forms.Form):
                 'autofocus': True,
                 'class': 'form-control form-control-lg',
                 'inputmode': 'text',
-                'placeholder': '12.345.678-9',
+                'placeholder': '12.345.678-5',
             }
         ),
     )
@@ -298,7 +307,7 @@ class UsuarioCreationForm(TelefonoMovilFormMixin, UserCreationForm):
 
     def clean_rut(self):
         """Normaliza y valida unicidad del RUT ingresado."""
-        rut = normalizar_rut(self.cleaned_data['rut'])
+        rut = normalizar_rut_formulario(self.cleaned_data['rut'])
         if Usuario.objects.filter(rut__iexact=rut).exists():
             raise forms.ValidationError('Ya existe un usuario con este RUT.')
         return rut
@@ -396,7 +405,7 @@ class SocioCreationForm(TelefonoMovilFormMixin, FechaIngresoProyectoFormMixin, f
 
     def clean_rut(self):
         """Normaliza y valida unicidad del RUT ingresado."""
-        rut = normalizar_rut(self.cleaned_data['rut'])
+        rut = normalizar_rut_formulario(self.cleaned_data['rut'])
         if Usuario.objects.filter(rut__iexact=rut).exists():
             raise forms.ValidationError('Ya existe un usuario con este RUT.')
         return rut
@@ -733,7 +742,7 @@ class RegistroAsistenciaRutForm(forms.Form):
         max_length=12,
         widget=forms.TextInput(
             attrs={
-                'placeholder': '12.345.678-9',
+                'placeholder': '12.345.678-5',
                 'autocomplete': 'off',
                 'inputmode': 'text',
                 'data-rut-manual-input': 'true',
@@ -905,7 +914,7 @@ class SocioUpdateForm(TelefonoMovilFormMixin, FechaIngresoProyectoFormMixin, for
         """Mantiene el RUT original aunque el POST intente modificarlo."""
         if self.instance.pk:
             return normalizar_rut(self.instance.rut)
-        return normalizar_rut(self.cleaned_data['rut'])
+        return normalizar_rut_formulario(self.cleaned_data['rut'])
 
     def save(self, commit=True):
         """Actualiza el socio conservando siempre su rol y username."""
@@ -999,7 +1008,7 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
         if self.instance.pk:
             return normalizar_rut(self.instance.rut)
 
-        rut = normalizar_rut(self.cleaned_data['rut'])
+        rut = normalizar_rut_formulario(self.cleaned_data['rut'])
         qs = Usuario.objects.filter(rut__iexact=rut)
         if self.instance.pk:
             qs = qs.exclude(pk=self.instance.pk)

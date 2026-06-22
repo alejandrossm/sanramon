@@ -1,6 +1,14 @@
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 
+from usuarios.identificacion import calcular_digito_verificador_rut
+
+
+def construir_rut_demo(cuerpo):
+    """Construye RUT demo con digito verificador valido."""
+    cuerpo = str(cuerpo)
+    return f'{cuerpo}-{calcular_digito_verificador_rut(cuerpo)}'
+
 
 class Command(BaseCommand):
     """Comando idempotente para preparar usuarios demo de desarrollo."""
@@ -13,7 +21,7 @@ class Command(BaseCommand):
             'email': 'admin.demo@example.com',
             'first_name': 'Admin',
             'last_name': 'Demo',
-            'rut': '91.111.111-1',
+            'rut': construir_rut_demo('91111111'),
             'rol': 'ADMINISTRADOR',
             'is_staff': False,
             'is_superuser': False,
@@ -23,7 +31,7 @@ class Command(BaseCommand):
             'email': 'encargado.demo@example.com',
             'first_name': 'Encargado',
             'last_name': 'Demo',
-            'rut': '92.222.222-2',
+            'rut': construir_rut_demo('92222222'),
             'rol': 'ENCARGADO_REGISTRO',
             'is_staff': False,
             'is_superuser': False,
@@ -33,7 +41,7 @@ class Command(BaseCommand):
             'email': 'socio.demo@example.com',
             'first_name': 'Socio',
             'last_name': 'Demo',
-            'rut': '93.333.333-3',
+            'rut': construir_rut_demo('93333333'),
             'rol': 'SOCIO',
             'is_staff': False,
             'is_superuser': False,
