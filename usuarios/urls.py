@@ -60,6 +60,11 @@ urlpatterns = [
         name='descargar_plantilla_asistencia_historica',
     ),
     path(
+        'reuniones/plantilla-asistencia-historica.csv',
+        views.descargar_plantilla_asistencia_historica_csv,
+        name='descargar_plantilla_asistencia_historica_csv',
+    ),
+    path(
         'reuniones/<int:pk>/asistencia-historica/',
         views.cargar_asistencia_historica,
         name='cargar_asistencia_historica',

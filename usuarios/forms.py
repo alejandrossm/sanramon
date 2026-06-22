@@ -1,7 +1,7 @@
 import re
 
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import Column, Layout, Row, Submit
+from crispy_forms.layout import HTML, Column, Layout, Row, Submit
 from django import forms
 from django.contrib.auth.forms import (
     AuthenticationForm,
@@ -507,10 +507,29 @@ class ReunionCreationForm(forms.ModelForm):
             Row(
                 Column('fecha', css_class='col-md-4'),
                 Column('hora', css_class='col-md-4'),
-                Column('estado', css_class='col-md-4'),
+                Column('locacion', css_class='col-md-4'),
             ),
             Row(
-                Column('locacion', css_class='col-md-6'),
+                Column(
+                    'estado',
+                    css_class='col-md-4',
+                ),
+                Column(
+                    HTML(
+                        '''
+                        <div class="pt-md-4 d-flex flex-column flex-sm-row align-items-sm-center gap-2">
+                            <a href="{% url 'usuarios:descargar_plantilla_asistencia_historica_csv' %}" class="btn btn-outline-primary btn-sm d-inline-flex align-items-center gap-2 flex-shrink-0">
+                                {% include "includes/icon.html" with name="file-spreadsheet" %}
+                                <span>Plantilla CSV</span>
+                            </a>
+                            <p class="form-text m-0">
+                                Plantilla CSV para la carga de asistencia de una reuni&oacute;n hist&oacute;rica: completar una fila por socio y marcar Situaci&oacute;n como Presente o Ausente.
+                            </p>
+                        </div>
+                        '''
+                    ),
+                    css_class='col-md-8 col-lg-6',
+                ),
             ),
             Submit('submit', 'Guardar reunion', css_class='btn btn-primary'),
         )

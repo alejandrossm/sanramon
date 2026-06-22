@@ -1407,10 +1407,32 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'name="locacion"')
         self.assertContains(response, 'Locaci')
         self.assertContains(response, 'name="estado"')
+        self.assertContains(response, 'class="col-md-4"')
+        self.assertContains(response, 'class="col-md-8 col-lg-6"')
         self.assertContains(response, 'data-reunion-status="true"')
         self.assertContains(response, 'data-historical-value="HISTORICA"')
         self.assertContains(response, 'js/reuniones.js')
         self.assertContains(response, 'Hist')
+        self.assertContains(response, 'Plantilla CSV')
+        self.assertContains(response, 'Sirve para preparar')
+        self.assertContains(response, 'Situaci')
+        self.assertContains(
+            response,
+            reverse('usuarios:descargar_plantilla_asistencia_historica_csv'),
+        )
+        contenido = response.content.decode()
+        self.assertLess(
+            contenido.index('name="locacion"'),
+            contenido.index('data-reunion-status="true"'),
+        )
+        self.assertLess(
+            contenido.index('data-reunion-status="true"'),
+            contenido.index('Plantilla CSV'),
+        )
+        self.assertLess(
+            contenido.index('Plantilla CSV'),
+            contenido.index('Sirve para preparar'),
+        )
 
         response = self.client.post(
             url,
@@ -1678,8 +1700,25 @@ class UsuariosModuloTests(TestCase):
         self.assertIn('attachment;', response['Content-Disposition'])
         self.assertIn('plantilla_asistencia_historica.xlsx', response['Content-Disposition'])
         self.assertIn('RUT', worksheet)
-        self.assertIn('Estado', worksheet)
+        self.assertIn('Situaci', worksheet)
         self.assertIn(self.socio_user.rut, worksheet)
+
+    def test_plantilla_asistencia_historica_descarga_csv_encabezados(self):
+        """Entrega CSV de referencia con encabezados para carga historica."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:descargar_plantilla_asistencia_historica_csv'),
+        )
+        filas = list(csv.reader(StringIO(response.content.decode('utf-8-sig'))))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'text/csv; charset=utf-8')
+        self.assertIn('attachment;', response['Content-Disposition'])
+        self.assertIn('plantilla_asistencia_historica.csv', response['Content-Disposition'])
+        self.assertEqual(
+            filas,
+            [['RUT', 'Nombre', 'Apellido paterno', 'Apellido materno', 'Situaci\u00f3n']],
+        )
 
     def test_carga_asistencia_historica_csv_semicolon_registro_por_registro(self):
         """Carga asistencia historica desde CSV separado por punto y coma."""
@@ -1703,7 +1742,7 @@ class UsuariosModuloTests(TestCase):
             'asistencia.csv',
             (
                 'sep=;\n'
-                'RUT;Estado\n'
+                'RUT;Situaci\u00f3n\n'
                 f'{self.socio_user.rut};Presente\n'
                 f'{socio_ausente.rut};Ausente\n'
             ).encode('utf-8'),

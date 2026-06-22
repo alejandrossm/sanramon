@@ -59,6 +59,7 @@ from .carga_historica import (
     ErrorCargaAsistenciaHistorica,
     cargar_asistencia_historica_desde_csv,
     construir_plantilla_carga_historica,
+    construir_plantilla_carga_historica_csv,
 )
 from .models import (
     AsistenciaReunion,
@@ -1160,6 +1161,20 @@ def descargar_plantilla_asistencia_historica(request):
     )
     response['Content-Disposition'] = (
         'attachment; filename="plantilla_asistencia_historica.xlsx"'
+    )
+    return response
+
+
+@gestor_usuarios_required
+def descargar_plantilla_asistencia_historica_csv(request):
+    """Descarga CSV de referencia para preparar carga historica."""
+    contenido = construir_plantilla_carga_historica_csv()
+    response = HttpResponse(
+        contenido,
+        content_type=FORMATOS_REPORTE_ASISTENCIA['csv'],
+    )
+    response['Content-Disposition'] = (
+        'attachment; filename="plantilla_asistencia_historica.csv"'
     )
     return response
 

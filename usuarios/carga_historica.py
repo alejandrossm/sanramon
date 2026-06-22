@@ -7,7 +7,7 @@ from django.db import IntegrityError, transaction
 
 from .identificacion import parsear_lectura_rut
 from .models import AsistenciaReunion, Reunion, Usuario
-from .reportes_asistencia import construir_xlsx
+from .reportes_asistencia import construir_csv, construir_xlsx
 
 
 COLUMNAS_PLANTILLA_CARGA_HISTORICA = [
@@ -15,8 +15,12 @@ COLUMNAS_PLANTILLA_CARGA_HISTORICA = [
     'Nombre',
     'Apellido paterno',
     'Apellido materno',
-    'Estado',
+    'Situaci\u00f3n',
 ]
+
+ALIAS_COLUMNAS_CARGA_HISTORICA = {
+    'situacion': 'estado',
+}
 
 ESTADOS_CARGA_HISTORICA = {
     'presente': AsistenciaReunion.PRESENTE,
@@ -65,6 +69,11 @@ def construir_plantilla_carga_historica():
         filas,
         nombre_hoja='Carga historica',
     )
+
+
+def construir_plantilla_carga_historica_csv():
+    """Genera CSV de referencia con los encabezados de carga historica."""
+    return construir_csv(COLUMNAS_PLANTILLA_CARGA_HISTORICA, [])
 
 
 def cargar_asistencia_historica_desde_csv(reunion, archivo_csv, usuario):
@@ -174,14 +183,19 @@ def _leer_filas_csv(archivo_csv):
     if not lector.fieldnames:
         return []
 
-    campos_normalizados = {
-        campo: _normalizar_clave(campo)
-        for campo in lector.fieldnames
-    }
+    campos_normalizados = {}
+    for campo in lector.fieldnames:
+        clave_normalizada = _normalizar_clave(campo)
+        campos_normalizados[campo] = ALIAS_COLUMNAS_CARGA_HISTORICA.get(
+            clave_normalizada,
+            clave_normalizada,
+        )
     if 'rut' not in campos_normalizados.values():
         raise ErrorCargaAsistenciaHistorica('El archivo debe incluir la columna RUT.')
     if 'estado' not in campos_normalizados.values():
-        raise ErrorCargaAsistenciaHistorica('El archivo debe incluir la columna Estado.')
+        raise ErrorCargaAsistenciaHistorica(
+            'El archivo debe incluir la columna Situacion.'
+        )
 
     filas = []
     for numero_fila, fila in enumerate(lector, start=2):
