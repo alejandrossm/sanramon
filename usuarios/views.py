@@ -920,7 +920,7 @@ def exportar_asistencia_anual(request, formato):
 
 @gestor_usuarios_required
 def exportar_socios_asistencia_anual(request, formato):
-    """Descarga el resumen anual completo desde el listado de socios."""
+    """Descarga el reporte completo desde el listado de socios."""
     formato = (formato or '').lower()
     if formato not in FORMATOS_REPORTE_ASISTENCIA:
         messages.error(request, 'Formato de reporte no disponible.')
@@ -1695,7 +1695,6 @@ def listado_socios(request):
             'total_socios': consulta['total_socios'],
             'socios_activos': consulta['socios_activos'],
             'socios_inactivos': consulta['socios_inactivos'],
-            'anio_exportacion': consulta['anio_exportacion'],
             'export_query': consulta['export_query'],
             'puede_exportar_reportes': puede_gestionar_usuarios(request.user),
         },

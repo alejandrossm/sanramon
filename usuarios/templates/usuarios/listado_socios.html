@@ -71,18 +71,6 @@
             {% endfor %}
         </select>
     </div>
-    <div class="col-12 col-md-3">
-        <label for="filtro-socio-anio" class="form-label">A&ntilde;o reporte</label>
-        <input
-            type="number"
-            class="form-control"
-            id="filtro-socio-anio"
-            name="anio"
-            min="2000"
-            value="{{ filtros.anio }}"
-            placeholder="{{ anio_exportacion }}"
-        >
-    </div>
     <div class="col-12 col-md-3 d-flex flex-wrap gap-2">
         <button type="submit" class="btn btn-outline-primary">
             {% include "includes/icon.html" with name="search" %}
@@ -99,12 +87,12 @@
 
 {% if puede_exportar_reportes %}
     <div class="d-flex justify-content-end mb-2">
-        <div class="btn-group btn-group-sm" role="group" aria-label="Exportar resumen anual">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Exportar registro de socios">
             <a
                 href="{% url 'usuarios:exportar_socios_asistencia_anual' 'csv' %}?{{ export_query }}"
                 class="btn btn-outline-primary btn-sm"
-                title="Descargar reporte anual CSV"
-                aria-label="Descargar reporte anual CSV"
+                title="Descargar reporte CSV"
+                aria-label="Descargar reporte CSV"
             >
                 {% include "includes/icon.html" with name="download" %}
                 <span>CSV</span>
@@ -112,8 +100,8 @@
             <a
                 href="{% url 'usuarios:exportar_socios_asistencia_anual' 'xlsx' %}?{{ export_query }}"
                 class="btn btn-outline-primary btn-sm"
-                title="Descargar reporte anual XLSX"
-                aria-label="Descargar reporte anual XLSX"
+                title="Descargar reporte XLSX"
+                aria-label="Descargar reporte XLSX"
             >
                 {% include "includes/icon.html" with name="file-spreadsheet" %}
                 <span>XLSX</span>
@@ -121,8 +109,8 @@
             <a
                 href="{% url 'usuarios:exportar_socios_asistencia_anual' 'pdf' %}?{{ export_query }}"
                 class="btn btn-outline-primary btn-sm"
-                title="Descargar reporte anual PDF"
-                aria-label="Descargar reporte anual PDF"
+                title="Descargar reporte PDF"
+                aria-label="Descargar reporte PDF"
             >
                 {% include "includes/icon.html" with name="file-pdf" %}
                 <span>PDF</span>

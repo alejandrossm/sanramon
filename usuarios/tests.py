@@ -3980,14 +3980,16 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'data-confirm-title="Eliminar socio"')
         self.assertContains(response, 'class="btn btn-danger btn-sm"')
         self.assertContains(response, 'bi-trash-fill')
-        self.assertContains(response, 'aria-label="Exportar resumen anual"')
+        self.assertContains(response, 'aria-label="Exportar registro de socios"')
         self.assertContains(response, 'btn-group btn-group-sm')
-        self.assertContains(response, 'Descargar reporte anual CSV')
+        self.assertContains(response, 'Descargar reporte CSV')
         self.assertContains(
             response,
             reverse('usuarios:exportar_socios_asistencia_anual', args=['csv']),
         )
-        self.assertContains(response, 'name="anio"')
+        self.assertNotContains(response, 'name="anio"')
+        self.assertNotContains(response, 'filtro-socio-anio')
+        self.assertNotContains(response, 'A&ntilde;o reporte')
         self.assertNotContains(response, 'admin@example.com')
         self.assertNotContains(response, 'encargado@example.com')
 
@@ -4020,6 +4022,7 @@ class UsuariosModuloTests(TestCase):
             response['Content-Disposition'],
         )
         self.assertEqual(len(filas), 55)
+        self.assertEqual(filas[-1]['Ano'], '2026')
         self.assertEqual(
             filas[-1]['Correo electronico'],
             'socio_exportable_54@example.com',
@@ -4041,6 +4044,11 @@ class UsuariosModuloTests(TestCase):
 
         self.assertEqual(response_xlsx.status_code, 200)
         self.assertIn('attachment;', response_xlsx['Content-Disposition'])
+        self.assertIn(
+            'reporte_socios_asistencia_anual_2026.xlsx',
+            response_xlsx['Content-Disposition'],
+        )
+        self.assertIn('<v>2026</v>', worksheet)
         self.assertIn('socio@example.com', worksheet)
         self.assertIn('+56922222222', worksheet)
         self.assertNotIn('Nombre completo', worksheet)
@@ -4052,6 +4060,10 @@ class UsuariosModuloTests(TestCase):
 
         self.assertEqual(response_pdf.status_code, 200)
         self.assertEqual(response_pdf['Content-Type'], 'application/pdf')
+        self.assertIn(
+            'reporte_socios_asistencia_anual_2026.pdf',
+            response_pdf['Content-Disposition'],
+        )
         self.assertTrue(response_pdf.content.startswith(b'%PDF-1.4'))
         self.assertNotIn(b'Nombre completo', response_pdf.content)
 
