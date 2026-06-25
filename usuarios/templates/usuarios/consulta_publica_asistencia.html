@@ -96,12 +96,6 @@
                     <strong class="fs-4">{{ resumen_general.total_ausencias }}</strong>
                 </div>
             </div>
-            <div class="col-6 col-lg-3">
-                <div class="border rounded bg-white p-3 h-100">
-                    <span class="d-block text-muted small fw-semibold">Ausencias efectivas</span>
-                    <strong class="fs-4">{{ resumen_general.total_ausencias_efectivas }}</strong>
-                </div>
-            </div>
         </section>
 
         <section class="public-panel p-4 mb-4" aria-label="Resumen anual">
@@ -122,10 +116,6 @@
                     <span class="d-block text-muted small fw-semibold">Ausencias</span>
                     <strong class="fs-5">{{ resumen_anual.total_ausencias }}</strong>
                 </div>
-                <div class="col-6 col-md">
-                    <span class="d-block text-muted small fw-semibold">Justificaciones</span>
-                    <strong class="fs-5">{{ resumen_anual.total_justificaciones }}</strong>
-                </div>
             </div>
         </section>
 
@@ -143,7 +133,6 @@
                             <th>HORA</th>
                             <th>LOCACI&Oacute;N</th>
                             <th>ESTADO</th>
-                            <th>JUSTIFICACI&Oacute;N</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -159,17 +148,10 @@
                                         <span class="badge text-bg-secondary">{{ asistencia.get_estado_display }}</span>
                                     {% endif %}
                                 </td>
-                                <td>
-                                    {% if asistencia.justificacion %}
-                                        <span class="badge text-bg-info">Justificada</span>
-                                    {% else %}
-                                        <span class="text-muted">-</span>
-                                    {% endif %}
-                                </td>
                             </tr>
                         {% empty %}
                             <tr>
-                                <td colspan="5" class="text-center text-muted py-4">No hay asistencias registradas para el a&ntilde;o seleccionado.</td>
+                                <td colspan="4" class="text-center text-muted py-4">No hay asistencias registradas para el a&ntilde;o seleccionado.</td>
                             </tr>
                         {% endfor %}
                     </tbody>
@@ -188,9 +170,6 @@
                             {% endif %}
                         </div>
                         <p class="text-muted mb-1">{{ asistencia.reunion.locacion }}</p>
-                        {% if asistencia.justificacion %}
-                            <span class="badge text-bg-info">Justificada</span>
-                        {% endif %}
                     </div>
                 {% empty %}
                     <div class="list-group-item text-center text-muted py-4">No hay asistencias registradas para el a&ntilde;o seleccionado.</div>

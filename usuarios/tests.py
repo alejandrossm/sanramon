@@ -901,6 +901,13 @@ class UsuariosModuloTests(TestCase):
             AsistenciaReunion.AUSENTE,
             date(2026, 5, 21),
         )
+        DesbloqueoSocio.objects.create(
+            socio=self.socio_user,
+            asistencia=ausencia_2026,
+            motivo='Revision administrativa',
+            desbloqueado_por=self.admin_user,
+            inasistencias_al_desbloquear=1,
+        )
 
         response = self.client.post(
             reverse('usuarios:consulta_publica_asistencia'),
@@ -923,6 +930,10 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, self.socio_user.nombre_completo)
         self.assertContains(response, 'Resumen anual 2026')
         self.assertNotContains(response, 'Pr&oacute;xima reuni&oacute;n')
+        self.assertNotContains(response, 'Ausencias efectivas')
+        self.assertNotContains(response, 'Justificaciones')
+        self.assertNotContains(response, 'JUSTIFICACI')
+        self.assertNotContains(response, 'Justificada')
         self.assertNotContains(response, '2025')
 
     def test_recuperacion_password_muestra_link_a_home(self):
