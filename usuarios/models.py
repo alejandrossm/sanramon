@@ -362,6 +362,7 @@ class Reunion(models.Model):
             raise ValidationError({'estado': 'Solo se pueden finalizar reuniones activas.'})
 
         socios_con_asistencia = self.asistencias.values('socio_id')
+        anio_reunion = self.fecha.year
         socios_ausentes = Usuario.objects.filter(
             rol=Usuario.SOCIO,
             is_active=True,
@@ -371,6 +372,7 @@ class Reunion(models.Model):
                 filter=models.Q(
                     asistencias_reunion__estado=AsistenciaReunion.AUSENTE,
                     asistencias_reunion__justificacion__isnull=True,
+                    asistencias_reunion__reunion__fecha__year=anio_reunion,
                 ),
                 distinct=True,
             ),
@@ -584,7 +586,10 @@ class AsistenciaReunion(models.Model):
             self.estado == self.PRESENTE
             and self.socio_id
             and not self.pk
-            and type(self).socio_esta_bloqueado(self.socio)
+            and type(self).socio_esta_bloqueado(
+                self.socio,
+                anio=self.reunion.fecha.year,
+            )
         ):
             errores['socio'] = self.MENSAJE_SOCIO_BLOQUEADO
 
@@ -609,25 +614,32 @@ class AsistenciaReunion(models.Model):
         }
 
     @classmethod
-    def contar_inasistencias_socio(cls, socio):
-        """Cuenta las ausencias registradas de un socio."""
+    def obtener_anio_operativo(cls, anio=None):
+        """Normaliza el ano usado por las reglas anuales de bloqueo."""
+        return anio or timezone.localdate().year
+
+    @classmethod
+    def contar_inasistencias_socio(cls, socio, anio=None):
+        """Cuenta las ausencias registradas de un socio en el ano operativo."""
         return cls.objects.filter(
             socio=socio,
             estado=cls.AUSENTE,
+            reunion__fecha__year=cls.obtener_anio_operativo(anio),
         ).count()
 
     @classmethod
-    def contar_inasistencias_efectivas_socio(cls, socio):
-        """Cuenta ausencias sin justificacion administrativa asociada."""
-        return cls.obtener_ausencias_justificables(socio).count()
+    def contar_inasistencias_efectivas_socio(cls, socio, anio=None):
+        """Cuenta ausencias sin justificacion administrativa del ano operativo."""
+        return cls.obtener_ausencias_justificables(socio, anio=anio).count()
 
     @classmethod
-    def obtener_firmas_bloqueo_socios(cls, socios_ids):
-        """Calcula una firma estable del bloqueo vigente para varios socios."""
+    def obtener_firmas_bloqueo_socios(cls, socios_ids, anio=None):
+        """Calcula una firma estable del bloqueo vigente anual para varios socios."""
         ausencias = cls.objects.filter(
             socio_id__in=socios_ids,
             estado=cls.AUSENTE,
             justificacion__isnull=True,
+            reunion__fecha__year=cls.obtener_anio_operativo(anio),
         ).order_by('socio_id', 'pk').values_list('socio_id', 'pk')
         ausencias_por_socio = {}
         for socio_id, asistencia_id in ausencias:
@@ -639,17 +651,21 @@ class AsistenciaReunion(models.Model):
         }
 
     @classmethod
-    def obtener_firma_bloqueo_socio(cls, socio):
-        """Devuelve la firma del bloqueo vigente de un socio."""
-        return cls.obtener_firmas_bloqueo_socios([socio.pk]).get(socio.pk, '')
+    def obtener_firma_bloqueo_socio(cls, socio, anio=None):
+        """Devuelve la firma del bloqueo vigente anual de un socio."""
+        return cls.obtener_firmas_bloqueo_socios([socio.pk], anio=anio).get(
+            socio.pk,
+            '',
+        )
 
     @classmethod
-    def obtener_ausencias_justificables(cls, socio):
-        """Lista ausencias del socio que todavia pueden justificarse."""
+    def obtener_ausencias_justificables(cls, socio, anio=None):
+        """Lista ausencias del socio justificables en el ano operativo."""
         return cls.objects.filter(
             socio=socio,
             estado=cls.AUSENTE,
             justificacion__isnull=True,
+            reunion__fecha__year=cls.obtener_anio_operativo(anio),
         ).select_related('reunion').order_by(
             'reunion__fecha',
             'reunion__hora',
@@ -657,9 +673,12 @@ class AsistenciaReunion(models.Model):
         )
 
     @classmethod
-    def socio_esta_bloqueado(cls, socio):
-        """Indica si el socio alcanzo el umbral operativo de bloqueo."""
-        return cls.contar_inasistencias_efectivas_socio(socio) >= cls.INASISTENCIAS_PARA_BLOQUEO
+    def socio_esta_bloqueado(cls, socio, anio=None):
+        """Indica si el socio alcanzo el umbral anual de bloqueo."""
+        return (
+            cls.contar_inasistencias_efectivas_socio(socio, anio=anio)
+            >= cls.INASISTENCIAS_PARA_BLOQUEO
+        )
 
     @classmethod
     def registrar_presente(cls, reunion, socio, usuario, origen):
@@ -676,7 +695,7 @@ class AsistenciaReunion(models.Model):
         if cls.objects.filter(reunion=reunion, socio=socio).exists():
             raise ValidationError({'socio': 'El socio ya tiene asistencia registrada en esta reunion.'})
 
-        if cls.socio_esta_bloqueado(socio):
+        if cls.socio_esta_bloqueado(socio, anio=reunion.fecha.year):
             raise ValidationError({'socio': cls.MENSAJE_SOCIO_BLOQUEADO})
 
         return cls.objects.create(
@@ -756,16 +775,25 @@ class DesbloqueoSocio(models.Model):
         super().save(*args, **kwargs)
 
     @classmethod
-    def registrar(cls, socio, usuario, motivo, asistencia):
-        """Justifica una inasistencia si el socio esta bloqueado."""
-        total_inasistencias = AsistenciaReunion.contar_inasistencias_socio(socio)
-        total_efectivas = AsistenciaReunion.contar_inasistencias_efectivas_socio(socio)
+    def registrar(cls, socio, usuario, motivo, asistencia, anio=None):
+        """Justifica una inasistencia si el socio esta bloqueado en el ano."""
+        anio_operativo = AsistenciaReunion.obtener_anio_operativo(anio)
+        total_inasistencias = AsistenciaReunion.contar_inasistencias_socio(
+            socio,
+            anio=anio_operativo,
+        )
+        total_efectivas = AsistenciaReunion.contar_inasistencias_efectivas_socio(
+            socio,
+            anio=anio_operativo,
+        )
         if total_efectivas < AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO:
             raise ValidationError({'socio': 'El socio no esta bloqueado por inasistencias.'})
         if asistencia is None:
             raise ValidationError({'asistencia': 'Debe seleccionar una inasistencia.'})
         if asistencia.socio_id != socio.pk:
             raise ValidationError({'asistencia': 'La inasistencia debe pertenecer al socio justificado.'})
+        if asistencia.reunion.fecha.year != anio_operativo:
+            raise ValidationError({'asistencia': 'La inasistencia no pertenece al ano operativo.'})
         if asistencia.estado != AsistenciaReunion.AUSENTE:
             raise ValidationError({'asistencia': 'Solo se pueden justificar ausencias.'})
         if cls.objects.filter(asistencia=asistencia).exists():
@@ -868,12 +896,15 @@ class NotificacionBloqueoSocio(models.Model):
         )
 
     @classmethod
-    def bloqueo_actual_ya_notificado(cls, socio):
-        """Indica si el bloqueo vigente del socio ya fue notificado."""
-        if not AsistenciaReunion.socio_esta_bloqueado(socio):
+    def bloqueo_actual_ya_notificado(cls, socio, anio=None):
+        """Indica si el bloqueo vigente anual del socio ya fue notificado."""
+        if not AsistenciaReunion.socio_esta_bloqueado(socio, anio=anio):
             return False
 
-        firma_bloqueo = AsistenciaReunion.obtener_firma_bloqueo_socio(socio)
+        firma_bloqueo = AsistenciaReunion.obtener_firma_bloqueo_socio(
+            socio,
+            anio=anio,
+        )
         if not firma_bloqueo:
             return False
 
@@ -883,15 +914,21 @@ class NotificacionBloqueoSocio(models.Model):
         ).exists()
 
     @classmethod
-    def registrar_bloqueo_actual(cls, socio, usuario):
-        """Registra la trazabilidad del aviso para el bloqueo vigente."""
-        total_efectivas = AsistenciaReunion.contar_inasistencias_efectivas_socio(socio)
+    def registrar_bloqueo_actual(cls, socio, usuario, anio=None):
+        """Registra la trazabilidad del aviso para el bloqueo vigente anual."""
+        total_efectivas = AsistenciaReunion.contar_inasistencias_efectivas_socio(
+            socio,
+            anio=anio,
+        )
         if total_efectivas < AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO:
             raise ValidationError(
                 {'socio': 'El socio no esta bloqueado por inasistencias.'}
             )
 
-        firma_bloqueo = AsistenciaReunion.obtener_firma_bloqueo_socio(socio)
+        firma_bloqueo = AsistenciaReunion.obtener_firma_bloqueo_socio(
+            socio,
+            anio=anio,
+        )
         if not firma_bloqueo:
             raise ValidationError(
                 {'socio': 'No fue posible determinar el bloqueo vigente del socio.'}

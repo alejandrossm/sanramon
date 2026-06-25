@@ -698,6 +698,7 @@ class CargaMasivaSociosForm(forms.Form):
 class JustificacionInasistenciaForm(forms.Form):
     """Formulario para registrar el motivo obligatorio de justificacion."""
 
+    anio = forms.IntegerField(required=False, widget=forms.HiddenInput())
     asistencia = forms.ModelChoiceField(
         label='Reunion a justificar',
         queryset=AsistenciaReunion.objects.none(),
@@ -720,14 +721,20 @@ class JustificacionInasistenciaForm(forms.Form):
         """Recibe el socio y responsable de la justificacion."""
         self.socio = kwargs.pop('socio')
         self.usuario = kwargs.pop('usuario')
+        self.anio = kwargs.pop('anio', None)
         super().__init__(*args, **kwargs)
+        self.fields['anio'].initial = self.anio
         self.fields['asistencia'].queryset = (
-            AsistenciaReunion.obtener_ausencias_justificables(self.socio)
+            AsistenciaReunion.obtener_ausencias_justificables(
+                self.socio,
+                anio=self.anio,
+            )
         )
         self.fields['asistencia'].label_from_instance = self.etiquetar_asistencia
         self.helper = FormHelper()
         self.helper.form_method = 'post'
         self.helper.layout = Layout(
+            'anio',
             'asistencia',
             'motivo',
             Submit('submit', 'Justificar inasistencia', css_class='btn btn-primary'),
@@ -754,7 +761,7 @@ class JustificacionInasistenciaForm(forms.Form):
         if self.errors:
             return cleaned_data
 
-        if not AsistenciaReunion.socio_esta_bloqueado(self.socio):
+        if not AsistenciaReunion.socio_esta_bloqueado(self.socio, anio=self.anio):
             raise forms.ValidationError('El socio no esta bloqueado por inasistencias.')
 
         asistencia = cleaned_data.get('asistencia')
@@ -772,6 +779,7 @@ class JustificacionInasistenciaForm(forms.Form):
             usuario=self.usuario,
             motivo=self.cleaned_data['motivo'],
             asistencia=self.cleaned_data['asistencia'],
+            anio=self.anio,
         )
 
 
@@ -845,7 +853,10 @@ class RegistroAsistenciaRutForm(forms.Form):
         if AsistenciaReunion.objects.filter(reunion=self.reunion, socio=socio).exists():
             raise forms.ValidationError('El socio ya tiene asistencia registrada en esta reunion.')
 
-        if AsistenciaReunion.socio_esta_bloqueado(socio):
+        if AsistenciaReunion.socio_esta_bloqueado(
+            socio,
+            anio=self.reunion.fecha.year,
+        ):
             raise forms.ValidationError(AsistenciaReunion.MENSAJE_SOCIO_BLOQUEADO)
 
         self.socio = socio

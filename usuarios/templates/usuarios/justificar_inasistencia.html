@@ -16,7 +16,7 @@
         </div>
     </div>
 
-    <a href="{% url 'usuarios:listado_socios_asistencia' %}" class="btn btn-outline-secondary align-self-start">
+    <a href="{% url 'usuarios:listado_socios_asistencia' %}?{{ anio_query }}" class="btn btn-outline-secondary align-self-start">
         {% include "includes/icon.html" with name="arrow-left" %}
         <span>Volver</span>
     </a>

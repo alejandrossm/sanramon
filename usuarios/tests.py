@@ -2877,6 +2877,45 @@ class UsuariosModuloTests(TestCase):
             ).exists()
         )
 
+    def test_bloqueo_operativo_ignora_inasistencias_de_anios_previos(self):
+        """El bloqueo se calcula solo con ausencias del ano operativo."""
+        anio_actual = timezone.localdate().year
+        anio_previo = anio_actual - 1
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(anio_previo, 4, 10),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(anio_previo, 4, 17),
+        )
+        reunion = Reunion.objects.create(
+            fecha=date(anio_actual, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+
+        self.assertTrue(
+            AsistenciaReunion.socio_esta_bloqueado(
+                self.socio_user,
+                anio=anio_previo,
+            )
+        )
+        self.assertFalse(AsistenciaReunion.socio_esta_bloqueado(self.socio_user))
+
+        asistencia = AsistenciaReunion.registrar_presente(
+            reunion=reunion,
+            socio=self.socio_user,
+            usuario=self.encargado_user,
+            origen=AsistenciaReunion.ORIGEN_RUT,
+        )
+
+        self.assertEqual(asistencia.estado, AsistenciaReunion.PRESENTE)
+
     @patch('usuarios.models.timezone.now')
     def test_modelo_justifica_inasistencia_con_motivo_responsable_y_fecha(self, now_mock):
         """Registra una justificacion sin borrar ausencias historicas."""
@@ -3236,9 +3275,9 @@ class UsuariosModuloTests(TestCase):
             f'anio={timezone.localdate().year}',
         )
         self.assertContains(response, 'name="estado"')
-        self.assertNotContains(response, 'name="anio"')
-        self.assertNotContains(response, 'filtro-asistencia-anio')
-        self.assertNotContains(response, 'A&ntilde;o reporte')
+        self.assertContains(response, 'name="anio"')
+        self.assertContains(response, 'filtro-asistencia-anio')
+        self.assertContains(response, 'A&ntilde;o operativo')
 
         self.client.login(username='encargado', password='ClaveSegura123')
         response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
@@ -3248,6 +3287,48 @@ class UsuariosModuloTests(TestCase):
             response,
             reverse('usuarios:exportar_asistencia_anual', args=['csv']),
         )
+
+    def test_listado_asistencia_usa_anio_operativo_para_indicador(self):
+        """El ano operativo de la vista controla contadores e indicador."""
+        anio_actual = timezone.localdate().year
+        anio_previo = anio_actual - 1
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(anio_previo, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(anio_previo, 5, 27),
+        )
+        self.client.login(username='admin', password='ClaveSegura123')
+
+        response_actual = self.client.get(reverse('usuarios:listado_socios_asistencia'))
+        socio_actual = next(
+            socio
+            for socio in response_actual.context['socios']
+            if socio.pk == self.socio_user.pk
+        )
+
+        self.assertEqual(socio_actual.total_reuniones, 0)
+        self.assertEqual(socio_actual.total_ausencias, 0)
+        self.assertEqual(socio_actual.indicador_asistencia['key'], 'sin_ausencias')
+
+        response_previo = self.client.get(
+            reverse('usuarios:listado_socios_asistencia'),
+            {'anio': anio_previo},
+        )
+        socio_previo = next(
+            socio
+            for socio in response_previo.context['socios']
+            if socio.pk == self.socio_user.pk
+        )
+
+        self.assertEqual(socio_previo.total_reuniones, 2)
+        self.assertEqual(socio_previo.total_ausencias, 2)
+        self.assertEqual(socio_previo.indicador_asistencia['key'], 'bloqueado')
+        self.assertContains(response_previo, f'value="{anio_previo}"')
 
     def test_exportar_asistencia_csv_usa_dataset_completo_no_paginado(self):
         """El reporte CSV usa todos los socios filtrados y no solo la pagina actual."""
@@ -4495,7 +4576,10 @@ class UsuariosModuloTests(TestCase):
         )
         detalle_url = reverse('usuarios:detalle_asistencia_socio', args=[self.socio_user.pk])
         justificar_url = reverse('usuarios:justificar_inasistencia', args=[self.socio_user.pk])
-        url_justificar_ausencia = f'{justificar_url}?asistencia={ausencia_justificable.pk}'
+        url_justificar_ausencia = (
+            f'{justificar_url}?anio={timezone.localdate().year}'
+            f'&asistencia={ausencia_justificable.pk}'
+        )
 
         self.client.login(username='admin', password='ClaveSegura123')
         response = self.client.get(detalle_url)
