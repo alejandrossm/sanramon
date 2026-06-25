@@ -841,9 +841,9 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Acceso al sistema')
         self.assertContains(response, reverse('usuarios:consulta_publica_asistencia'))
         self.assertContains(response, reverse('usuarios:login'))
-        self.assertContains(response, 'images/f01.png')
-        self.assertContains(response, 'images/f02.png')
-        self.assertContains(response, 'images/f03.png')
+        self.assertContains(response, 'images/f01.jpeg')
+        self.assertContains(response, 'images/f02.jpeg')
+        self.assertContains(response, 'images/f03.jpeg')
         self.assertContains(response, 'Redes sociales')
         self.assertContains(response, 'Contacto')
 
