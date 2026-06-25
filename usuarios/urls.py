@@ -79,6 +79,16 @@ urlpatterns = [
         name='registrar_asistencia_reunion',
     ),
     path('socios/', views.listado_socios, name='listado_socios'),
+    path(
+        'socios/plantilla-carga-masiva.csv',
+        views.descargar_plantilla_carga_masiva_socios,
+        name='descargar_plantilla_carga_masiva_socios',
+    ),
+    path(
+        'socios/carga-masiva/',
+        views.cargar_socios_masivo,
+        name='cargar_socios_masivo',
+    ),
     path('registrar_socio/', views.registro_socio, name='registro_socio'),
     path('socios/<int:pk>/', views.detalle_socio, name='detalle_socio'),
     path('socios/<int:pk>/editar/', views.editar_socio, name='editar_socio'),

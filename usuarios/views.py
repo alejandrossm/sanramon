@@ -30,6 +30,7 @@ from django.views.decorators.http import require_POST
 from .identificacion import parsear_lectura_rut
 from .auditoria import (
     ACCION_CARGA_HISTORICA_REVERTIDA,
+    ACCION_CARGA_MASIVA_SOCIOS,
     ACCION_RESPALDO_BASE_DATOS,
     ACCION_REUNION_CANCELADA,
     ACCION_REUNION_ELIMINADA,
@@ -42,6 +43,7 @@ from .auditoria import (
 )
 from .forms import (
     CargaAsistenciaHistoricaForm,
+    CargaMasivaSociosForm,
     CambioPasswordForm,
     ConsultaPublicaRutForm,
     JustificacionInasistenciaForm,
@@ -62,6 +64,11 @@ from .carga_historica import (
     construir_plantilla_carga_historica,
     construir_plantilla_carga_historica_csv,
     revertir_carga_asistencia_historica,
+)
+from .carga_masiva_socios import (
+    ErrorCargaMasivaSocios,
+    cargar_socios_desde_csv,
+    construir_plantilla_carga_masiva_socios,
 )
 from .models import (
     AsistenciaReunion,
@@ -1024,6 +1031,64 @@ def exportar_base_datos_respaldo(request):
         as_attachment=True,
         filename=nombre_archivo,
         content_type=TIPO_CONTENIDO_SQLITE,
+    )
+
+
+@registro_socios_required
+def descargar_plantilla_carga_masiva_socios(request):
+    """Descarga CSV con encabezados y socios actuales para carga masiva."""
+    contenido = construir_plantilla_carga_masiva_socios()
+    response = HttpResponse(
+        contenido,
+        content_type=FORMATOS_REPORTE_ASISTENCIA['csv'],
+    )
+    response['Content-Disposition'] = (
+        'attachment; filename="plantilla_carga_masiva_socios.csv"'
+    )
+    return response
+
+
+@registro_socios_required
+def cargar_socios_masivo(request):
+    """Crea socios en lote desde una planilla CSV validada."""
+    errores_carga = []
+    if request.method == 'POST':
+        form = CargaMasivaSociosForm(request.POST, request.FILES)
+        if form.is_valid():
+            archivo = form.cleaned_data['archivo']
+            try:
+                resultado = cargar_socios_desde_csv(archivo)
+            except ErrorCargaMasivaSocios as error:
+                errores_carga = error.errores
+                form.add_error(None, str(error))
+            else:
+                total = resultado['total']
+                registrar_evento_auditoria(
+                    request.user,
+                    ACCION_CARGA_MASIVA_SOCIOS,
+                    entidad_tipo='Socio',
+                    entidad_id='lote',
+                    entidad='Carga masiva de socios',
+                    detalle=(
+                        f'Archivo: {getattr(archivo, "name", "")}. '
+                        f'Socios creados: {total}.'
+                    ),
+                )
+                messages.success(
+                    request,
+                    f'Carga masiva completada. Socios creados: {total}.',
+                )
+                return redirect('usuarios:listado_socios')
+    else:
+        form = CargaMasivaSociosForm()
+
+    return render(
+        request,
+        'usuarios/cargar_socios_masivo.html',
+        {
+            'form': form,
+            'errores_carga': errores_carga,
+        },
     )
 
 

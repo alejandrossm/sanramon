@@ -658,6 +658,43 @@ class CargaAsistenciaHistoricaForm(forms.Form):
         return archivo
 
 
+class CargaMasivaSociosForm(forms.Form):
+    """Formulario para crear socios en lote desde CSV."""
+
+    archivo = forms.FileField(
+        label='Archivo CSV',
+        required=True,
+        help_text=(
+            'El CSV debe incluir nombre, apellido_paterno, rut, '
+            'correo_electronico, telefono_movil y fecha_ingreso_proyecto. '
+            'La fecha debe usar formato YYYY-MM-DD.'
+        ),
+        widget=forms.ClearableFileInput(
+            attrs={
+                'accept': '.csv,text/csv',
+            }
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        """Configura layout y enctype para carga de archivos."""
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.form_enctype = 'multipart/form-data'
+        self.helper.layout = Layout(
+            'archivo',
+            Submit('submit', 'Cargar socios', css_class='btn btn-primary'),
+        )
+
+    def clean_archivo(self):
+        """Acepta archivos CSV exportados desde planillas."""
+        archivo = self.cleaned_data['archivo']
+        if not archivo.name.lower().endswith('.csv'):
+            raise forms.ValidationError('El archivo debe tener extension .csv.')
+        return archivo
+
+
 class JustificacionInasistenciaForm(forms.Form):
     """Formulario para registrar el motivo obligatorio de justificacion."""
 

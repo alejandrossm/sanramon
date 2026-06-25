@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% load crispy_forms_tags %}
+
+{% block title %}Carga masiva de socios | Sistema San Ramon{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-start mb-4">
+    <div class="d-flex align-items-center gap-3">
+        {% include "includes/icon.html" with name="file-spreadsheet" classes="fs-4 text-primary" %}
+        <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Socios</p>
+            <h1 class="h3 mb-1">Carga masiva de socios</h1>
+            <p class="text-muted mb-0">Alta de socios desde planilla CSV validada antes de guardar.</p>
+        </div>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        <a href="{% url 'usuarios:descargar_plantilla_carga_masiva_socios' %}" class="btn btn-outline-primary d-inline-flex align-items-center gap-2">
+            {% include "includes/icon.html" with name="file-spreadsheet" %}
+            <span>Plantilla CSV</span>
+        </a>
+        <a href="{% url 'usuarios:configuracion' %}" class="btn btn-outline-secondary d-inline-flex align-items-center gap-2">
+            {% include "includes/icon.html" with name="arrow-left" %}
+            <span>Configuraci&oacute;n</span>
+        </a>
+    </div>
+</div>
+
+<section class="card shadow-sm border-0 p-4">
+    <div class="alert alert-info" role="alert">
+        El CSV debe incluir los encabezados nombre, apellido_paterno, apellido_materno, rut, correo_electronico, telefono_movil y fecha_ingreso_proyecto. La fecha debe usar formato YYYY-MM-DD. Se admite separador coma o punto y coma.
+    </div>
+    {% crispy form %}
+</section>
+
+{% if errores_carga %}
+    <div class="modal fade" id="errores-carga-socios-modal" tabindex="-1" aria-labelledby="errores-carga-socios-title" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title h5" id="errores-carga-socios-title">Errores de la planilla</h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted mb-3">No se creo ningun socio. Corrige la planilla y vuelve a cargarla.</p>
+                    <div class="table-responsive border rounded" style="max-height: 24rem;">
+                        <table class="table table-sm table-hover align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>FILA</th>
+                                    <th>SOCIO OBSERVADO</th>
+                                    <th>ERROR</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for error in errores_carga %}
+                                    <tr>
+                                        <td class="fw-semibold text-nowrap">{{ error.fila }}</td>
+                                        <td>{{ error.socio }}</td>
+                                        <td>{{ error.mensaje }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Aceptar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+    {{ block.super }}
+    {% if errores_carga %}
+        <script>
+            document.addEventListener('DOMContentLoaded', () => {
+                const modalElement = document.getElementById('errores-carga-socios-modal');
+                if (modalElement && window.bootstrap?.Modal) {
+                    window.bootstrap.Modal.getOrCreateInstance(modalElement).show();
+                }
+            });
+        </script>
+    {% endif %}
+{% endblock %}

@@ -25,6 +25,7 @@ from django.utils import timezone
 from .admin import UsuarioAdmin
 from .auditoria import (
     ACCION_CARGA_HISTORICA_REVERTIDA,
+    ACCION_CARGA_MASIVA_SOCIOS,
     ACCION_RESPALDO_BASE_DATOS,
     ACCION_REUNION_CANCELADA,
     ACCION_REUNION_ELIMINADA,
@@ -1292,6 +1293,14 @@ class UsuariosModuloTests(TestCase):
                 self.assertContains(response, 'Registro de logs')
                 self.assertContains(response, 'Descargar .log')
                 self.assertContains(response, reverse('usuarios:descargar_registro_logs'))
+                self.assertContains(response, 'Carga masiva de socios')
+                self.assertContains(response, 'Plantilla socios')
+                self.assertContains(response, 'Cargar socios')
+                self.assertContains(
+                    response,
+                    reverse('usuarios:descargar_plantilla_carga_masiva_socios'),
+                )
+                self.assertContains(response, reverse('usuarios:cargar_socios_masivo'))
                 self.assertContains(response, 'Respaldo de base de datos')
                 self.assertContains(response, 'Respaldar base de datos')
                 self.assertContains(response, reverse('usuarios:exportar_base_datos_respaldo'))
@@ -1445,6 +1454,10 @@ class UsuariosModuloTests(TestCase):
         self.assertRedirects(response, reverse('usuarios:dashboard'))
         response = self.client.get(reverse('usuarios:exportar_base_datos_respaldo'))
         self.assertRedirects(response, reverse('usuarios:dashboard'))
+        response = self.client.get(reverse('usuarios:descargar_plantilla_carga_masiva_socios'))
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+        response = self.client.get(reverse('usuarios:cargar_socios_masivo'))
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
         response = self.client.post(
             reverse('usuarios:revertir_carga_asistencia_historica', args=[carga.pk]),
         )
@@ -1456,6 +1469,10 @@ class UsuariosModuloTests(TestCase):
         response = self.client.get(reverse('usuarios:descargar_registro_logs'))
         self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
         response = self.client.get(reverse('usuarios:exportar_base_datos_respaldo'))
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+        response = self.client.get(reverse('usuarios:descargar_plantilla_carga_masiva_socios'))
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+        response = self.client.get(reverse('usuarios:cargar_socios_masivo'))
         self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
         response = self.client.post(
             reverse('usuarios:revertir_carga_asistencia_historica', args=[carga.pk]),
@@ -1972,6 +1989,101 @@ class UsuariosModuloTests(TestCase):
             filas,
             [['RUT', 'Situaci\u00f3n']],
         )
+
+    def test_plantilla_carga_masiva_socios_descarga_csv_con_socios_actuales(self):
+        """Entrega CSV con encabezados de carga masiva y socios actuales."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:descargar_plantilla_carga_masiva_socios'),
+        )
+        filas = list(csv.reader(StringIO(response.content.decode('utf-8-sig'))))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'text/csv; charset=utf-8')
+        self.assertIn('attachment;', response['Content-Disposition'])
+        self.assertIn('plantilla_carga_masiva_socios.csv', response['Content-Disposition'])
+        self.assertEqual(
+            filas[0],
+            [
+                'nombre',
+                'apellido_paterno',
+                'apellido_materno',
+                'rut',
+                'correo_electronico',
+                'telefono_movil',
+                'fecha_ingreso_proyecto',
+            ],
+        )
+        self.assertIn(
+            [
+                'Socio',
+                'Prueba',
+                '',
+                self.socio_user.rut,
+                'socio@example.com',
+                '+56922222222',
+                self.socio_user.fecha_ingreso_proyecto.isoformat(),
+            ],
+            filas,
+        )
+        self.assertNotIn('admin@example.com', response.content.decode('utf-8-sig'))
+
+    def test_carga_masiva_socios_csv_crea_socios_sin_password(self):
+        """Crea socios en lote desde CSV y registra auditoria del lote."""
+        rut_nuevo = self.rut_prueba('70000001')
+        archivo = SimpleUploadedFile(
+            'socios.csv',
+            (
+                'sep=;\n'
+                'nombre;apellido_paterno;apellido_materno;rut;correo_electronico;telefono_movil;fecha_ingreso_proyecto\n'
+                f'Nuevo;Masivo;Uno;{rut_nuevo};NUEVO.MASIVO@example.com;56933333333;2026-05-15\n'
+            ).encode('utf-8'),
+            content_type='text/csv',
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:cargar_socios_masivo'),
+            {'archivo': archivo},
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_socios'))
+        self.assertContains(response, 'Carga masiva completada. Socios creados: 1.')
+        socio = self.User.objects.get(email='nuevo.masivo@example.com')
+        self.assertEqual(socio.username, 'nuevo.masivo@example.com')
+        self.assertEqual(socio.rol, self.User.SOCIO)
+        self.assertEqual(socio.rut, rut_nuevo)
+        self.assertEqual(socio.telefono_movil, '+56933333333')
+        self.assertEqual(socio.fecha_ingreso_proyecto, date(2026, 5, 15))
+        self.assertFalse(socio.has_usable_password())
+        self.assertEqual(leer_eventos_auditoria()[0]['accion'], ACCION_CARGA_MASIVA_SOCIOS)
+
+    def test_carga_masiva_socios_csv_rollback_por_error(self):
+        """No crea ningun socio si una fila de la planilla contiene errores."""
+        rut_valido = self.rut_prueba('70000002')
+        archivo = SimpleUploadedFile(
+            'socios.csv',
+            (
+                'nombre,apellido_paterno,apellido_materno,rut,correo_electronico,telefono_movil,fecha_ingreso_proyecto\n'
+                f'Valido,Lote,Uno,{rut_valido},valido.lote@example.com,+56933333333,2026-05-15\n'
+                f'Duplicado,Lote,Dos,{self.socio_user.rut},duplicado.lote@example.com,+56944444444,2026-05-15\n'
+            ).encode('utf-8'),
+            content_type='text/csv',
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:cargar_socios_masivo'),
+            {'archivo': archivo},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Errores de la planilla')
+        self.assertContains(response, 'No se creo ningun socio')
+        self.assertContains(response, 'Ya existe un usuario con este RUT.')
+        self.assertFalse(self.User.objects.filter(email='valido.lote@example.com').exists())
+        self.assertFalse(self.User.objects.filter(email='duplicado.lote@example.com').exists())
 
     def test_carga_asistencia_historica_csv_semicolon_registro_por_registro(self):
         """Carga asistencia historica desde CSV separado por punto y coma."""

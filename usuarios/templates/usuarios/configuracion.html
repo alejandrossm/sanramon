@@ -33,6 +33,30 @@
         </div>
     </div>
 
+    <div class="row g-3 align-items-center p-4 border-bottom">
+        <div class="col-12 col-lg">
+            <div class="d-flex align-items-start gap-3">
+                {% include "includes/icon.html" with name="file-spreadsheet" classes="fs-4 text-primary flex-shrink-0" %}
+                <div>
+                    <h2 class="h5 mb-1">Carga masiva de socios</h2>
+                    <p class="text-muted mb-0">Descarga la plantilla con socios actuales o importa nuevos socios desde un CSV validado.</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-lg-auto">
+            <div class="d-flex flex-wrap gap-2 justify-content-lg-end">
+                <a href="{% url 'usuarios:descargar_plantilla_carga_masiva_socios' %}" class="btn btn-outline-primary d-inline-flex align-items-center gap-2">
+                    {% include "includes/icon.html" with name="download" %}
+                    <span>Plantilla socios</span>
+                </a>
+                <a href="{% url 'usuarios:cargar_socios_masivo' %}" class="btn btn-primary d-inline-flex align-items-center gap-2">
+                    {% include "includes/icon.html" with name="file-spreadsheet" %}
+                    <span>Cargar socios</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
     <div class="row g-3 align-items-center p-4">
         <div class="col-12 col-lg">
             <div class="d-flex align-items-start gap-3">
