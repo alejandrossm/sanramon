@@ -440,6 +440,62 @@ class Reunion(models.Model):
         return not self.tiene_datos_registrados()
 
 
+class CargaAsistenciaHistorica(models.Model):
+    """Lote trazable de una carga historica importada desde planilla."""
+
+    reunion = models.ForeignKey(
+        Reunion,
+        on_delete=models.CASCADE,
+        related_name='cargas_historicas',
+    )
+    cargado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='cargas_asistencia_historica',
+    )
+    fecha_carga = models.DateTimeField(default=timezone.now)
+    archivo_nombre = models.CharField(max_length=255, blank=True)
+    total_registros = models.PositiveIntegerField(default=0)
+    total_presentes = models.PositiveIntegerField(default=0)
+    total_ausentes = models.PositiveIntegerField(default=0)
+    revertida = models.BooleanField(default=False)
+    revertida_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='reversiones_carga_asistencia_historica',
+    )
+    fecha_reversion = models.DateTimeField(blank=True, null=True)
+    registros_revertidos = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        """Orden y nombres legibles del lote de carga historica."""
+
+        ordering = ['-fecha_carga']
+        verbose_name = 'carga historica de asistencia'
+        verbose_name_plural = 'cargas historicas de asistencia'
+
+    def __str__(self):
+        """Representa la carga por reunion y fecha de importacion."""
+        return f'Carga #{self.pk} - {self.reunion}'
+
+    def marcar_revertida(self, usuario, registros_revertidos):
+        """Registra la reversion del lote."""
+        self.revertida = True
+        self.revertida_por = usuario
+        self.fecha_reversion = timezone.now()
+        self.registros_revertidos = registros_revertidos
+        self.save(
+            update_fields=[
+                'revertida',
+                'revertida_por',
+                'fecha_reversion',
+                'registros_revertidos',
+            ]
+        )
+
+
 class AsistenciaReunion(models.Model):
     """Registro de asistencia de un socio en una reunion."""
 
@@ -488,6 +544,13 @@ class AsistenciaReunion(models.Model):
         related_name='asistencias_registradas',
     )
     fecha_registro = models.DateTimeField(default=timezone.now)
+    carga_historica = models.ForeignKey(
+        CargaAsistenciaHistorica,
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name='asistencias',
+    )
 
     class Meta:
         """Orden e invariantes del registro de asistencia."""

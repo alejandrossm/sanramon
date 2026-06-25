@@ -4,17 +4,16 @@ import unicodedata
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.db.models.deletion import ProtectedError
+from django.utils import timezone
 
 from .identificacion import parsear_lectura_rut
-from .models import AsistenciaReunion, Reunion, Usuario
+from .models import AsistenciaReunion, CargaAsistenciaHistorica, Reunion, Usuario
 from .reportes_asistencia import construir_csv, construir_xlsx
 
 
 COLUMNAS_PLANTILLA_CARGA_HISTORICA = [
     'RUT',
-    'Nombre',
-    'Apellido paterno',
-    'Apellido materno',
     'Situaci\u00f3n',
 ]
 
@@ -42,7 +41,7 @@ class ErrorCargaAsistenciaHistorica(Exception):
 
 
 def construir_plantilla_carga_historica():
-    """Genera plantilla XLSX con socios y columna de estado editable."""
+    """Genera plantilla XLSX con RUT de socios y columna de estado editable."""
     filas = []
     socios = Usuario.objects.filter(
         rol=Usuario.SOCIO,
@@ -57,9 +56,6 @@ def construir_plantilla_carga_historica():
         filas.append(
             [
                 socio.rut,
-                socio.first_name,
-                socio.last_name,
-                socio.apellido_materno,
                 '',
             ]
         )
@@ -72,7 +68,7 @@ def construir_plantilla_carga_historica():
 
 
 def construir_plantilla_carga_historica_csv():
-    """Genera CSV de referencia con los encabezados de carga historica."""
+    """Genera CSV de referencia con los encabezados minimos de carga historica."""
     return construir_csv(COLUMNAS_PLANTILLA_CARGA_HISTORICA, [])
 
 
@@ -92,6 +88,12 @@ def cargar_asistencia_historica_desde_csv(reunion, archivo_csv, usuario):
     ausentes = 0
 
     with transaction.atomic():
+        carga_historica = CargaAsistenciaHistorica.objects.create(
+            reunion=reunion,
+            cargado_por=usuario,
+            archivo_nombre=getattr(archivo_csv, 'name', '')[:255],
+        )
+
         for numero_fila, fila in filas:
             rut = _obtener_valor(fila, 'rut')
             estado = _obtener_valor(fila, 'estado')
@@ -126,6 +128,7 @@ def cargar_asistencia_historica_desde_csv(reunion, archivo_csv, usuario):
                 estado=estado_asistencia,
                 origen=AsistenciaReunion.ORIGEN_MANUAL,
                 registrada_por=usuario,
+                carga_historica=carga_historica,
             )
             try:
                 asistencia.save()
@@ -144,11 +147,55 @@ def cargar_asistencia_historica_desde_csv(reunion, archivo_csv, usuario):
             else:
                 ausentes += 1
 
+        carga_historica.total_registros = presentes + ausentes
+        carga_historica.total_presentes = presentes
+        carga_historica.total_ausentes = ausentes
+        carga_historica.save(
+            update_fields=['total_registros', 'total_presentes', 'total_ausentes']
+        )
+
     return {
         'total': presentes + ausentes,
         'presentes': presentes,
         'ausentes': ausentes,
+        'carga_historica': carga_historica,
     }
+
+
+def revertir_carga_asistencia_historica(carga_historica, usuario):
+    """Revierte todos los registros de asistencia asociados a una carga."""
+    if carga_historica.revertida:
+        raise ErrorCargaAsistenciaHistorica('La carga historica ya fue revertida.')
+
+    asistencias = carga_historica.asistencias.select_related('socio', 'reunion')
+    if asistencias.filter(justificacion__isnull=False).exists():
+        raise ErrorCargaAsistenciaHistorica(
+            'No se puede revertir una carga con justificaciones registradas.'
+        )
+
+    with transaction.atomic():
+        total_revertido = asistencias.count()
+        try:
+            asistencias.delete()
+        except ProtectedError as error:
+            raise ErrorCargaAsistenciaHistorica(
+                'No se puede revertir la carga porque tiene registros protegidos.'
+            ) from error
+
+        carga_historica.revertida = True
+        carga_historica.revertida_por = usuario
+        carga_historica.fecha_reversion = timezone.now()
+        carga_historica.registros_revertidos = total_revertido
+        carga_historica.save(
+            update_fields=[
+                'revertida',
+                'revertida_por',
+                'fecha_reversion',
+                'registros_revertidos',
+            ]
+        )
+
+    return {'registros_revertidos': total_revertido}
 
 
 def _leer_filas_csv(archivo_csv):
@@ -214,7 +261,7 @@ def _normalizar_estado(valor, numero_fila):
     estado = _normalizar_clave(valor)
     if estado not in ESTADOS_CARGA_HISTORICA:
         raise ErrorCargaAsistenciaHistorica(
-            f'Fila {numero_fila}: Estado debe ser Presente o Ausente.'
+            f'Fila {numero_fila}: Estado debe ser A para Ausente o P para Presente.'
         )
     return ESTADOS_CARGA_HISTORICA[estado]
 

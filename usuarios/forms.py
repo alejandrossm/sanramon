@@ -532,7 +532,7 @@ class ReunionCreationForm(forms.ModelForm):
                                 <span>Plantilla CSV</span>
                             </a>
                             <p class="form-text m-0">
-                                Plantilla CSV para la carga de asistencia de una reuni&oacute;n hist&oacute;rica: completar una fila por socio y marcar Situaci&oacute;n como Presente o Ausente.
+                                Plantilla CSV para carga hist&oacute;rica: usar solo RUT y Situaci&oacute;n. El RUT debe ir sin puntos y con guion, por ejemplo 12345678-9. Situaci&oacute;n acepta A/a para Ausente y P/p para Presente.
                             </p>
                         </div>
                         '''
@@ -627,6 +627,11 @@ class CargaAsistenciaHistoricaForm(forms.Form):
     archivo = forms.FileField(
         label='Archivo CSV',
         required=True,
+        help_text=(
+            'El CSV debe incluir solo RUT y Situacion. Use RUT sin puntos y con '
+            'guion, por ejemplo 12345678-9. Situacion acepta A/a para Ausente '
+            'y P/p para Presente.'
+        ),
         widget=forms.ClearableFileInput(
             attrs={
                 'accept': '.csv,text/csv',

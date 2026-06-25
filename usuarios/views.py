@@ -19,7 +19,7 @@ from django.core.exceptions import ValidationError
 from django.http import FileResponse, HttpResponse
 from django.core.paginator import Paginator
 from django.db import IntegrityError
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
@@ -29,6 +29,7 @@ from django.views.decorators.http import require_POST
 
 from .identificacion import parsear_lectura_rut
 from .auditoria import (
+    ACCION_CARGA_HISTORICA_REVERTIDA,
     ACCION_RESPALDO_BASE_DATOS,
     ACCION_REUNION_CANCELADA,
     ACCION_REUNION_ELIMINADA,
@@ -60,9 +61,11 @@ from .carga_historica import (
     cargar_asistencia_historica_desde_csv,
     construir_plantilla_carga_historica,
     construir_plantilla_carga_historica_csv,
+    revertir_carga_asistencia_historica,
 )
 from .models import (
     AsistenciaReunion,
+    CargaAsistenciaHistorica,
     DesbloqueoSocio,
     NotificacionBloqueoSocio,
     Reunion,
@@ -927,7 +930,54 @@ def exportar_socios_asistencia_anual(request, formato):
 @gestor_usuarios_required
 def configuracion(request):
     """Centraliza acciones criticas de configuracion."""
-    return render(request, 'usuarios/configuracion.html')
+    cargas_historicas = (
+        CargaAsistenciaHistorica.objects.filter(revertida=False)
+        .select_related('reunion', 'cargado_por')
+        .annotate(total_registros_actuales=Count('asistencias'))
+        .order_by('-fecha_carga')[:20]
+    )
+    return render(
+        request,
+        'usuarios/configuracion.html',
+        {
+            'cargas_historicas': cargas_historicas,
+        },
+    )
+
+
+@require_POST
+@gestor_usuarios_required
+def revertir_carga_asistencia_historica_view(request, pk):
+    """Revierte una carga historica importada por planilla."""
+    carga_historica = get_object_or_404(
+        CargaAsistenciaHistorica.objects.select_related('reunion'),
+        pk=pk,
+        revertida=False,
+    )
+
+    try:
+        resultado = revertir_carga_asistencia_historica(
+            carga_historica,
+            request.user,
+        )
+    except ErrorCargaAsistenciaHistorica as error:
+        messages.error(request, str(error))
+    else:
+        registros = resultado['registros_revertidos']
+        registrar_evento_auditoria(
+            request.user,
+            ACCION_CARGA_HISTORICA_REVERTIDA,
+            entidad_tipo='Carga historica',
+            entidad_id=carga_historica.pk,
+            entidad=str(carga_historica.reunion),
+            detalle=f'Reversion de carga por planilla. Registros revertidos: {registros}.',
+        )
+        messages.success(
+            request,
+            f'Carga historica revertida correctamente. Registros revertidos: {registros}.',
+        )
+
+    return redirect('usuarios:configuracion')
 
 
 @gestor_usuarios_required
@@ -1115,7 +1165,7 @@ def crear_reunion(request):
                 request,
                 f'Reunion del {reunion.fecha:%d-%m-%Y} a las {reunion.hora:%H:%M} creada correctamente.',
             )
-            return redirect('usuarios:crear_reunion')
+            return redirect('usuarios:listado_reuniones')
         if form.reunion_duplicada:
             messages.warning(request, form.REUNION_DUPLICADA_MENSAJE)
         if form.reunion_pasada_requiere_historica:
@@ -1134,6 +1184,13 @@ def listado_reuniones(request):
         'activada_por',
         'finalizada_por',
         'cancelada_por',
+    ).annotate(
+        total_asistencias_registradas=Count('asistencias', distinct=True),
+        total_cargas_historicas_revertidas=Count(
+            'cargas_historicas',
+            filter=Q(cargas_historicas__revertida=True),
+            distinct=True,
+        ),
     )
     reunion_activa = reuniones_base.filter(estado=Reunion.ACTIVA).first()
     anios_reuniones = [
@@ -1200,6 +1257,24 @@ def cargar_asistencia_historica(request, pk):
         messages.error(
             request,
             'La carga historica solo esta disponible para reuniones historicas.',
+        )
+        return redirect('usuarios:listado_reuniones')
+
+    if reunion.asistencias.exists():
+        messages.warning(
+            request,
+            (
+                'La carga historica de esta reunion ya fue registrada manualmente. '
+                'Para corregir un ingreso, use justificaciones buscando por el RUT '
+                'del usuario y la fecha correspondiente.'
+            ),
+        )
+        return redirect('usuarios:listado_reuniones')
+
+    if reunion.cargas_historicas.filter(revertida=True).exists():
+        messages.warning(
+            request,
+            'La carga historica de esta reunion fue revertida y no admite una nueva carga por planilla.',
         )
         return redirect('usuarios:listado_reuniones')
 

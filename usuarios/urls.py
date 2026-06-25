@@ -109,6 +109,11 @@ urlpatterns = [
         views.exportar_base_datos_respaldo,
         name='exportar_base_datos_respaldo',
     ),
+    path(
+        'configuracion/cargas-historicas/<int:pk>/revertir/',
+        views.revertir_carga_asistencia_historica_view,
+        name='revertir_carga_asistencia_historica',
+    ),
     path('socios/<int:pk>/eliminar/', views.eliminar_socio, name='eliminar_socio'),
     path('mi-contrasena/', views.cambiar_mi_password, name='cambiar_mi_password'),
     path('usuarios/', views.listado_usuarios, name='listado_usuarios'),

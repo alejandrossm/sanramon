@@ -24,6 +24,7 @@ from django.utils import timezone
 
 from .admin import UsuarioAdmin
 from .auditoria import (
+    ACCION_CARGA_HISTORICA_REVERTIDA,
     ACCION_RESPALDO_BASE_DATOS,
     ACCION_REUNION_CANCELADA,
     ACCION_REUNION_ELIMINADA,
@@ -47,6 +48,7 @@ from .identificacion import (
 )
 from .models import (
     AsistenciaReunion,
+    CargaAsistenciaHistorica,
     DesbloqueoSocio,
     NotificacionBloqueoSocio,
     Reunion,
@@ -1293,6 +1295,8 @@ class UsuariosModuloTests(TestCase):
                 self.assertContains(response, 'Respaldo de base de datos')
                 self.assertContains(response, 'Respaldar base de datos')
                 self.assertContains(response, reverse('usuarios:exportar_base_datos_respaldo'))
+                self.assertContains(response, 'Cargas hist')
+                self.assertContains(response, 'No hay cargas hist')
                 self.assertNotContains(response, '<th>FECHA Y HORA</th>', html=True)
                 self.assertNotContains(response, 'evento-test')
 
@@ -1324,14 +1328,126 @@ class UsuariosModuloTests(TestCase):
             ruta_respaldo.unlink(missing_ok=True)
             ruta_auditoria.unlink(missing_ok=True)
 
+    def test_configuracion_permite_revertir_carga_historica_por_planilla(self):
+        """Revierte todos los registros de una carga historica desde configuracion."""
+        reunion = Reunion.objects.create(
+            fecha=date(2025, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede historica',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        carga = CargaAsistenciaHistorica.objects.create(
+            reunion=reunion,
+            cargado_por=self.admin_user,
+            archivo_nombre='asistencia.csv',
+            total_registros=1,
+            total_presentes=1,
+            total_ausentes=0,
+        )
+        AsistenciaReunion.objects.create(
+            reunion=reunion,
+            socio=self.socio_user,
+            estado=AsistenciaReunion.PRESENTE,
+            origen=AsistenciaReunion.ORIGEN_MANUAL,
+            registrada_por=self.admin_user,
+            carga_historica=carga,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:configuracion'))
+
+        self.assertContains(response, 'Cargas hist')
+        self.assertContains(response, 'asistencia.csv')
+        self.assertContains(response, 'Revertir carga')
+        self.assertContains(
+            response,
+            reverse('usuarios:revertir_carga_asistencia_historica', args=[carga.pk]),
+        )
+
+        response = self.client.post(
+            reverse('usuarios:revertir_carga_asistencia_historica', args=[carga.pk]),
+            follow=True,
+        )
+        carga.refresh_from_db()
+
+        self.assertRedirects(response, reverse('usuarios:configuracion'))
+        self.assertContains(response, 'Carga historica revertida correctamente')
+        self.assertEqual(AsistenciaReunion.objects.filter(reunion=reunion).count(), 0)
+        self.assertTrue(carga.revertida)
+        self.assertEqual(carga.revertida_por, self.admin_user)
+        self.assertEqual(carga.registros_revertidos, 1)
+        self.assertEqual(leer_eventos_auditoria()[0]['accion'], ACCION_CARGA_HISTORICA_REVERTIDA)
+
+    def test_configuracion_bloquea_revertir_carga_historica_con_justificaciones(self):
+        """Evita borrar asistencias de una carga si ya tienen justificacion."""
+        reunion = Reunion.objects.create(
+            fecha=date(2025, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede historica',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        carga = CargaAsistenciaHistorica.objects.create(
+            reunion=reunion,
+            cargado_por=self.admin_user,
+            archivo_nombre='asistencia.csv',
+            total_registros=1,
+            total_presentes=0,
+            total_ausentes=1,
+        )
+        asistencia = AsistenciaReunion.objects.create(
+            reunion=reunion,
+            socio=self.socio_user,
+            estado=AsistenciaReunion.AUSENTE,
+            origen=AsistenciaReunion.ORIGEN_MANUAL,
+            registrada_por=self.admin_user,
+            carga_historica=carga,
+        )
+        DesbloqueoSocio.objects.create(
+            socio=self.socio_user,
+            asistencia=asistencia,
+            motivo='Correccion revisada',
+            desbloqueado_por=self.admin_user,
+            inasistencias_al_desbloquear=1,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:revertir_carga_asistencia_historica', args=[carga.pk]),
+            follow=True,
+        )
+        carga.refresh_from_db()
+
+        self.assertRedirects(response, reverse('usuarios:configuracion'))
+        self.assertContains(response, 'No se puede revertir una carga con justificaciones')
+        self.assertEqual(AsistenciaReunion.objects.filter(reunion=reunion).count(), 1)
+        self.assertFalse(carga.revertida)
+
     def test_configuracion_restringe_encargado_y_socio(self):
         """Bloquea opciones criticas de configuracion fuera del rol administrador."""
+        reunion = Reunion.objects.create(
+            fecha=date(2025, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede historica',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        carga = CargaAsistenciaHistorica.objects.create(
+            reunion=reunion,
+            cargado_por=self.admin_user,
+        )
+
         self.client.login(username='encargado', password='ClaveSegura123')
         response = self.client.get(reverse('usuarios:configuracion'))
         self.assertRedirects(response, reverse('usuarios:dashboard'))
         response = self.client.get(reverse('usuarios:descargar_registro_logs'))
         self.assertRedirects(response, reverse('usuarios:dashboard'))
         response = self.client.get(reverse('usuarios:exportar_base_datos_respaldo'))
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+        response = self.client.post(
+            reverse('usuarios:revertir_carga_asistencia_historica', args=[carga.pk]),
+        )
         self.assertRedirects(response, reverse('usuarios:dashboard'))
 
         self.client.login(username='socio', password='ClaveSegura123')
@@ -1340,6 +1456,10 @@ class UsuariosModuloTests(TestCase):
         response = self.client.get(reverse('usuarios:descargar_registro_logs'))
         self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
         response = self.client.get(reverse('usuarios:exportar_base_datos_respaldo'))
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+        response = self.client.post(
+            reverse('usuarios:revertir_carga_asistencia_historica', args=[carga.pk]),
+        )
         self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
 
     def test_auditoria_registra_acciones_criticas_en_auditoria_log(self):
@@ -1472,7 +1592,10 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'js/reuniones.js')
         self.assertContains(response, 'Hist')
         self.assertContains(response, 'Plantilla CSV')
-        self.assertContains(response, 'Plantilla CSV para la carga')
+        self.assertContains(response, 'Plantilla CSV para carga hist')
+        self.assertContains(response, '12345678-9')
+        self.assertContains(response, 'A/a para Ausente')
+        self.assertContains(response, 'P/p para Presente')
         self.assertContains(response, 'Situaci')
         self.assertContains(
             response,
@@ -1489,7 +1612,7 @@ class UsuariosModuloTests(TestCase):
         )
         self.assertLess(
             contenido.index('Plantilla CSV'),
-            contenido.index('Plantilla CSV para la carga'),
+            contenido.index('Plantilla CSV para carga hist'),
         )
 
         response = self.client.post(
@@ -1502,7 +1625,7 @@ class UsuariosModuloTests(TestCase):
             },
             follow=True,
         )
-        self.assertRedirects(response, url)
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
         self.assertContains(response, 'creada correctamente')
         reunion = Reunion.objects.get(locacion='Sede social')
         self.assertEqual(reunion.creador, self.admin_user)
@@ -1740,6 +1863,77 @@ class UsuariosModuloTests(TestCase):
             reverse('usuarios:cargar_asistencia_historica', args=[reunion_programada.pk]),
         )
 
+    def test_listado_reuniones_reemplaza_carga_historica_si_ya_tiene_registros(self):
+        """Oculta carga historica y muestra badge cuando la reunion ya fue cargada."""
+        reunion_cargada = Reunion.objects.create(
+            fecha=date(2025, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede historica cargada',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        reunion_pendiente = Reunion.objects.create(
+            fecha=date(2025, 5, 21),
+            hora=time(18, 30),
+            locacion='Sede historica pendiente',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        AsistenciaReunion.objects.create(
+            reunion=reunion_cargada,
+            socio=self.socio_user,
+            estado=AsistenciaReunion.PRESENTE,
+            origen=AsistenciaReunion.ORIGEN_MANUAL,
+            registrada_por=self.admin_user,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_reuniones'))
+
+        self.assertContains(response, 'Cargada manualmente')
+        self.assertContains(response, 'data-bs-toggle="tooltip"')
+        self.assertContains(response, 'RUT del usuario y la fecha correspondiente')
+        self.assertNotContains(
+            response,
+            reverse('usuarios:cargar_asistencia_historica', args=[reunion_cargada.pk]),
+        )
+        self.assertContains(
+            response,
+            reverse('usuarios:cargar_asistencia_historica', args=[reunion_pendiente.pk]),
+        )
+
+    def test_listado_reuniones_muestra_badge_si_carga_historica_fue_revertida(self):
+        """Muestra estado revertido y permite cargar nuevamente una planilla."""
+        reunion = Reunion.objects.create(
+            fecha=date(2025, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede historica revertida',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        CargaAsistenciaHistorica.objects.create(
+            reunion=reunion,
+            cargado_por=self.admin_user,
+            total_registros=2,
+            total_presentes=1,
+            total_ausentes=1,
+            revertida=True,
+            revertida_por=self.admin_user,
+            fecha_reversion=timezone.now(),
+            registros_revertidos=2,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_reuniones'))
+
+        self.assertContains(response, 'Reuni&oacute;n revertida')
+        self.assertContains(response, 'La carga anterior fue revertida')
+        self.assertNotContains(
+            response,
+            reverse('usuarios:cargar_asistencia_historica', args=[reunion.pk]),
+        )
+        self.assertNotContains(response, 'Cargada manualmente')
+
     def test_plantilla_asistencia_historica_descarga_xlsx_base(self):
         """Propone una plantilla XLSX exportable a CSV para la carga historica."""
         self.client.login(username='admin', password='ClaveSegura123')
@@ -1759,6 +1953,7 @@ class UsuariosModuloTests(TestCase):
         self.assertIn('plantilla_asistencia_historica.xlsx', response['Content-Disposition'])
         self.assertIn('RUT', worksheet)
         self.assertIn('Situaci', worksheet)
+        self.assertNotIn('Nombre', worksheet)
         self.assertIn(self.socio_user.rut, worksheet)
 
     def test_plantilla_asistencia_historica_descarga_csv_encabezados(self):
@@ -1775,7 +1970,7 @@ class UsuariosModuloTests(TestCase):
         self.assertIn('plantilla_asistencia_historica.csv', response['Content-Disposition'])
         self.assertEqual(
             filas,
-            [['RUT', 'Nombre', 'Apellido paterno', 'Apellido materno', 'Situaci\u00f3n']],
+            [['RUT', 'Situaci\u00f3n']],
         )
 
     def test_carga_asistencia_historica_csv_semicolon_registro_por_registro(self):
@@ -1801,8 +1996,8 @@ class UsuariosModuloTests(TestCase):
             (
                 'sep=;\n'
                 'RUT;Situaci\u00f3n\n'
-                f'{self.socio_user.rut};Presente\n'
-                f'{socio_ausente.rut};Ausente\n'
+                f'{self.socio_user.rut};p\n'
+                f'{socio_ausente.rut};A\n'
             ).encode('utf-8'),
             content_type='text/csv',
         )
@@ -1818,6 +2013,13 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Carga historica completada')
         asistencias = AsistenciaReunion.objects.filter(reunion=reunion).order_by('socio_id')
         self.assertEqual(asistencias.count(), 2)
+        carga = CargaAsistenciaHistorica.objects.get(reunion=reunion)
+        self.assertEqual(carga.cargado_por, self.admin_user)
+        self.assertEqual(carga.archivo_nombre, 'asistencia.csv')
+        self.assertEqual(carga.total_registros, 2)
+        self.assertEqual(carga.total_presentes, 1)
+        self.assertEqual(carga.total_ausentes, 1)
+        self.assertEqual(asistencias.filter(carga_historica=carga).count(), 2)
         self.assertTrue(
             asistencias.filter(
                 socio=self.socio_user,
@@ -1885,6 +2087,61 @@ class UsuariosModuloTests(TestCase):
             response,
             'La carga historica solo esta disponible para reuniones historicas.',
         )
+
+    def test_carga_asistencia_historica_bloquea_reuniones_ya_cargadas(self):
+        """Impide volver a cargar CSV cuando una historica ya tiene asistencias."""
+        reunion = Reunion.objects.create(
+            fecha=date(2025, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede historica',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        AsistenciaReunion.objects.create(
+            reunion=reunion,
+            socio=self.socio_user,
+            estado=AsistenciaReunion.PRESENTE,
+            origen=AsistenciaReunion.ORIGEN_MANUAL,
+            registrada_por=self.admin_user,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:cargar_asistencia_historica', args=[reunion.pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'ya fue registrada manualmente')
+        self.assertContains(response, 'RUT del usuario y la fecha correspondiente')
+
+    def test_carga_asistencia_historica_bloquea_reuniones_revertidas(self):
+        """Impide cargar planilla nuevamente si la carga historica fue revertida."""
+        reunion = Reunion.objects.create(
+            fecha=date(2025, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede historica',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        CargaAsistenciaHistorica.objects.create(
+            reunion=reunion,
+            cargado_por=self.admin_user,
+            revertida=True,
+            revertida_por=self.admin_user,
+            fecha_reversion=timezone.now(),
+            registros_revertidos=2,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:cargar_asistencia_historica', args=[reunion.pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'fue revertida')
+        self.assertContains(response, 'no admite una nueva carga')
 
     def test_administrador_elimina_reunion_sin_asistencias(self):
         """Permite eliminar reuniones, incluidas historicas, sin asistencias."""
