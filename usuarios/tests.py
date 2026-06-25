@@ -3236,7 +3236,9 @@ class UsuariosModuloTests(TestCase):
             f'anio={timezone.localdate().year}',
         )
         self.assertContains(response, 'name="estado"')
-        self.assertContains(response, 'name="anio"')
+        self.assertNotContains(response, 'name="anio"')
+        self.assertNotContains(response, 'filtro-asistencia-anio')
+        self.assertNotContains(response, 'A&ntilde;o reporte')
 
         self.client.login(username='encargado', password='ClaveSegura123')
         response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
