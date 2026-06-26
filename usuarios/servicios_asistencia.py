@@ -108,10 +108,21 @@ def anotar_resumen_asistencia_socios(socios, anio=None):
             ),
             distinct=True,
         ),
+        total_ausencias_efectivas_operativas=Count(
+            'asistencias_reunion',
+            filter=Q(
+                asistencias_reunion__estado=AsistenciaReunion.AUSENTE,
+                asistencias_reunion__justificacion__isnull=True,
+            ),
+            distinct=True,
+        ),
     )
 
-
-def agregar_resumen_asistencia_socios(socios, anio=None):
+def agregar_resumen_asistencia_socios(
+    socios,
+    anio=None,
+    usar_bloqueo_operativo=False,
+):
     """Agrega indicadores derivados de contadores de asistencia anotados."""
     socios_resumidos = []
     for socio in socios:
@@ -133,8 +144,21 @@ def agregar_resumen_asistencia_socios(socios, anio=None):
             socio.total_justificaciones = DesbloqueoSocio.objects.filter(
                 Q(socio=socio) & _filtro_anio_asistencia('asistencia__', anio)
             ).count()
+        if usar_bloqueo_operativo and not hasattr(
+            socio,
+            'total_ausencias_efectivas_operativas',
+        ):
+            socio.total_ausencias_efectivas_operativas = (
+                AsistenciaReunion.contar_inasistencias_efectivas_socio(socio)
+            )
+        total_indicador = socio.total_ausencias_efectivas
+        if usar_bloqueo_operativo:
+            total_indicador = socio.total_ausencias_efectivas_operativas
+            socio.bloqueado_operativo = (
+                total_indicador >= AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO
+            )
         socio.indicador_asistencia = obtener_indicador_asistencia(
-            socio.total_ausencias_efectivas,
+            total_indicador,
         )
         socio.puede_eliminar_seguro = not resumen_tiene_asistencias_contabilizadas(
             {
@@ -147,15 +171,23 @@ def agregar_resumen_asistencia_socios(socios, anio=None):
     return socios_resumidos
 
 
-def filtrar_socios_por_indicador_asistencia(socios, indicador):
+def filtrar_socios_por_indicador_asistencia(
+    socios,
+    indicador,
+    campo_total='total_ausencias_efectivas',
+):
     """Filtra un queryset anotado segun el indicador visual de asistencia."""
     if indicador == 'sin_ausencias':
-        return socios.filter(total_ausencias_efectivas__lte=0)
+        return socios.filter(**{f'{campo_total}__lte': 0})
     if indicador == 'una_inasistencia':
-        return socios.filter(total_ausencias_efectivas=1)
+        return socios.filter(**{campo_total: 1})
     if indicador == 'bloqueado':
         return socios.filter(
-            total_ausencias_efectivas__gte=AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO
+            **{
+                f'{campo_total}__gte': (
+                    AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO
+                )
+            }
         )
     return socios
 

@@ -362,7 +362,6 @@ class Reunion(models.Model):
             raise ValidationError({'estado': 'Solo se pueden finalizar reuniones activas.'})
 
         socios_con_asistencia = self.asistencias.values('socio_id')
-        anio_reunion = self.fecha.year
         socios_ausentes = Usuario.objects.filter(
             rol=Usuario.SOCIO,
             is_active=True,
@@ -372,7 +371,6 @@ class Reunion(models.Model):
                 filter=models.Q(
                     asistencias_reunion__estado=AsistenciaReunion.AUSENTE,
                     asistencias_reunion__justificacion__isnull=True,
-                    asistencias_reunion__reunion__fecha__year=anio_reunion,
                 ),
                 distinct=True,
             ),
@@ -586,10 +584,7 @@ class AsistenciaReunion(models.Model):
             self.estado == self.PRESENTE
             and self.socio_id
             and not self.pk
-            and type(self).socio_esta_bloqueado(
-                self.socio,
-                anio=self.reunion.fecha.year,
-            )
+            and type(self).socio_esta_bloqueado(self.socio)
         ):
             errores['socio'] = self.MENSAJE_SOCIO_BLOQUEADO
 
@@ -615,32 +610,42 @@ class AsistenciaReunion(models.Model):
 
     @classmethod
     def obtener_anio_operativo(cls, anio=None):
-        """Normaliza el ano usado por las reglas anuales de bloqueo."""
+        """Normaliza el ano usado por vistas que requieren periodo explicito."""
         return anio or timezone.localdate().year
 
     @classmethod
+    def filtrar_por_anio(cls, queryset, anio=None):
+        """Aplica filtro anual solo cuando el llamador lo solicita."""
+        if anio is None:
+            return queryset
+        return queryset.filter(reunion__fecha__year=anio)
+
+    @classmethod
     def contar_inasistencias_socio(cls, socio, anio=None):
-        """Cuenta las ausencias registradas de un socio en el ano operativo."""
-        return cls.objects.filter(
+        """Cuenta ausencias registradas; si se entrega ano, limita el periodo."""
+        queryset = cls.objects.filter(
             socio=socio,
             estado=cls.AUSENTE,
-            reunion__fecha__year=cls.obtener_anio_operativo(anio),
-        ).count()
+        )
+        return cls.filtrar_por_anio(queryset, anio=anio).count()
 
     @classmethod
     def contar_inasistencias_efectivas_socio(cls, socio, anio=None):
-        """Cuenta ausencias sin justificacion administrativa del ano operativo."""
+        """Cuenta ausencias sin justificar; si se entrega ano, limita el periodo."""
         return cls.obtener_ausencias_justificables(socio, anio=anio).count()
 
     @classmethod
     def obtener_firmas_bloqueo_socios(cls, socios_ids, anio=None):
-        """Calcula una firma estable del bloqueo vigente anual para varios socios."""
-        ausencias = cls.objects.filter(
+        """Calcula una firma estable del bloqueo vigente para varios socios."""
+        queryset = cls.objects.filter(
             socio_id__in=socios_ids,
             estado=cls.AUSENTE,
             justificacion__isnull=True,
-            reunion__fecha__year=cls.obtener_anio_operativo(anio),
-        ).order_by('socio_id', 'pk').values_list('socio_id', 'pk')
+        )
+        ausencias = cls.filtrar_por_anio(queryset, anio=anio).order_by(
+            'socio_id',
+            'pk',
+        ).values_list('socio_id', 'pk')
         ausencias_por_socio = {}
         for socio_id, asistencia_id in ausencias:
             ausencias_por_socio.setdefault(socio_id, []).append(str(asistencia_id))
@@ -652,7 +657,7 @@ class AsistenciaReunion(models.Model):
 
     @classmethod
     def obtener_firma_bloqueo_socio(cls, socio, anio=None):
-        """Devuelve la firma del bloqueo vigente anual de un socio."""
+        """Devuelve la firma del bloqueo vigente de un socio."""
         return cls.obtener_firmas_bloqueo_socios([socio.pk], anio=anio).get(
             socio.pk,
             '',
@@ -660,13 +665,15 @@ class AsistenciaReunion(models.Model):
 
     @classmethod
     def obtener_ausencias_justificables(cls, socio, anio=None):
-        """Lista ausencias del socio justificables en el ano operativo."""
-        return cls.objects.filter(
+        """Lista ausencias del socio pendientes de justificacion."""
+        queryset = cls.objects.filter(
             socio=socio,
             estado=cls.AUSENTE,
             justificacion__isnull=True,
-            reunion__fecha__year=cls.obtener_anio_operativo(anio),
-        ).select_related('reunion').order_by(
+        )
+        return cls.filtrar_por_anio(queryset, anio=anio).select_related(
+            'reunion'
+        ).order_by(
             'reunion__fecha',
             'reunion__hora',
             'fecha_registro',
@@ -674,7 +681,7 @@ class AsistenciaReunion(models.Model):
 
     @classmethod
     def socio_esta_bloqueado(cls, socio, anio=None):
-        """Indica si el socio alcanzo el umbral anual de bloqueo."""
+        """Indica si el socio alcanzo el umbral de bloqueo pendiente."""
         return (
             cls.contar_inasistencias_efectivas_socio(socio, anio=anio)
             >= cls.INASISTENCIAS_PARA_BLOQUEO
@@ -695,7 +702,7 @@ class AsistenciaReunion(models.Model):
         if cls.objects.filter(reunion=reunion, socio=socio).exists():
             raise ValidationError({'socio': 'El socio ya tiene asistencia registrada en esta reunion.'})
 
-        if cls.socio_esta_bloqueado(socio, anio=reunion.fecha.year):
+        if cls.socio_esta_bloqueado(socio):
             raise ValidationError({'socio': cls.MENSAJE_SOCIO_BLOQUEADO})
 
         return cls.objects.create(
@@ -776,8 +783,8 @@ class DesbloqueoSocio(models.Model):
 
     @classmethod
     def registrar(cls, socio, usuario, motivo, asistencia, anio=None):
-        """Justifica una inasistencia si el socio esta bloqueado en el ano."""
-        anio_operativo = AsistenciaReunion.obtener_anio_operativo(anio)
+        """Justifica una inasistencia si el socio esta bloqueado."""
+        anio_operativo = int(anio) if anio not in (None, '') else None
         total_inasistencias = AsistenciaReunion.contar_inasistencias_socio(
             socio,
             anio=anio_operativo,
@@ -792,7 +799,10 @@ class DesbloqueoSocio(models.Model):
             raise ValidationError({'asistencia': 'Debe seleccionar una inasistencia.'})
         if asistencia.socio_id != socio.pk:
             raise ValidationError({'asistencia': 'La inasistencia debe pertenecer al socio justificado.'})
-        if asistencia.reunion.fecha.year != anio_operativo:
+        if (
+            anio_operativo is not None
+            and asistencia.reunion.fecha.year != anio_operativo
+        ):
             raise ValidationError({'asistencia': 'La inasistencia no pertenece al ano operativo.'})
         if asistencia.estado != AsistenciaReunion.AUSENTE:
             raise ValidationError({'asistencia': 'Solo se pueden justificar ausencias.'})

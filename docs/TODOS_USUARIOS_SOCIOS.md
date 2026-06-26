@@ -58,7 +58,7 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
 ## Pendientes por definir
 
 - [x] Modo seguro de eliminacion: solo se pueden eliminar socios sin asistencias contabilizadas; los encargados de registro solo se activan o desactivan.
-- [ ] Afinar regla de bloqueo operativo persistente de socios:
+- [x] Afinar regla de bloqueo operativo persistente de socios:
   - Mantener separados `Activo/Inactivo` y `Bloqueado`: `is_active` representa el estado administrativo del socio; `Bloqueado` es un estado operativo derivado de inasistencias no justificadas.
   - Un socio puede estar `Activo` y `Bloqueado` al mismo tiempo. En ese estado no puede registrar nuevas asistencias.
   - Si un socio queda bloqueado por inasistencias en un ano anterior, el cambio de ano no debe desbloquearlo automaticamente.

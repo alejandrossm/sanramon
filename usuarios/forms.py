@@ -727,7 +727,6 @@ class JustificacionInasistenciaForm(forms.Form):
         self.fields['asistencia'].queryset = (
             AsistenciaReunion.obtener_ausencias_justificables(
                 self.socio,
-                anio=self.anio,
             )
         )
         self.fields['asistencia'].label_from_instance = self.etiquetar_asistencia
@@ -761,7 +760,7 @@ class JustificacionInasistenciaForm(forms.Form):
         if self.errors:
             return cleaned_data
 
-        if not AsistenciaReunion.socio_esta_bloqueado(self.socio, anio=self.anio):
+        if not AsistenciaReunion.socio_esta_bloqueado(self.socio):
             raise forms.ValidationError('El socio no esta bloqueado por inasistencias.')
 
         asistencia = cleaned_data.get('asistencia')
@@ -779,7 +778,6 @@ class JustificacionInasistenciaForm(forms.Form):
             usuario=self.usuario,
             motivo=self.cleaned_data['motivo'],
             asistencia=self.cleaned_data['asistencia'],
-            anio=self.anio,
         )
 
 
@@ -853,10 +851,7 @@ class RegistroAsistenciaRutForm(forms.Form):
         if AsistenciaReunion.objects.filter(reunion=self.reunion, socio=socio).exists():
             raise forms.ValidationError('El socio ya tiene asistencia registrada en esta reunion.')
 
-        if AsistenciaReunion.socio_esta_bloqueado(
-            socio,
-            anio=self.reunion.fecha.year,
-        ):
+        if AsistenciaReunion.socio_esta_bloqueado(socio):
             raise forms.ValidationError(AsistenciaReunion.MENSAJE_SOCIO_BLOQUEADO)
 
         self.socio = socio

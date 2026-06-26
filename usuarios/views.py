@@ -461,7 +461,11 @@ def obtener_consulta_listado_asistencia(request, forzar_anio=False):
         anio=anio_reporte,
     )
     if socios_filtrados_por_indicador:
-        socios = filtrar_socios_por_indicador_asistencia(socios, indicador_actual)
+        socios = filtrar_socios_por_indicador_asistencia(
+            socios,
+            indicador_actual,
+            campo_total='total_ausencias_efectivas_operativas',
+        )
 
     anio_exportacion = anio_reporte or timezone.localdate().year
     params_exportacion = request.GET.copy()
@@ -872,6 +876,7 @@ def listado_socios_asistencia(request):
     page_obj.object_list = agregar_resumen_asistencia_socios(
         page_obj.object_list,
         anio=consulta['anio_reporte'],
+        usar_bloqueo_operativo=True,
     )
     page_obj.object_list = agregar_estado_notificacion_bloqueo_socios(
         page_obj.object_list
@@ -1110,14 +1115,18 @@ def detalle_asistencia_socio(request, pk):
     """Muestra resumen operativo y justificaciones de un socio."""
     socio = get_object_or_404(Usuario, pk=pk, rol=Usuario.SOCIO)
     anio_operativo = obtener_anio_operativo_asistencia(request.GET)
-    socio = agregar_resumen_asistencia_socios([socio], anio=anio_operativo)[0]
-    justificaciones = obtener_justificaciones_base().filter(
-        socio=socio,
-        asistencia__reunion__fecha__year=anio_operativo,
-    )
-    ausencias_pendientes = AsistenciaReunion.obtener_ausencias_justificables(
-        socio,
+    socio = agregar_resumen_asistencia_socios(
+        [socio],
         anio=anio_operativo,
+        usar_bloqueo_operativo=True,
+    )[0]
+    justificaciones = obtener_justificaciones_base().filter(socio=socio)
+    ausencias_pendientes = AsistenciaReunion.obtener_ausencias_justificables(
+        socio
+    )
+    socio.total_justificaciones = justificaciones.count()
+    socio.total_ausencias_efectivas = (
+        AsistenciaReunion.contar_inasistencias_efectivas_socio(socio)
     )
 
     return render(
@@ -1192,14 +1201,19 @@ def obtener_justificaciones_base():
     )
 
 
-def agregar_estado_notificacion_bloqueo_socios(socios, anio=None):
+def agregar_estado_notificacion_bloqueo_socios(socios):
     """Marca si el bloqueo vigente del socio ya fue notificado."""
     socios = list(socios)
     socios_bloqueados_ids = []
 
     for socio in socios:
         socio.notificacion_bloqueo_enviada = False
-        if getattr(socio, 'total_ausencias_efectivas', 0) >= (
+        total_operativo = getattr(
+            socio,
+            'total_ausencias_efectivas_operativas',
+            getattr(socio, 'total_ausencias_efectivas', 0),
+        )
+        if total_operativo >= (
             AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO
         ):
             socios_bloqueados_ids.append(socio.pk)
@@ -1209,7 +1223,6 @@ def agregar_estado_notificacion_bloqueo_socios(socios, anio=None):
 
     firmas_actuales = AsistenciaReunion.obtener_firmas_bloqueo_socios(
         socios_bloqueados_ids,
-        anio=anio,
     )
     firmas_notificadas = NotificacionBloqueoSocio.obtener_firmas_notificadas_socios(
         socios_bloqueados_ids,
@@ -1691,7 +1704,6 @@ def listado_socios(request):
     )
     page_obj.object_list = agregar_estado_notificacion_bloqueo_socios(
         page_obj.object_list,
-        anio=consulta['anio_reporte'],
     )
     pagination_params = request.GET.copy()
     if 'page' in pagination_params:
@@ -1837,7 +1849,7 @@ def justificar_inasistencia(request, pk):
         request.POST if request.method == 'POST' else request.GET
     )
 
-    if not AsistenciaReunion.socio_esta_bloqueado(socio, anio=anio_operativo):
+    if not AsistenciaReunion.socio_esta_bloqueado(socio):
         messages.error(request, 'El socio no esta bloqueado por inasistencias.')
         return redirect('usuarios:listado_socios_asistencia')
 
@@ -1857,7 +1869,6 @@ def justificar_inasistencia(request, pk):
                 inasistencias_efectivas = (
                     AsistenciaReunion.contar_inasistencias_efectivas_socio(
                         socio,
-                        anio=anio_operativo,
                     )
                 )
                 messages.success(
@@ -1877,7 +1888,6 @@ def justificar_inasistencia(request, pk):
             asistencia = (
                 AsistenciaReunion.obtener_ausencias_justificables(
                     socio,
-                    anio=anio_operativo,
                 )
                 .filter(pk=asistencia_id)
                 .first()
@@ -1899,12 +1909,10 @@ def justificar_inasistencia(request, pk):
             'socio': socio,
             'total_inasistencias': AsistenciaReunion.contar_inasistencias_socio(
                 socio,
-                anio=anio_operativo,
             ),
             'total_inasistencias_efectivas': (
                 AsistenciaReunion.contar_inasistencias_efectivas_socio(
                     socio,
-                    anio=anio_operativo,
                 )
             ),
             'anio_reporte': anio_operativo,
@@ -1918,23 +1926,19 @@ def justificar_inasistencia(request, pk):
 def notificar_bloqueo_socio(request, pk):
     """Envia al socio bloqueado un correo con el motivo del bloqueo."""
     socio = get_object_or_404(Usuario, pk=pk, rol=Usuario.SOCIO)
-    anio_operativo = obtener_anio_operativo_asistencia(request.POST)
 
-    if not AsistenciaReunion.socio_esta_bloqueado(socio, anio=anio_operativo):
+    if not AsistenciaReunion.socio_esta_bloqueado(socio):
         messages.error(request, 'El socio no esta bloqueado por inasistencias.')
         return redirect('usuarios:listado_socios_asistencia')
 
-    if NotificacionBloqueoSocio.bloqueo_actual_ya_notificado(
-        socio,
-        anio=anio_operativo,
-    ):
+    if NotificacionBloqueoSocio.bloqueo_actual_ya_notificado(socio):
         messages.info(
             request,
             'La notificacion de bloqueo ya fue enviada para el bloqueo actual.',
         )
         return redirect('usuarios:listado_socios_asistencia')
 
-    contexto = obtener_contexto_notificacion_bloqueo(socio, anio=anio_operativo)
+    contexto = obtener_contexto_notificacion_bloqueo(socio)
 
     try:
         enviados = send_mail(
@@ -1965,7 +1969,6 @@ def notificar_bloqueo_socio(request, pk):
         NotificacionBloqueoSocio.registrar_bloqueo_actual(
             socio,
             request.user,
-            anio=anio_operativo,
         )
     except ValidationError as error:
         messages.info(request, obtener_mensaje_validacion(error))

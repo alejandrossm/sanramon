@@ -655,6 +655,47 @@ class UsuariosModuloTests(TestCase):
             ).exists()
         )
 
+    def test_reunion_finalizada_no_marca_ausente_socio_bloqueado_anio_previo(self):
+        """Mantiene el bloqueo operativo al finalizar reuniones de otro ano."""
+        anio_actual = timezone.localdate().year
+        socio_bloqueado = self.User.objects.create_user(
+            username='socio.bloqueado.anio.previo',
+            email='socio.bloqueado.anio.previo@example.com',
+            password='ClaveSegura123',
+            first_name='Socio',
+            last_name='Bloqueado',
+            rut=self.rut_prueba(87654321),
+            rol=self.User.SOCIO,
+        )
+        self.registrar_asistencia_historica(
+            socio_bloqueado,
+            AsistenciaReunion.AUSENTE,
+            date(anio_actual - 1, 4, 10),
+        )
+        self.registrar_asistencia_historica(
+            socio_bloqueado,
+            AsistenciaReunion.AUSENTE,
+            date(anio_actual - 1, 4, 17),
+        )
+        reunion = Reunion.objects.create(
+            fecha=date(anio_actual, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+
+        resultado = reunion.finalizar(self.admin_user)
+
+        self.assertEqual(resultado['ausencias_creadas'], 1)
+        self.assertFalse(
+            AsistenciaReunion.objects.filter(
+                reunion=reunion,
+                socio=socio_bloqueado,
+            ).exists()
+        )
+        self.assertTrue(AsistenciaReunion.socio_esta_bloqueado(socio_bloqueado))
+
     def test_reunion_finalizada_marca_ausente_socio_desbloqueado(self):
         """Vuelve a contabilizar ausencias cuando el socio ya fue desbloqueado."""
         socio_desbloqueado = self.User.objects.create_user(
@@ -2877,11 +2918,11 @@ class UsuariosModuloTests(TestCase):
             ).exists()
         )
 
-    def test_bloqueo_operativo_ignora_inasistencias_de_anios_previos(self):
-        """El bloqueo se calcula solo con ausencias del ano operativo."""
+    def test_bloqueo_operativo_persiste_entre_anios_hasta_justificar(self):
+        """El bloqueo vigente no se reinicia por cambiar de ano calendario."""
         anio_actual = timezone.localdate().year
         anio_previo = anio_actual - 1
-        self.registrar_asistencia_historica(
+        ausencia_justificada = self.registrar_asistencia_historica(
             self.socio_user,
             AsistenciaReunion.AUSENTE,
             date(anio_previo, 4, 10),
@@ -2905,15 +2946,33 @@ class UsuariosModuloTests(TestCase):
                 anio=anio_previo,
             )
         )
-        self.assertFalse(AsistenciaReunion.socio_esta_bloqueado(self.socio_user))
+        self.assertTrue(AsistenciaReunion.socio_esta_bloqueado(self.socio_user))
 
+        with self.assertRaisesMessage(
+            ValidationError,
+            AsistenciaReunion.MENSAJE_SOCIO_BLOQUEADO,
+        ):
+            AsistenciaReunion.registrar_presente(
+                reunion=reunion,
+                socio=self.socio_user,
+                usuario=self.encargado_user,
+                origen=AsistenciaReunion.ORIGEN_RUT,
+            )
+
+        DesbloqueoSocio.registrar(
+            socio=self.socio_user,
+            usuario=self.admin_user,
+            motivo='Revision administrativa',
+            asistencia=ausencia_justificada,
+        )
+
+        self.assertFalse(AsistenciaReunion.socio_esta_bloqueado(self.socio_user))
         asistencia = AsistenciaReunion.registrar_presente(
             reunion=reunion,
             socio=self.socio_user,
             usuario=self.encargado_user,
             origen=AsistenciaReunion.ORIGEN_RUT,
         )
-
         self.assertEqual(asistencia.estado, AsistenciaReunion.PRESENTE)
 
     @patch('usuarios.models.timezone.now')
@@ -3288,8 +3347,8 @@ class UsuariosModuloTests(TestCase):
             reverse('usuarios:exportar_asistencia_anual', args=['csv']),
         )
 
-    def test_listado_asistencia_usa_anio_operativo_para_indicador(self):
-        """El ano operativo de la vista controla contadores e indicador."""
+    def test_listado_asistencia_muestra_bloqueo_operativo_interanual(self):
+        """El ano de la vista controla contadores, no el bloqueo vigente."""
         anio_actual = timezone.localdate().year
         anio_previo = anio_actual - 1
         self.registrar_asistencia_historica(
@@ -3313,7 +3372,13 @@ class UsuariosModuloTests(TestCase):
 
         self.assertEqual(socio_actual.total_reuniones, 0)
         self.assertEqual(socio_actual.total_ausencias, 0)
-        self.assertEqual(socio_actual.indicador_asistencia['key'], 'sin_ausencias')
+        self.assertEqual(socio_actual.indicador_asistencia['key'], 'bloqueado')
+
+        response_bloqueados = self.client.get(
+            reverse('usuarios:listado_socios_asistencia'),
+            {'indicador': 'bloqueado'},
+        )
+        self.assertContains(response_bloqueados, self.socio_user.rut)
 
         response_previo = self.client.get(
             reverse('usuarios:listado_socios_asistencia'),
@@ -4589,6 +4654,54 @@ class UsuariosModuloTests(TestCase):
         response = self.client.get(url_justificar_ausencia)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context['form'].initial['asistencia'], ausencia_justificable)
+
+    def test_justificacion_admin_desbloquea_inasistencia_de_anio_anterior(self):
+        """Permite justificar ausencias antiguas que mantienen el bloqueo vigente."""
+        anio_actual = timezone.localdate().year
+        anio_previo = anio_actual - 1
+        ausencia_justificable = self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(anio_previo, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(anio_previo, 5, 27),
+        )
+        justificar_url = reverse(
+            'usuarios:justificar_inasistencia',
+            args=[self.socio_user.pk],
+        )
+        url_justificar_ausencia = (
+            f'{justificar_url}?anio={anio_actual}'
+            f'&asistencia={ausencia_justificable.pk}'
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(url_justificar_ausencia)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'20-05-{anio_previo}')
+        self.assertEqual(response.context['form'].initial['asistencia'], ausencia_justificable)
+
+        response = self.client.post(
+            justificar_url,
+            {
+                'anio': anio_actual,
+                'asistencia': ausencia_justificable.pk,
+                'motivo': 'Revision administrativa',
+            },
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_socios_asistencia'))
+        self.assertFalse(AsistenciaReunion.socio_esta_bloqueado(self.socio_user))
+        self.assertTrue(
+            DesbloqueoSocio.objects.filter(
+                socio=self.socio_user,
+                asistencia=ausencia_justificable,
+            ).exists()
+        )
 
     def test_listado_justificaciones_admin_muestra_trazabilidad_general(self):
         """Expone una vista general de justificaciones solo para administradores."""
