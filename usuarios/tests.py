@@ -3324,7 +3324,7 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'aria-label="Exportar resumen anual"')
         self.assertContains(response, 'Descargar reporte anual CSV')
         self.assertContains(response, 'Descargar reporte anual XLSX')
-        self.assertContains(response, 'Descargar reporte anual PDF')
+        self.assertNotContains(response, 'Descargar reporte anual PDF')
         self.assertContains(
             response,
             reverse('usuarios:exportar_asistencia_anual', args=['csv']),
@@ -4131,6 +4131,7 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'aria-label="Exportar reporte completo de socios"')
         self.assertContains(response, 'btn-group btn-group-sm')
         self.assertContains(response, 'Descargar reporte completo de socios CSV')
+        self.assertNotContains(response, 'Descargar reporte completo de socios PDF')
         self.assertContains(
             response,
             reverse('usuarios:exportar_socios_completo', args=['csv']),

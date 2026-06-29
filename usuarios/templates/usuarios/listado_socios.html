@@ -106,6 +106,9 @@
                 {% include "includes/icon.html" with name="file-spreadsheet" %}
                 <span>XLSX</span>
             </a>
+            {% comment %}
+            Botón PDF desactivado temporalmente. Para reactivarlo, elimina este
+            bloque comment/endcomment; la ruta y la lógica de exportación se conservan.
             <a
                 href="{% url 'usuarios:exportar_socios_completo' 'pdf' %}?{{ export_query }}"
                 class="btn btn-outline-primary btn-sm"
@@ -115,6 +118,7 @@
                 {% include "includes/icon.html" with name="file-pdf" %}
                 <span>PDF</span>
             </a>
+            {% endcomment %}
         </div>
     </div>
 {% endif %}
