@@ -50,6 +50,7 @@ Completar el alcance diferido desde Sprint 2 para exponer informacion publica a 
 
 - Ruta publica `home` (`/`) como landing del proyecto San Ramon, con navbar, secciones informativas, imagenes y footer con contacto/redes.
 - Ruta publica `consulta_publica_asistencia` (`/consulta-asistencia/`) para consultar por RUT.
+- Refuerzo 2026-06-29: la ruta ya no entrega datos con el RUT; envia un codigo temporal al correo registrado y exige verificacion y aceptacion de privacidad antes del resultado.
 - Los usuarios autenticados que entran al index publico se redirigen al destino interno correspondiente.
 - La consulta muestra estado del socio, totales generales, resumen anual e historial anual.
 

@@ -25,12 +25,16 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse_lazy
 from django.utils import timezone
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_POST
 
 from .identificacion import parsear_lectura_rut
 from .auditoria import (
     ACCION_CARGA_HISTORICA_REVERTIDA,
     ACCION_CARGA_MASIVA_SOCIOS,
+    ACCION_CONSULTA_PUBLICA_ACCEDIDA,
+    ACCION_CONSULTA_PUBLICA_VERIFICADA,
+    ACCION_PRIVACIDAD_CONSULTA_ACEPTADA,
     ACCION_RESPALDO_BASE_DATOS,
     ACCION_REUNION_CANCELADA,
     ACCION_REUNION_ELIMINADA,
@@ -42,9 +46,11 @@ from .auditoria import (
     registrar_evento_auditoria,
 )
 from .forms import (
+    AceptacionPrivacidadConsultaForm,
     CargaAsistenciaHistoricaForm,
     CargaMasivaSociosForm,
     CambioPasswordForm,
+    CodigoConsultaAsistenciaForm,
     ConsultaPublicaRutForm,
     JustificacionInasistenciaForm,
     LoginForm,
@@ -77,6 +83,20 @@ from .models import (
     NotificacionBloqueoSocio,
     Reunion,
     Usuario,
+)
+from .privacidad import (
+    POLITICA_PRIVACIDAD_VERSION,
+    RESULTADO_CODIGO_VALIDO,
+    SESION_ANIO,
+    SESION_SOLICITUD_ID,
+    aceptacion_privacidad_vigente,
+    autorizar_sesion_consulta,
+    crear_solicitud_codigo,
+    limpiar_sesion_consulta,
+    obtener_ip_hash,
+    obtener_socio_autorizado,
+    registrar_aceptacion_privacidad,
+    verificar_codigo,
 )
 from .reportes_asistencia import (
     construir_csv,
@@ -825,32 +845,173 @@ class UsuarioPasswordResetCompleteView(PasswordResetCompleteView):
     template_name = 'usuarios/password_reset_complete.html'
 
 
+@never_cache
 def consulta_publica_asistencia(request):
-    """Permite a un socio consultar su asistencia publica por RUT."""
+    """Inicia una consulta sin revelar si el RUT pertenece a un socio."""
+    if request.method == 'GET':
+        limpiar_sesion_consulta(request)
     form = ConsultaPublicaRutForm(request.POST or None)
-    contexto = {
-        'form': form,
-    }
 
     if request.method == 'POST' and form.is_valid():
-        socio = form.socio
+        limpiar_sesion_consulta(request)
+        rut = form.cleaned_data['rut']
         anio = form.cleaned_data['anio']
-        resumen_general = obtener_resumen_asistencia_socio(socio)
-        resumen_anual = obtener_resumen_anual_asistencia_socio(socio, anio)
-        contexto.update(
-            {
-                'socio': socio,
-                'anio': anio,
-                'resumen_general': resumen_general,
-                'resumen_anual': resumen_anual,
-                'historial': obtener_historial_asistencia_socio(socio, anio),
-                'indicador_asistencia': obtener_indicador_asistencia(
-                    resumen_general['total_ausencias_efectivas'],
-                ),
-            }
+        socio = Usuario.objects.filter(
+            rut__iexact=rut,
+            rol=Usuario.SOCIO,
+        ).first()
+        solicitud = crear_solicitud_codigo(
+            socio,
+            obtener_ip_hash(request),
+            anio,
+        )
+        request.session[SESION_SOLICITUD_ID] = str(solicitud.pk)
+        request.session[SESION_ANIO] = anio
+        return redirect('usuarios:verificar_codigo_consulta')
+
+    return render(
+        request,
+        'usuarios/consulta_publica_asistencia.html',
+        {
+            'form': form,
+        },
+    )
+
+
+@never_cache
+def verificar_codigo_consulta(request):
+    """Verifica el codigo asociado a la solicitud guardada en la sesion."""
+    solicitud_id = request.session.get(SESION_SOLICITUD_ID)
+    if not solicitud_id:
+        return redirect('usuarios:consulta_publica_asistencia')
+
+    form = CodigoConsultaAsistenciaForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        resultado, socio = verificar_codigo(
+            solicitud_id,
+            form.cleaned_data['codigo'],
+        )
+        if resultado == RESULTADO_CODIGO_VALIDO and socio is not None:
+            autorizar_sesion_consulta(request, socio)
+            registrar_evento_auditoria(
+                None,
+                ACCION_CONSULTA_PUBLICA_VERIFICADA,
+                entidad_tipo='Socio',
+                entidad_id=socio.pk,
+                entidad=f'Socio #{socio.pk}',
+                detalle='Identidad verificada mediante codigo de correo de un solo uso.',
+            )
+            if aceptacion_privacidad_vigente(socio):
+                return redirect('usuarios:resultado_consulta_asistencia')
+            return redirect('usuarios:aceptar_privacidad_consulta')
+
+        form.add_error(
+            'codigo',
+            'El código no es válido, expiró o alcanzó el máximo de intentos.',
         )
 
-    return render(request, 'usuarios/consulta_publica_asistencia.html', contexto)
+    return render(
+        request,
+        'usuarios/verificar_codigo_consulta.html',
+        {
+            'form': form,
+        },
+    )
+
+
+@never_cache
+def aceptar_privacidad_consulta(request):
+    """Recoge la aceptacion vigente tras verificar el control del correo."""
+    socio = obtener_socio_autorizado(request)
+    if socio is None:
+        messages.error(
+            request,
+            'La verificación expiró. Solicita un nuevo código.',
+        )
+        return redirect('usuarios:consulta_publica_asistencia')
+
+    if aceptacion_privacidad_vigente(socio):
+        return redirect('usuarios:resultado_consulta_asistencia')
+
+    form = AceptacionPrivacidadConsultaForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        registrar_aceptacion_privacidad(socio, obtener_ip_hash(request))
+        registrar_evento_auditoria(
+            None,
+            ACCION_PRIVACIDAD_CONSULTA_ACEPTADA,
+            entidad_tipo='Socio',
+            entidad_id=socio.pk,
+            entidad=f'Socio #{socio.pk}',
+            detalle=f'Politica de privacidad version {POLITICA_PRIVACIDAD_VERSION}.',
+        )
+        return redirect('usuarios:resultado_consulta_asistencia')
+
+    return render(
+        request,
+        'usuarios/aceptar_privacidad_consulta.html',
+        {
+            'form': form,
+            'version_politica': POLITICA_PRIVACIDAD_VERSION,
+        },
+    )
+
+
+@never_cache
+def resultado_consulta_asistencia(request):
+    """Muestra datos solo durante una sesion verificada y con aviso aceptado."""
+    socio = obtener_socio_autorizado(request)
+    if socio is None:
+        messages.error(
+            request,
+            'La verificación expiró. Solicita un nuevo código.',
+        )
+        return redirect('usuarios:consulta_publica_asistencia')
+    if not aceptacion_privacidad_vigente(socio):
+        return redirect('usuarios:aceptar_privacidad_consulta')
+
+    anio = request.session.get(SESION_ANIO, timezone.localdate().year)
+    try:
+        anio = int(anio)
+    except (TypeError, ValueError):
+        anio = timezone.localdate().year
+    if anio < 2000 or anio > timezone.localdate().year + 1:
+        anio = timezone.localdate().year
+
+    resumen_general = obtener_resumen_asistencia_socio(socio)
+    resumen_anual = obtener_resumen_anual_asistencia_socio(socio, anio)
+    registrar_evento_auditoria(
+        None,
+        ACCION_CONSULTA_PUBLICA_ACCEDIDA,
+        entidad_tipo='Socio',
+        entidad_id=socio.pk,
+        entidad=f'Socio #{socio.pk}',
+        detalle=f'Consulta protegida de asistencia para el ano {anio}.',
+    )
+    return render(
+        request,
+        'usuarios/resultado_consulta_asistencia.html',
+        {
+            'socio': socio,
+            'anio': anio,
+            'resumen_general': resumen_general,
+            'resumen_anual': resumen_anual,
+            'historial': obtener_historial_asistencia_socio(socio, anio),
+            'indicador_asistencia': obtener_indicador_asistencia(
+                resumen_general['total_ausencias_efectivas'],
+            ),
+        },
+    )
+
+
+def politica_privacidad(request):
+    """Publica la version vigente de la politica de tratamiento."""
+    return render(
+        request,
+        'usuarios/politica_privacidad.html',
+        {
+            'version_politica': POLITICA_PRIVACIDAD_VERSION,
+        },
+    )
 
 
 @login_required

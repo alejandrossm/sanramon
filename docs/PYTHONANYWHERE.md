@@ -49,6 +49,13 @@ export EMAIL_USE_TLS="True"
 export EMAIL_HOST_USER="tu-cuenta@gmail.com"
 export EMAIL_HOST_PASSWORD="clave-de-aplicacion-gmail"
 export DEFAULT_FROM_EMAIL="Sistema San Ramon <tu-cuenta@gmail.com>"
+export CONSULTA_CODIGO_DURACION_MINUTOS="10"
+export CONSULTA_CODIGO_MAX_INTENTOS="5"
+export CONSULTA_CODIGO_VENTANA_MINUTOS="15"
+export CONSULTA_CODIGO_MAX_SOLICITUDES_IP="10"
+export CONSULTA_CODIGO_MAX_SOLICITUDES_SOCIO="3"
+export CONSULTA_SESION_DURACION_MINUTOS="15"
+export CONSULTA_CODIGO_RETENCION_DIAS="30"
 ```
 
 Para usar una cuenta Gmail gratuita en el envio de recuperacion de contrasena, activar la verificacion en 2 pasos de Google y crear una clave de aplicacion para `EMAIL_HOST_PASSWORD`. No usar la contrasena normal de Gmail en el archivo `.env`.
@@ -107,6 +114,10 @@ workon sanramon
 python manage.py migrate
 python manage.py collectstatic --noinput
 ```
+
+Las solicitudes de verificacion con mas de 30 dias se eliminan de forma
+oportunista al recibir nuevas solicitudes OTP. La aplicacion limita esta
+limpieza a una ejecucion diaria por proceso.
 
 En `Web > Static files`, agregar:
 
