@@ -43,6 +43,12 @@ export DJANGO_SECRET_KEY="clave-generada"
 export DJANGO_DEBUG="False"
 export DJANGO_ALLOWED_HOSTS="tuusuario.pythonanywhere.com"
 export DJANGO_CSRF_TRUSTED_ORIGINS="https://tuusuario.pythonanywhere.com"
+export DJANGO_SECURE_SSL_REDIRECT="True"
+export DJANGO_SESSION_COOKIE_SECURE="True"
+export DJANGO_CSRF_COOKIE_SECURE="True"
+export DJANGO_SECURE_HSTS_SECONDS="3600"
+export DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS="False"
+export DJANGO_SECURE_HSTS_PRELOAD="False"
 export EMAIL_HOST="smtp.gmail.com"
 export EMAIL_PORT="587"
 export EMAIL_USE_TLS="True"
@@ -56,9 +62,34 @@ export CONSULTA_CODIGO_MAX_SOLICITUDES_IP="10"
 export CONSULTA_CODIGO_MAX_SOLICITUDES_SOCIO="3"
 export CONSULTA_SESION_DURACION_MINUTOS="15"
 export CONSULTA_CODIGO_RETENCION_DIAS="30"
+export SEGURIDAD_LOGIN_VENTANA_MINUTOS="15"
+export SEGURIDAD_LOGIN_MAX_IDENTIFICADOR="5"
+export SEGURIDAD_LOGIN_MAX_IP="20"
+export SEGURIDAD_RECUPERACION_VENTANA_MINUTOS="60"
+export SEGURIDAD_RECUPERACION_MAX_IDENTIFICADOR="3"
+export SEGURIDAD_RECUPERACION_MAX_IP="10"
+export SEGURIDAD_REAUTENTICACION_MINUTOS="10"
+export SEGURIDAD_INTENTOS_RETENCION_DIAS="30"
+export RESPALDO_ENCRYPTION_KEYS="clave-fernet"
+export AUDITORIA_HMAC_KEY="secreto-hmac-independiente"
+export AUDITORIA_ROTACION_BYTES="10485760"
+export AUDITORIA_RETENCION_MESES="12"
+export CARGA_CSV_MAX_BYTES="2097152"
 ```
 
 Para usar una cuenta Gmail gratuita en el envio de recuperacion de contrasena, activar la verificacion en 2 pasos de Google y crear una clave de aplicacion para `EMAIL_HOST_PASSWORD`. No usar la contrasena normal de Gmail en el archivo `.env`.
+
+Generar las claves de respaldo y auditoria:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+No guardar estas claves en Git ni en la base de datos. Perder todas las claves
+Fernet impide restaurar respaldos. Para rotarlas, agregar la nueva al inicio de
+`RESPALDO_ENCRYPTION_KEYS` y conservar temporalmente las anteriores separadas
+por coma.
 
 Para que las variables tambien existan en consolas Bash al activar el virtualenv:
 
@@ -119,6 +150,17 @@ Las solicitudes de verificacion con mas de 30 dias se eliminan de forma
 oportunista al recibir nuevas solicitudes OTP. La aplicacion limita esta
 limpieza a una ejecucion diaria por proceso.
 
+## Restaurar un respaldo cifrado
+
+Con las claves cargadas en el entorno y fuera del directorio web:
+
+```bash
+python manage.py shell -c "from pathlib import Path; from usuarios.respaldos import descifrar_respaldo; origen=Path('/ruta/respaldo.sqlite3.fernet'); Path('/ruta/restaurado.sqlite3').write_bytes(descifrar_respaldo(origen.read_bytes()))"
+```
+
+Detener escrituras, verificar la copia restaurada y no conservar el archivo
+descifrado en un directorio público.
+
 En `Web > Static files`, agregar:
 
 ```text
@@ -139,6 +181,21 @@ Si esa URL no muestra CSS, revisar que `collectstatic` haya creado `staticfiles/
 ## 7. HTTPS
 
 En `Web > Security`, activar `Force HTTPS` despues de tener certificado HTTPS disponible. En el subdominio `tuusuario.pythonanywhere.com` PythonAnywhere ya entrega certificado; en un dominio propio, primero hay que configurar el certificado.
+
+El proyecto activa redireccion HTTPS y cookies `Secure` automáticamente cuando
+`DEBUG=False`; las variables anteriores lo dejan explícito en producción.
+
+Para HSTS:
+
+1. Publicar con certificado válido y `Force HTTPS`.
+2. Verificar login, recuperación, consulta OTP, administración y archivos estáticos.
+3. Comenzar con `DJANGO_SECURE_HSTS_SECONDS=3600`.
+4. Aumentar gradualmente el valor después de observar el despliegue.
+5. Mantener `INCLUDE_SUBDOMAINS` y `PRELOAD` desactivados hasta confirmar que
+   todos los subdominios funcionan exclusivamente con HTTPS.
+
+En desarrollo local conservar `DJANGO_DEBUG=True` y no definir las variables
+`DJANGO_SECURE_*`; de esta forma `http://127.0.0.1:8000` sigue funcionando.
 
 ## 8. Primer usuario administrativo
 

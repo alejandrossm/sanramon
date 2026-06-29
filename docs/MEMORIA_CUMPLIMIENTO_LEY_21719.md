@@ -126,6 +126,10 @@ de reposición.
 | Auditoría | acciones `CONSULTA_PUBLICA_VERIFICADA`, `PRIVACIDAD_CONSULTA_ACEPTADA` y `CONSULTA_PUBLICA_ACCEDIDA` |
 | Retención OTP | purga oportunista diaria en `usuarios/privacidad.py` |
 | Pruebas | casos de no enumeración, expiración, uso único, intentos, límite de envío y aceptación |
+| Fuerza bruta | límites persistentes y seudonimizados para login, recuperación y reautenticación |
+| Operaciones sensibles | reautenticación reciente para reportes, logs y respaldos |
+| Respaldos | copia SQLite consistente con cifrado autenticado Fernet |
+| Integridad de auditoría | HMAC encadenado, permisos restrictivos, rotación y lista blanca de descarga |
 
 ## 6. Conservación
 
@@ -136,7 +140,7 @@ Matriz operativa inicial:
 | Solicitudes y códigos OTP | 30 días | Purga oportunista al recibir una nueva solicitud |
 | Sesión de consulta | 15 minutos | Expiración automática |
 | Aceptación del aviso | Mientras exista la relación y la necesidad de acreditar la aceptación | Revisar al terminar la relación |
-| Auditoría | Pendiente de aprobación | Definir rotación, integridad y eliminación |
+| Auditoría | 12 meses provisionales | Rotación mensual o por tamaño, compresión y eliminación |
 | Asistencia y justificaciones | Pendiente de aprobación jurídica/operativa | Eliminar o anonimizar al vencer la finalidad |
 | Respaldos | Pendiente de aprobación | Definir ciclo, cifrado y destrucción |
 | Reportes descargados | Fuera del control técnico una vez descargados | Definir procedimiento y responsabilidad del receptor |
@@ -202,9 +206,7 @@ Este procedimiento aún no está implementado como flujo dentro del sistema.
   responsable en la política.
 - Validar jurídicamente la base de licitud para cada finalidad.
 - Forzar HTTPS y cookies seguras en producción.
-- Incorporar protección de fuerza bruta en el inicio de sesión interno.
-- Restringir, cifrar y exigir reautenticación para respaldos completos.
-- Registrar y revisar todas las exportaciones masivas.
+- Aprobar formalmente el plazo provisional de 12 meses para auditoría.
 
 ### Prioridad alta
 
@@ -212,8 +214,7 @@ Este procedimiento aún no está implementado como flujo dentro del sistema.
 - Formalizar contratos con encargados y transferencias internacionales.
 - Implementar gestión trazable de derechos.
 - Definir y probar el plan de incidentes.
-- Proteger la integridad, rotación y acceso del archivo de auditoría.
-- Incorporar MFA para administradores.
+- Incorporar MFA para administradores (pendiente por decisión del proyecto).
 - Revisar permisos con criterio de mínimo privilegio.
 
 ### Prioridad media
@@ -247,3 +248,93 @@ Antes de declarar cumplimiento se requiere revisión jurídica chilena de:
 - Texto definitivo de la política y mecanismo de ejercicio de derechos.
 
 La existencia de esta memoria y de controles técnicos no reemplaza esa revisión.
+
+## 13. Controles de seguridad incorporados el 2026-06-29
+
+### Fuerza bruta
+
+- Login: cinco fallos por identificador en 15 minutos y veinte por IP.
+- Recuperación: tres solicitudes por correo en 60 minutos y diez por IP.
+- Reautenticación: cinco fallos en 15 minutos.
+- Identificadores e IP se conservan como HMAC, no en texto legible.
+- Los intentos se eliminan oportunistamente después de 30 días.
+
+### Reautenticación y exportaciones
+
+El login correcto habilita una ventana de diez minutos. Vencida esa ventana,
+reportes, plantillas con socios, logs y respaldos exigen nuevamente la
+contraseña. Cada exportación, descarga de log y respaldo queda auditada.
+
+### Respaldos
+
+- Se crea una copia consistente mediante la API de respaldo de SQLite.
+- La copia se cifra y autentica con Fernet antes de salir del servidor.
+- La primera clave configurada cifra y las restantes permiten abrir respaldos
+  anteriores durante una rotación.
+- Producción se niega a iniciar si no existe una clave de respaldo.
+
+### Auditoría
+
+- Cada evento contiene HMAC SHA-256 y la firma del evento anterior.
+- Una alteración rompe la verificación y el archivo observado se preserva como
+  histórico en la siguiente escritura.
+- El archivo rota al cambiar de mes o alcanzar el tamaño configurado.
+- Los históricos se comprimen como `.log.gz`.
+- La descarga usa una lista blanca del servidor y también queda auditada.
+- Producción exige una clave HMAC separada.
+
+### Pendientes explícitos
+
+- MFA administrativo: pendiente por decisión del proyecto.
+- Procedimiento técnico y organizativo de respuesta a incidentes: pendiente.
+- El plazo de 12 meses para logs es provisional y requiere aprobación.
+
+## 14. Tratamiento de archivos CSV
+
+- Las plantillas descargables se generan en memoria y no se almacenan en el
+  servidor.
+- Las cargas aceptadas tienen un máximo predeterminado de 2 MB, configurable
+  mediante `CARGA_CSV_MAX_BYTES`.
+- Se validan extensión, tipo de contenido declarado, codificación, ausencia de
+  bytes nulos y estructura CSV con al menos dos columnas.
+- El umbral de memoria de Django es mayor que el límite aceptado, por lo que una
+  carga válida se procesa en memoria y no como archivo temporal persistente.
+- El contenido se procesa durante la solicitud y no se guarda como archivo.
+- La auditoría no conserva el nombre original.
+- Las cargas históricas conservan solamente una huella SHA-256 abreviada como
+  identificador técnico, no el nombre entregado por el usuario.
+- Los datos válidos resultantes sí se almacenan en las tablas operativas
+  correspondientes.
+
+## 15. Decisión sobre cifrado de campos personales
+
+No se implementará por ahora cifrado individual de RUT, nombres, apellidos,
+teléfono y correo en la base activa. La decisión considera que estos campos se
+utilizan para búsquedas, validaciones de unicidad, ordenamiento y reportes, y que
+el cifrado por campo introduciría complejidad operacional y de recuperación.
+
+Se mantienen como controles compensatorios el acceso restringido al servidor y
+a SQLite, HTTPS y cookies seguras en producción, permisos mínimos, respaldos
+cifrados, reautenticación, auditoría íntegra y protección contra fuerza bruta.
+
+La decisión debe reevaluarse si cambia el proveedor de alojamiento, aumenta el
+volumen o sensibilidad de los datos, se incorporan nuevas finalidades, ocurre
+un incidente o una evaluación de riesgos determina que los controles actuales
+son insuficientes.
+
+## 16. Preparación HTTPS para producción
+
+La configuración distingue desarrollo y producción:
+
+- Con `DEBUG=True`, no se fuerza HTTPS para permitir desarrollo local.
+- Con `DEBUG=False`, la redirección HTTPS y las cookies `Secure` se activan por
+  defecto.
+- Las cookies de sesión son `HttpOnly` y usan `SameSite=Lax`.
+- Se habilitan `nosniff`, política de referencia `same-origin` y protección
+  contra carga en marcos externos.
+- HSTS permanece configurable y debe activarse gradualmente después de validar
+  el certificado y `Force HTTPS` en PythonAnywhere.
+
+La guía `docs/PYTHONANYWHERE.md` contiene las variables y la secuencia de
+activación. HTTPS protege los datos en tránsito y no reemplaza los controles de
+acceso, respaldo o permisos del archivo SQLite.

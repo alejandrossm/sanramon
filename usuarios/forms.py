@@ -1,8 +1,11 @@
+import csv
+import io
 import re
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import HTML, Column, Layout, Row, Submit
 from django import forms
+from django.conf import settings
 from django.contrib.auth.forms import (
     AuthenticationForm,
     PasswordChangeForm,
@@ -50,6 +53,70 @@ def marcar_campo_rut(field):
             'inputmode': 'text',
         }
     )
+
+
+TIPOS_CONTENIDO_CSV = {
+    'application/csv',
+    'application/octet-stream',
+    'application/vnd.ms-excel',
+    'text/csv',
+    'text/plain',
+}
+
+
+def validar_archivo_csv(archivo):
+    """Valida tamaño, tipo declarado y estructura textual CSV basica."""
+    maximo = int(getattr(settings, 'CARGA_CSV_MAX_BYTES', 2 * 1024 * 1024))
+    if archivo.size > maximo:
+        raise forms.ValidationError(
+            f'El archivo supera el máximo permitido de {maximo // (1024 * 1024)} MB.'
+        )
+    if not archivo.name.lower().endswith('.csv'):
+        raise forms.ValidationError('El archivo debe tener extensión .csv.')
+
+    tipo = (getattr(archivo, 'content_type', '') or '').lower()
+    if tipo and tipo not in TIPOS_CONTENIDO_CSV:
+        raise forms.ValidationError('El tipo de contenido del archivo no corresponde a CSV.')
+
+    posicion = archivo.tell()
+    try:
+        muestra_binaria = archivo.read(min(65536, maximo))
+    finally:
+        archivo.seek(posicion)
+    if not muestra_binaria:
+        raise forms.ValidationError('El archivo CSV está vacío.')
+    if b'\x00' in muestra_binaria:
+        raise forms.ValidationError('El archivo contiene datos binarios y no es un CSV válido.')
+
+    try:
+        muestra = muestra_binaria.decode('utf-8-sig')
+    except UnicodeDecodeError:
+        try:
+            muestra = muestra_binaria.decode('cp1252')
+        except UnicodeDecodeError as error:
+            raise forms.ValidationError(
+                'El archivo debe utilizar codificación UTF-8 o Windows-1252.'
+            ) from error
+
+    controles = sum(
+        1
+        for caracter in muestra
+        if ord(caracter) < 32 and caracter not in {'\r', '\n', '\t'}
+    )
+    if controles:
+        raise forms.ValidationError('El archivo contiene caracteres de control no permitidos.')
+
+    primera_linea, _separador, resto = muestra.partition('\n')
+    if primera_linea.strip().lower().startswith('sep='):
+        muestra = resto
+    try:
+        dialecto = csv.Sniffer().sniff(muestra[:4096], delimiters=';,')
+        encabezados = next(csv.reader(io.StringIO(muestra), dialect=dialecto), [])
+    except csv.Error as error:
+        raise forms.ValidationError('No fue posible reconocer una estructura CSV válida.') from error
+    if len(encabezados) < 2:
+        raise forms.ValidationError('El CSV debe contener al menos dos columnas.')
+    return archivo
 
 
 def normalizar_rut_formulario(valor):
@@ -173,6 +240,22 @@ class RecuperarPasswordForm(PasswordResetForm):
             for usuario in super().get_users(email)
             if not rol_es_socio(usuario.rol)
         )
+
+
+class ReautenticacionForm(forms.Form):
+    """Solicita nuevamente la contraseña para operaciones sensibles."""
+
+    password = forms.CharField(
+        label='Contraseña',
+        strip=False,
+        widget=forms.PasswordInput(
+            attrs={
+                'autocomplete': 'current-password',
+                'autofocus': True,
+                'class': 'form-control',
+            }
+        ),
+    )
 
 
 class ConsultaPublicaRutForm(forms.Form):
@@ -683,10 +766,7 @@ class CargaAsistenciaHistoricaForm(forms.Form):
 
     def clean_archivo(self):
         """Acepta archivos CSV exportados desde planillas."""
-        archivo = self.cleaned_data['archivo']
-        if not archivo.name.lower().endswith('.csv'):
-            raise forms.ValidationError('El archivo debe tener extension .csv.')
-        return archivo
+        return validar_archivo_csv(self.cleaned_data['archivo'])
 
 
 class CargaMasivaSociosForm(forms.Form):
@@ -720,10 +800,7 @@ class CargaMasivaSociosForm(forms.Form):
 
     def clean_archivo(self):
         """Acepta archivos CSV exportados desde planillas."""
-        archivo = self.cleaned_data['archivo']
-        if not archivo.name.lower().endswith('.csv'):
-            raise forms.ValidationError('El archivo debe tener extension .csv.')
-        return archivo
+        return validar_archivo_csv(self.cleaned_data['archivo'])
 
 
 class JustificacionInasistenciaForm(forms.Form):

@@ -5,6 +5,7 @@ from .models import (
     AceptacionPrivacidadConsulta,
     AsistenciaReunion,
     DesbloqueoSocio,
+    IntentoAcceso,
     NotificacionBloqueoSocio,
     Reunion,
     SolicitudCodigoConsulta,
@@ -254,4 +255,20 @@ class AceptacionPrivacidadConsultaAdmin(admin.ModelAdmin):
         return False
 
     def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(IntentoAcceso)
+class IntentoAccesoAdmin(admin.ModelAdmin):
+    """Consulta tecnica de limites sin identificadores legibles."""
+
+    list_display = ('tipo', 'fecha')
+    list_filter = ('tipo', 'fecha')
+    readonly_fields = ('tipo', 'identificador_hash', 'ip_hash', 'fecha')
+    ordering = ('-fecha',)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
         return False

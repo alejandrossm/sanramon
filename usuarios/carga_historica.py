@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import io
 import unicodedata
 
@@ -79,6 +80,7 @@ def cargar_asistencia_historica_desde_csv(reunion, archivo_csv, usuario):
             'Solo se puede cargar asistencia en reuniones historicas.'
         )
 
+    identificador_archivo = _identificador_archivo(archivo_csv)
     filas = _leer_filas_csv(archivo_csv)
     if not filas:
         raise ErrorCargaAsistenciaHistorica('El archivo no contiene registros.')
@@ -91,7 +93,7 @@ def cargar_asistencia_historica_desde_csv(reunion, archivo_csv, usuario):
         carga_historica = CargaAsistenciaHistorica.objects.create(
             reunion=reunion,
             cargado_por=usuario,
-            archivo_nombre=getattr(archivo_csv, 'name', '')[:255],
+            archivo_nombre=identificador_archivo,
         )
 
         for numero_fila, fila in filas:
@@ -160,6 +162,18 @@ def cargar_asistencia_historica_desde_csv(reunion, archivo_csv, usuario):
         'ausentes': ausentes,
         'carga_historica': carga_historica,
     }
+
+
+def _identificador_archivo(archivo_csv):
+    """Genera trazabilidad sin conservar el nombre original del archivo."""
+    posicion = archivo_csv.tell()
+    digest = hashlib.sha256()
+    try:
+        while bloque := archivo_csv.read(64 * 1024):
+            digest.update(bloque)
+    finally:
+        archivo_csv.seek(posicion)
+    return f'CSV-{digest.hexdigest()[:16]}'
 
 
 def revertir_carga_asistencia_historica(carga_historica, usuario):

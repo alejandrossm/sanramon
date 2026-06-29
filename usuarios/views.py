@@ -25,16 +25,24 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse_lazy
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_POST
 
 from .identificacion import parsear_lectura_rut
 from .auditoria import (
     ACCION_CARGA_HISTORICA_REVERTIDA,
+    ACCION_CARGA_HISTORICA,
     ACCION_CARGA_MASIVA_SOCIOS,
     ACCION_CONSULTA_PUBLICA_ACCEDIDA,
     ACCION_CONSULTA_PUBLICA_VERIFICADA,
+    ACCION_LOGIN_BLOQUEADO,
+    ACCION_LOG_AUDITORIA_DESCARGADO,
     ACCION_PRIVACIDAD_CONSULTA_ACEPTADA,
+    ACCION_REAUTENTICACION_EXITOSA,
+    ACCION_REAUTENTICACION_FALLIDA,
+    ACCION_RECUPERACION_LIMITADA,
+    ACCION_REPORTE_EXPORTADO,
     ACCION_RESPALDO_BASE_DATOS,
     ACCION_REUNION_CANCELADA,
     ACCION_REUNION_ELIMINADA,
@@ -42,6 +50,8 @@ from .auditoria import (
     ACCION_USUARIO_ACTIVADO,
     ACCION_USUARIO_DESACTIVADO,
     ACCION_USUARIO_ELIMINADO,
+    listar_archivos_auditoria,
+    obtener_archivo_auditoria_autorizado,
     obtener_ruta_auditoria,
     registrar_evento_auditoria,
 )
@@ -54,6 +64,7 @@ from .forms import (
     ConsultaPublicaRutForm,
     JustificacionInasistenciaForm,
     LoginForm,
+    ReautenticacionForm,
     RecuperarPasswordForm,
     RegistroAsistenciaRutForm,
     ReunionCancelacionForm,
@@ -80,6 +91,7 @@ from .models import (
     AsistenciaReunion,
     CargaAsistenciaHistorica,
     DesbloqueoSocio,
+    IntentoAcceso,
     NotificacionBloqueoSocio,
     Reunion,
     Usuario,
@@ -105,6 +117,7 @@ from .reportes_asistencia import (
     construir_pdf,
     construir_xlsx,
 )
+from .respaldos import ErrorCifradoRespaldo, cifrar_respaldo_sqlite
 from .permisos import (
     PERM_ACCEDER_ASISTENCIA,
     PERM_ADMINISTRAR_PRIVILEGIOS,
@@ -129,6 +142,13 @@ from .servicios_asistencia import (
     obtener_resumen_anual_asistencia_socio,
     obtener_resumen_asistencia_socio,
     puede_eliminar_socio_seguro,
+)
+from .seguridad import (
+    acceso_limitado,
+    limpiar_intentos,
+    marcar_reautenticacion,
+    reautenticacion_reciente_required,
+    registrar_intento,
 )
 
 
@@ -804,6 +824,45 @@ class UsuarioLoginView(LoginView):
     template_name = 'usuarios/login.html'
     redirect_authenticated_user = True
 
+    def post(self, request, *args, **kwargs):
+        """Bloquea validaciones cuando la ventana de intentos fue agotada."""
+        identificador = request.POST.get('username', '')
+        if acceso_limitado(IntentoAcceso.LOGIN, identificador, request):
+            registrar_evento_auditoria(
+                None,
+                ACCION_LOGIN_BLOQUEADO,
+                entidad_tipo='Autenticacion',
+                entidad='Inicio de sesion',
+                detalle='Solicitud bloqueada por limite de intentos.',
+            )
+            form = self.get_form()
+            form.add_error(
+                None,
+                'Demasiados intentos. Intenta nuevamente más tarde.',
+            )
+            return super().form_invalid(form)
+        return super().post(request, *args, **kwargs)
+
+    def form_invalid(self, form):
+        """Registra el fallo sin conservar usuario, correo ni IP legibles."""
+        registrar_intento(
+            IntentoAcceso.LOGIN,
+            self.request.POST.get('username', ''),
+            self.request,
+        )
+        return super().form_invalid(form)
+
+    def form_valid(self, form):
+        """Limpia fallos del identificador despues de autenticar."""
+        identificadores = {
+            self.request.POST.get('username', ''),
+            form.get_user().username,
+            form.get_user().email,
+        }
+        for identificador in identificadores:
+            limpiar_intentos(IntentoAcceso.LOGIN, identificador)
+        return super().form_valid(form)
+
     def get_success_url(self):
         """Redirige socios a asistencias y otros roles al dashboard."""
         return obtener_url_post_login(self.request.user)
@@ -824,6 +883,21 @@ class UsuarioPasswordResetView(PasswordResetView):
     subject_template_name = 'usuarios/password_reset_subject.txt'
     success_url = reverse_lazy('usuarios:password_reset_done')
 
+    def post(self, request, *args, **kwargs):
+        """Limita solicitudes conservando una respuesta no enumerable."""
+        identificador = request.POST.get('email', '')
+        if acceso_limitado(IntentoAcceso.RECUPERACION, identificador, request):
+            registrar_evento_auditoria(
+                None,
+                ACCION_RECUPERACION_LIMITADA,
+                entidad_tipo='Autenticacion',
+                entidad='Recuperacion de contrasena',
+                detalle='Solicitud bloqueada por limite de recuperacion.',
+            )
+            return redirect(self.success_url)
+        registrar_intento(IntentoAcceso.RECUPERACION, identificador, request)
+        return super().post(request, *args, **kwargs)
+
 
 class UsuarioPasswordResetDoneView(PasswordResetDoneView):
     """Confirma que la solicitud de recuperacion fue recibida."""
@@ -843,6 +917,65 @@ class UsuarioPasswordResetCompleteView(PasswordResetCompleteView):
     """Muestra el resultado final del restablecimiento de contrasena."""
 
     template_name = 'usuarios/password_reset_complete.html'
+
+
+@login_required
+@never_cache
+def reauth_seguridad(request):
+    """Confirma la contraseña antes de una descarga con datos personales."""
+    destino = request.POST.get('next') or request.GET.get('next') or reverse_lazy(
+        'usuarios:configuracion'
+    )
+    if not url_has_allowed_host_and_scheme(
+        destino,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        destino = reverse_lazy('usuarios:configuracion')
+
+    form = ReautenticacionForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        identificador = str(request.user.pk)
+        if acceso_limitado(IntentoAcceso.REAUTENTICACION, identificador, request):
+            form.add_error(
+                None,
+                'Demasiados intentos. Intenta nuevamente más tarde.',
+            )
+        elif request.user.check_password(form.cleaned_data['password']):
+            limpiar_intentos(IntentoAcceso.REAUTENTICACION, identificador)
+            request.session.cycle_key()
+            marcar_reautenticacion(request)
+            registrar_evento_auditoria(
+                request.user,
+                ACCION_REAUTENTICACION_EXITOSA,
+                entidad_tipo='Autenticacion',
+                entidad='Operacion sensible',
+                detalle='Contrasena confirmada para descarga sensible.',
+            )
+            return redirect(destino)
+        else:
+            registrar_intento(
+                IntentoAcceso.REAUTENTICACION,
+                identificador,
+                request,
+            )
+            registrar_evento_auditoria(
+                request.user,
+                ACCION_REAUTENTICACION_FALLIDA,
+                entidad_tipo='Autenticacion',
+                entidad='Operacion sensible',
+                detalle='Fallo de reautenticacion.',
+            )
+            form.add_error(None, 'La contraseña no es correcta.')
+
+    return render(
+        request,
+        'usuarios/reauth_seguridad.html',
+        {
+            'form': form,
+            'next': destino,
+        },
+    )
 
 
 @never_cache
@@ -1112,6 +1245,7 @@ def listado_socios_asistencia(request):
 
 
 @gestor_usuarios_required
+@reautenticacion_reciente_required
 def exportar_asistencia_anual(request, formato):
     """Descarga el resumen anual completo del listado operativo de asistencia."""
     formato = (formato or '').lower()
@@ -1120,14 +1254,23 @@ def exportar_asistencia_anual(request, formato):
         return redirect('usuarios:listado_socios_asistencia')
 
     consulta = obtener_consulta_listado_asistencia(request, forzar_anio=True)
-    return responder_reporte_asistencia_anual(
+    response = responder_reporte_asistencia_anual(
         formato,
         consulta,
         'reporte_asistencia_anual',
     )
+    registrar_evento_auditoria(
+        request.user,
+        ACCION_REPORTE_EXPORTADO,
+        entidad_tipo='Reporte',
+        entidad='Asistencia anual',
+        detalle=f'Formato: {formato}. Ano: {consulta["anio_reporte"]}.',
+    )
+    return response
 
 
 @gestor_usuarios_required
+@reautenticacion_reciente_required
 def exportar_socios_completo(request, formato):
     """Descarga el registro completo de socios desde el listado administrativo."""
     formato = (formato or '').lower()
@@ -1136,10 +1279,19 @@ def exportar_socios_completo(request, formato):
         return redirect('usuarios:listado_socios')
 
     consulta = obtener_consulta_listado_socios(request)
-    return responder_reporte_socios_completo(formato, consulta)
+    response = responder_reporte_socios_completo(formato, consulta)
+    registrar_evento_auditoria(
+        request.user,
+        ACCION_REPORTE_EXPORTADO,
+        entidad_tipo='Reporte',
+        entidad='Socios completo',
+        detalle=f'Formato: {formato}.',
+    )
+    return response
 
 
 @gestor_usuarios_required
+@reautenticacion_reciente_required
 def exportar_socios_asistencia_anual(request, formato):
     """Descarga el reporte anual de asistencia para socios."""
     formato = (formato or '').lower()
@@ -1148,11 +1300,19 @@ def exportar_socios_asistencia_anual(request, formato):
         return redirect('usuarios:listado_socios')
 
     consulta = obtener_consulta_listado_socios(request, forzar_anio=True)
-    return responder_reporte_asistencia_anual(
+    response = responder_reporte_asistencia_anual(
         formato,
         consulta,
         'reporte_socios_asistencia_anual',
     )
+    registrar_evento_auditoria(
+        request.user,
+        ACCION_REPORTE_EXPORTADO,
+        entidad_tipo='Reporte',
+        entidad='Socios asistencia anual',
+        detalle=f'Formato: {formato}. Ano: {consulta["anio_reporte"]}.',
+    )
+    return response
 
 
 @gestor_usuarios_required
@@ -1169,6 +1329,7 @@ def configuracion(request):
         'usuarios/configuracion.html',
         {
             'cargas_historicas': cargas_historicas,
+            'archivos_auditoria': listar_archivos_auditoria(),
         },
     )
 
@@ -1209,26 +1370,39 @@ def revertir_carga_asistencia_historica_view(request, pk):
 
 
 @gestor_usuarios_required
+@reautenticacion_reciente_required
 def descargar_registro_logs(request):
-    """Descarga auditoria.log sin exponer su contenido en pantalla."""
-    ruta_auditoria = obtener_ruta_auditoria()
-    if not ruta_auditoria.exists() or not ruta_auditoria.is_file():
-        messages.error(request, 'No hay un archivo de auditoria disponible para descargar.')
+    """Descarga exclusivamente un log incluido en la lista autorizada."""
+    identificador = request.GET.get('archivo', 'actual')
+    archivo = obtener_archivo_auditoria_autorizado(identificador)
+    if not archivo:
+        messages.error(request, 'El archivo de auditoria solicitado no esta disponible.')
         return redirect('usuarios:configuracion')
 
-    marca_tiempo = timezone.localtime().strftime('%Y%m%d_%H%M%S')
-    nombre_archivo = f'auditoria_sanramon_{marca_tiempo}.log'
+    registrar_evento_auditoria(
+        request.user,
+        ACCION_LOG_AUDITORIA_DESCARGADO,
+        entidad_tipo='Auditoria',
+        entidad=archivo['id'],
+        detalle='Descarga de archivo de auditoria autorizado.',
+    )
+    archivo = obtener_archivo_auditoria_autorizado(identificador)
+    if not archivo:
+        messages.error(request, 'El archivo expiro durante la operacion.')
+        return redirect('usuarios:configuracion')
+    content_type = 'application/gzip' if archivo['comprimido'] else 'text/plain'
     return FileResponse(
-        open(ruta_auditoria, 'rb'),
+        open(archivo['ruta'], 'rb'),
         as_attachment=True,
-        filename=nombre_archivo,
-        content_type='text/plain',
+        filename=archivo['ruta'].name,
+        content_type=content_type,
     )
 
 
 @gestor_usuarios_required
+@reautenticacion_reciente_required
 def exportar_base_datos_respaldo(request):
-    """Descarga la base SQLite configurada como respaldo operativo."""
+    """Descarga una copia SQLite consistente con cifrado autenticado."""
     ruta_base_datos = obtener_ruta_sqlite_respaldo()
     if not ruta_base_datos:
         messages.error(
@@ -1237,25 +1411,35 @@ def exportar_base_datos_respaldo(request):
         )
         return redirect('usuarios:configuracion')
 
+    try:
+        contenido_cifrado = cifrar_respaldo_sqlite(ruta_base_datos)
+    except (ErrorCifradoRespaldo, OSError):
+        messages.error(
+            request,
+            'No fue posible crear el respaldo cifrado. Revisa la configuracion de claves.',
+        )
+        return redirect('usuarios:configuracion')
+
     marca_tiempo = timezone.localtime().strftime('%Y%m%d_%H%M%S')
-    nombre_archivo = f'respaldo_sanramon_{marca_tiempo}.sqlite3'
+    nombre_archivo = f'respaldo_sanramon_{marca_tiempo}.sqlite3.fernet'
     registrar_evento_auditoria(
         request.user,
         ACCION_RESPALDO_BASE_DATOS,
         entidad_tipo='Base de datos',
         entidad_id=ruta_base_datos.name,
         entidad='Base de datos SQLite',
-        detalle=f'Respaldo descargado como {nombre_archivo}.',
+        detalle='Respaldo SQLite consistente, cifrado y autenticado.',
     )
-    return FileResponse(
-        open(ruta_base_datos, 'rb'),
-        as_attachment=True,
-        filename=nombre_archivo,
-        content_type=TIPO_CONTENIDO_SQLITE,
+    response = HttpResponse(
+        contenido_cifrado,
+        content_type='application/octet-stream',
     )
+    response['Content-Disposition'] = f'attachment; filename="{nombre_archivo}"'
+    return response
 
 
 @registro_socios_required
+@reautenticacion_reciente_required
 def descargar_plantilla_carga_masiva_socios(request):
     """Descarga CSV con encabezados y socios actuales para carga masiva."""
     contenido = construir_plantilla_carga_masiva_socios()
@@ -1265,6 +1449,13 @@ def descargar_plantilla_carga_masiva_socios(request):
     )
     response['Content-Disposition'] = (
         'attachment; filename="plantilla_carga_masiva_socios.csv"'
+    )
+    registrar_evento_auditoria(
+        request.user,
+        ACCION_REPORTE_EXPORTADO,
+        entidad_tipo='Reporte',
+        entidad='Plantilla carga socios',
+        detalle='Exportacion CSV para respaldo o carga masiva.',
     )
     return response
 
@@ -1290,10 +1481,7 @@ def cargar_socios_masivo(request):
                     entidad_tipo='Socio',
                     entidad_id='lote',
                     entidad='Carga masiva de socios',
-                    detalle=(
-                        f'Archivo: {getattr(archivo, "name", "")}. '
-                        f'Socios creados: {total}.'
-                    ),
+                    detalle=f'Socios creados: {total}.',
                 )
                 messages.success(
                     request,
@@ -1594,6 +1782,18 @@ def cargar_asistencia_historica(request, pk):
             except ErrorCargaAsistenciaHistorica as error:
                 form.add_error(None, str(error))
             else:
+                registrar_evento_auditoria(
+                    request.user,
+                    ACCION_CARGA_HISTORICA,
+                    entidad_tipo='Reunion',
+                    entidad_id=reunion.pk,
+                    entidad=f'Reunion #{reunion.pk}',
+                    detalle=(
+                        f'Registros: {resultado["total"]}. '
+                        f'Presentes: {resultado["presentes"]}. '
+                        f'Ausentes: {resultado["ausentes"]}.'
+                    ),
+                )
                 messages.success(
                     request,
                     (

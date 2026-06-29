@@ -35,6 +35,11 @@ urlpatterns = [
     path('login/', views.UsuarioLoginView.as_view(), name='login'),
     path('logout/', views.UsuarioLogoutView.as_view(), name='logout'),
     path(
+        'seguridad/reautenticar/',
+        views.reauth_seguridad,
+        name='reauth_seguridad',
+    ),
+    path(
         'recuperar-contrasena/',
         views.UsuarioPasswordResetView.as_view(),
         name='password_reset',

@@ -1052,3 +1052,42 @@ class AceptacionPrivacidadConsulta(models.Model):
     def __str__(self):
         """Representa la evidencia sin incluir identificadores personales."""
         return f'Aceptacion socio #{self.socio_id} - {self.version_politica}'
+
+
+class IntentoAcceso(models.Model):
+    """Evidencia seudonimizada para limitar intentos de autenticacion."""
+
+    LOGIN = 'LOGIN'
+    RECUPERACION = 'RECUPERACION'
+    REAUTENTICACION = 'REAUTENTICACION'
+    TIPOS = [
+        (LOGIN, 'Inicio de sesion'),
+        (RECUPERACION, 'Recuperacion de contrasena'),
+        (REAUTENTICACION, 'Reautenticacion sensible'),
+    ]
+
+    tipo = models.CharField(max_length=20, choices=TIPOS)
+    identificador_hash = models.CharField(max_length=64, db_index=True)
+    ip_hash = models.CharField(max_length=64, db_index=True)
+    fecha = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        """Indices para ventanas de limitacion por identidad e IP."""
+
+        ordering = ['-fecha']
+        verbose_name = 'intento de acceso'
+        verbose_name_plural = 'intentos de acceso'
+        indexes = [
+            models.Index(
+                fields=['tipo', 'identificador_hash', 'fecha'],
+                name='acceso_tipo_id_fecha_idx',
+            ),
+            models.Index(
+                fields=['tipo', 'ip_hash', 'fecha'],
+                name='acceso_tipo_ip_fecha_idx',
+            ),
+        ]
+
+    def __str__(self):
+        """No expone el identificador original."""
+        return f'{self.tipo} - {self.fecha:%Y-%m-%d %H:%M:%S}'
