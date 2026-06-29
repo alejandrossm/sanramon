@@ -4128,12 +4128,12 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'data-confirm-title="Eliminar socio"')
         self.assertContains(response, 'class="btn btn-danger btn-sm"')
         self.assertContains(response, 'bi-trash-fill')
-        self.assertContains(response, 'aria-label="Exportar registro de socios"')
+        self.assertContains(response, 'aria-label="Exportar reporte completo de socios"')
         self.assertContains(response, 'btn-group btn-group-sm')
-        self.assertContains(response, 'Descargar reporte CSV')
+        self.assertContains(response, 'Descargar reporte completo de socios CSV')
         self.assertContains(
             response,
-            reverse('usuarios:exportar_socios_asistencia_anual', args=['csv']),
+            reverse('usuarios:exportar_socios_completo', args=['csv']),
         )
         self.assertNotContains(response, 'name="anio"')
         self.assertNotContains(response, 'filtro-socio-anio')
@@ -4157,8 +4157,8 @@ class UsuariosModuloTests(TestCase):
 
         self.client.login(username='admin', password='ClaveSegura123')
         response = self.client.get(
-            reverse('usuarios:exportar_socios_asistencia_anual', args=['csv']),
-            {'nombre': 'SocioExportable', 'anio': 2026},
+            reverse('usuarios:exportar_socios_completo', args=['csv']),
+            {'nombre': 'SocioExportable'},
         )
         filas = list(csv.DictReader(StringIO(response.content.decode('utf-8-sig'))))
 
@@ -4166,17 +4166,19 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(response['Content-Type'], 'text/csv; charset=utf-8')
         self.assertIn('attachment;', response['Content-Disposition'])
         self.assertIn(
-            'reporte_socios_asistencia_anual_2026.csv',
+            'reporte_socios_completo.csv',
             response['Content-Disposition'],
         )
         self.assertEqual(len(filas), 55)
-        self.assertEqual(filas[-1]['Ano'], '2026')
         self.assertEqual(
             filas[-1]['Correo electronico'],
             'socio_exportable_54@example.com',
         )
         self.assertEqual(filas[-1]['Telefono movil'], '+56933333333')
-        self.assertIn('Reuniones realizadas', filas[-1])
+        self.assertEqual(filas[-1]['Estado actual'], 'Activo')
+        self.assertEqual(filas[-1]['Indicador asistencia'], 'Sin ausencias')
+        self.assertNotIn('Ano', filas[-1])
+        self.assertNotIn('Reuniones realizadas', filas[-1])
         self.assertNotIn('Nombre completo', filas[-1])
 
     def test_exportar_socios_xlsx_pdf_y_restringe_encargados(self):
@@ -4184,8 +4186,8 @@ class UsuariosModuloTests(TestCase):
         self.client.login(username='admin', password='ClaveSegura123')
 
         response_xlsx = self.client.get(
-            reverse('usuarios:exportar_socios_asistencia_anual', args=['xlsx']),
-            {'rut': self.socio_user.rut, 'anio': 2026},
+            reverse('usuarios:exportar_socios_completo', args=['xlsx']),
+            {'rut': self.socio_user.rut},
         )
         with zipfile.ZipFile(BytesIO(response_xlsx.content)) as archivo:
             worksheet = archivo.read('xl/worksheets/sheet1.xml').decode('utf-8')
@@ -4193,31 +4195,34 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(response_xlsx.status_code, 200)
         self.assertIn('attachment;', response_xlsx['Content-Disposition'])
         self.assertIn(
-            'reporte_socios_asistencia_anual_2026.xlsx',
+            'reporte_socios_completo.xlsx',
             response_xlsx['Content-Disposition'],
         )
-        self.assertIn('<v>2026</v>', worksheet)
         self.assertIn('socio@example.com', worksheet)
         self.assertIn('+56922222222', worksheet)
+        self.assertIn('Indicador asistencia', worksheet)
+        self.assertIn('Estado actual', worksheet)
         self.assertNotIn('Nombre completo', worksheet)
 
         response_pdf = self.client.get(
-            reverse('usuarios:exportar_socios_asistencia_anual', args=['pdf']),
-            {'rut': self.socio_user.rut, 'anio': 2026},
+            reverse('usuarios:exportar_socios_completo', args=['pdf']),
+            {'rut': self.socio_user.rut},
         )
 
         self.assertEqual(response_pdf.status_code, 200)
         self.assertEqual(response_pdf['Content-Type'], 'application/pdf')
         self.assertIn(
-            'reporte_socios_asistencia_anual_2026.pdf',
+            'reporte_socios_completo.pdf',
             response_pdf['Content-Disposition'],
         )
         self.assertTrue(response_pdf.content.startswith(b'%PDF-1.4'))
+        self.assertIn(b'Indicador asistencia', response_pdf.content)
+        self.assertIn(b'Estado actual', response_pdf.content)
         self.assertNotIn(b'Nombre completo', response_pdf.content)
 
         self.client.login(username='encargado', password='ClaveSegura123')
         response = self.client.get(
-            reverse('usuarios:exportar_socios_asistencia_anual', args=['csv']),
+            reverse('usuarios:exportar_socios_completo', args=['csv']),
         )
 
         self.assertRedirects(response, reverse('usuarios:dashboard'))

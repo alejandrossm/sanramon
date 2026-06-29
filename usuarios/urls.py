@@ -103,6 +103,11 @@ urlpatterns = [
         name='notificar_bloqueo_socio',
     ),
     path(
+        'socios/reportes/completo/<str:formato>/',
+        views.exportar_socios_completo,
+        name='exportar_socios_completo',
+    ),
+    path(
         'socios/reportes/anual/<str:formato>/',
         views.exportar_socios_asistencia_anual,
         name='exportar_socios_asistencia_anual',

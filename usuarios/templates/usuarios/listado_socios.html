@@ -87,30 +87,30 @@
 
 {% if puede_exportar_reportes %}
     <div class="d-flex justify-content-end mb-2">
-        <div class="btn-group btn-group-sm" role="group" aria-label="Exportar registro de socios">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Exportar reporte completo de socios">
             <a
-                href="{% url 'usuarios:exportar_socios_asistencia_anual' 'csv' %}?{{ export_query }}"
+                href="{% url 'usuarios:exportar_socios_completo' 'csv' %}?{{ export_query }}"
                 class="btn btn-outline-primary btn-sm"
-                title="Descargar reporte CSV"
-                aria-label="Descargar reporte CSV"
+                title="Descargar reporte completo de socios CSV"
+                aria-label="Descargar reporte completo de socios CSV"
             >
                 {% include "includes/icon.html" with name="download" %}
                 <span>CSV</span>
             </a>
             <a
-                href="{% url 'usuarios:exportar_socios_asistencia_anual' 'xlsx' %}?{{ export_query }}"
+                href="{% url 'usuarios:exportar_socios_completo' 'xlsx' %}?{{ export_query }}"
                 class="btn btn-outline-primary btn-sm"
-                title="Descargar reporte XLSX"
-                aria-label="Descargar reporte XLSX"
+                title="Descargar reporte completo de socios XLSX"
+                aria-label="Descargar reporte completo de socios XLSX"
             >
                 {% include "includes/icon.html" with name="file-spreadsheet" %}
                 <span>XLSX</span>
             </a>
             <a
-                href="{% url 'usuarios:exportar_socios_asistencia_anual' 'pdf' %}?{{ export_query }}"
+                href="{% url 'usuarios:exportar_socios_completo' 'pdf' %}?{{ export_query }}"
                 class="btn btn-outline-primary btn-sm"
-                title="Descargar reporte PDF"
-                aria-label="Descargar reporte PDF"
+                title="Descargar reporte completo de socios PDF"
+                aria-label="Descargar reporte completo de socios PDF"
             >
                 {% include "includes/icon.html" with name="file-pdf" %}
                 <span>PDF</span>

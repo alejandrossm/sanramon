@@ -81,6 +81,7 @@ from .models import (
 from .reportes_asistencia import (
     construir_csv,
     construir_dataset_asistencia_anual,
+    construir_dataset_socios_completo,
     construir_pdf,
     construir_xlsx,
 )
@@ -517,7 +518,10 @@ def obtener_consulta_listado_socios(request, forzar_anio=False):
     params_exportacion = request.GET.copy()
     if 'page' in params_exportacion:
         del params_exportacion['page']
-    params_exportacion['anio'] = str(anio_exportacion)
+    if forzar_anio:
+        params_exportacion['anio'] = str(anio_exportacion)
+    elif 'anio' in params_exportacion:
+        del params_exportacion['anio']
 
     return {
         **consulta,
@@ -557,6 +561,32 @@ def responder_reporte_asistencia_anual(formato, consulta, prefijo_archivo):
         )
 
     nombre_archivo = f"{prefijo_archivo}_{consulta['anio_reporte']}.{formato}"
+    response = HttpResponse(contenido, content_type=FORMATOS_REPORTE_ASISTENCIA[formato])
+    response['Content-Disposition'] = f'attachment; filename="{nombre_archivo}"'
+    return response
+
+
+def responder_reporte_socios_completo(formato, consulta):
+    """Construye la respuesta descargable para el registro completo de socios."""
+    socios = agregar_resumen_asistencia_socios(
+        consulta['socios'],
+        usar_bloqueo_operativo=True,
+    )
+    encabezados, filas = construir_dataset_socios_completo(socios)
+
+    if formato == 'csv':
+        contenido = construir_csv(encabezados, filas)
+    elif formato == 'xlsx':
+        contenido = construir_xlsx(encabezados, filas, nombre_hoja='Socios')
+    else:
+        contenido = construir_pdf(
+            encabezados,
+            filas,
+            'Reporte completo de socios',
+            f'Socios exportados: {len(filas)}',
+        )
+
+    nombre_archivo = f'reporte_socios_completo.{formato}'
     response = HttpResponse(contenido, content_type=FORMATOS_REPORTE_ASISTENCIA[formato])
     response['Content-Disposition'] = f'attachment; filename="{nombre_archivo}"'
     return response
@@ -937,8 +967,20 @@ def exportar_asistencia_anual(request, formato):
 
 
 @gestor_usuarios_required
+def exportar_socios_completo(request, formato):
+    """Descarga el registro completo de socios desde el listado administrativo."""
+    formato = (formato or '').lower()
+    if formato not in FORMATOS_REPORTE_ASISTENCIA:
+        messages.error(request, 'Formato de reporte no disponible.')
+        return redirect('usuarios:listado_socios')
+
+    consulta = obtener_consulta_listado_socios(request)
+    return responder_reporte_socios_completo(formato, consulta)
+
+
+@gestor_usuarios_required
 def exportar_socios_asistencia_anual(request, formato):
-    """Descarga el reporte completo desde el listado de socios."""
+    """Descarga el reporte anual de asistencia para socios."""
     formato = (formato or '').lower()
     if formato not in FORMATOS_REPORTE_ASISTENCIA:
         messages.error(request, 'Formato de reporte no disponible.')

@@ -27,6 +27,22 @@ COLUMNAS_REPORTE_ASISTENCIA = [
 ]
 
 
+COLUMNAS_REPORTE_SOCIOS = [
+    ('rut', 'RUT'),
+    ('username', 'Usuario'),
+    ('first_name', 'Nombre'),
+    ('last_name', 'Apellido paterno'),
+    ('apellido_materno', 'Apellido materno'),
+    ('email', 'Correo electronico'),
+    ('telefono_movil', 'Telefono movil'),
+    ('fecha_ingreso_proyecto', 'Fecha ingreso proyecto'),
+    ('date_joined', 'Fecha alta sistema'),
+    ('rol', 'Rol'),
+    ('estado_actual', 'Estado actual'),
+    ('indicador_asistencia', 'Indicador asistencia'),
+]
+
+
 def construir_dataset_asistencia_anual(socios, anio):
     """Construye encabezados y filas completas para reportes de asistencia anual."""
     encabezados = [etiqueta for _clave, etiqueta in COLUMNAS_REPORTE_ASISTENCIA]
@@ -54,6 +70,34 @@ def construir_dataset_asistencia_anual(socios, anio):
                 socio.total_ausencias,
                 socio.total_ausencias_efectivas,
                 socio.total_justificaciones,
+                socio.indicador_asistencia['label'],
+            ]
+        )
+
+    return encabezados, filas
+
+
+def construir_dataset_socios_completo(socios):
+    """Construye filas completas del registro administrativo de socios."""
+    encabezados = [etiqueta for _clave, etiqueta in COLUMNAS_REPORTE_SOCIOS]
+    filas = []
+
+    for socio in socios:
+        filas.append(
+            [
+                socio.rut,
+                socio.username,
+                socio.first_name,
+                socio.last_name,
+                socio.apellido_materno,
+                socio.email,
+                socio.telefono_movil or '',
+                socio.fecha_ingreso_proyecto.isoformat()
+                if socio.fecha_ingreso_proyecto
+                else '',
+                socio.date_joined.date().isoformat() if socio.date_joined else '',
+                socio.get_rol_display(),
+                'Activo' if socio.is_active else 'Inactivo',
                 socio.indicador_asistencia['label'],
             ]
         )
