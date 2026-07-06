@@ -4,7 +4,7 @@ Guia para publicar este proyecto Django en PythonAnywhere usando virtualenv, var
 
 ## 1. Version de Python
 
-El proyecto usa Django 6.0.4. En PythonAnywhere conviene usar Python 3.13 en una cuenta con system image `innit`.
+El proyecto usa Django 6.0.6. En PythonAnywhere conviene usar Python 3.13 en una cuenta con system image `innit`.
 
 En una consola Bash de PythonAnywhere:
 
