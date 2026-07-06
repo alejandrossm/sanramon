@@ -11,9 +11,34 @@ urlpatterns = [
         views.consulta_publica_asistencia,
         name='consulta_publica_asistencia',
     ),
+    path(
+        'consulta-asistencia/verificar/',
+        views.verificar_codigo_consulta,
+        name='verificar_codigo_consulta',
+    ),
+    path(
+        'consulta-asistencia/privacidad/',
+        views.aceptar_privacidad_consulta,
+        name='aceptar_privacidad_consulta',
+    ),
+    path(
+        'consulta-asistencia/resultado/',
+        views.resultado_consulta_asistencia,
+        name='resultado_consulta_asistencia',
+    ),
+    path(
+        'politica-privacidad/',
+        views.politica_privacidad,
+        name='politica_privacidad',
+    ),
     path('dashboard/', views.dashboard, name='dashboard'),
     path('login/', views.UsuarioLoginView.as_view(), name='login'),
     path('logout/', views.UsuarioLogoutView.as_view(), name='logout'),
+    path(
+        'seguridad/reautenticar/',
+        views.reauth_seguridad,
+        name='reauth_seguridad',
+    ),
     path(
         'recuperar-contrasena/',
         views.UsuarioPasswordResetView.as_view(),

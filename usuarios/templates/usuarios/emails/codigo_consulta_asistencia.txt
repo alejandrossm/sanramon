@@ -1,0 +1,9 @@
+Código de verificación para consultar tu asistencia
+
+Tu código es: {{ codigo }}
+
+El código vence en {{ minutos_vigencia }} minutos y puede utilizarse una sola vez.
+La consulta solicitada corresponde al año {{ anio }}.
+
+Si no solicitaste este código, ignora este correo. No compartas el código con otras personas.
+El equipo de Valle San Ramón nunca te pedirá este código por teléfono o mensajería.

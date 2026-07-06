@@ -1,8 +1,11 @@
+import csv
+import io
 import re
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import HTML, Column, Layout, Row, Submit
 from django import forms
+from django.conf import settings
 from django.contrib.auth.forms import (
     AuthenticationForm,
     PasswordChangeForm,
@@ -38,6 +41,7 @@ from .permisos import (
     rol_es_superadministrador,
     usuario_tiene_permiso,
 )
+from .privacidad import TEXTO_ACEPTACION_CONSULTA
 
 
 def marcar_campo_rut(field):
@@ -49,6 +53,70 @@ def marcar_campo_rut(field):
             'inputmode': 'text',
         }
     )
+
+
+TIPOS_CONTENIDO_CSV = {
+    'application/csv',
+    'application/octet-stream',
+    'application/vnd.ms-excel',
+    'text/csv',
+    'text/plain',
+}
+
+
+def validar_archivo_csv(archivo):
+    """Valida tamaño, tipo declarado y estructura textual CSV basica."""
+    maximo = int(getattr(settings, 'CARGA_CSV_MAX_BYTES', 2 * 1024 * 1024))
+    if archivo.size > maximo:
+        raise forms.ValidationError(
+            f'El archivo supera el máximo permitido de {maximo // (1024 * 1024)} MB.'
+        )
+    if not archivo.name.lower().endswith('.csv'):
+        raise forms.ValidationError('El archivo debe tener extensión .csv.')
+
+    tipo = (getattr(archivo, 'content_type', '') or '').lower()
+    if tipo and tipo not in TIPOS_CONTENIDO_CSV:
+        raise forms.ValidationError('El tipo de contenido del archivo no corresponde a CSV.')
+
+    posicion = archivo.tell()
+    try:
+        muestra_binaria = archivo.read(min(65536, maximo))
+    finally:
+        archivo.seek(posicion)
+    if not muestra_binaria:
+        raise forms.ValidationError('El archivo CSV está vacío.')
+    if b'\x00' in muestra_binaria:
+        raise forms.ValidationError('El archivo contiene datos binarios y no es un CSV válido.')
+
+    try:
+        muestra = muestra_binaria.decode('utf-8-sig')
+    except UnicodeDecodeError:
+        try:
+            muestra = muestra_binaria.decode('cp1252')
+        except UnicodeDecodeError as error:
+            raise forms.ValidationError(
+                'El archivo debe utilizar codificación UTF-8 o Windows-1252.'
+            ) from error
+
+    controles = sum(
+        1
+        for caracter in muestra
+        if ord(caracter) < 32 and caracter not in {'\r', '\n', '\t'}
+    )
+    if controles:
+        raise forms.ValidationError('El archivo contiene caracteres de control no permitidos.')
+
+    primera_linea, _separador, resto = muestra.partition('\n')
+    if primera_linea.strip().lower().startswith('sep='):
+        muestra = resto
+    try:
+        dialecto = csv.Sniffer().sniff(muestra[:4096], delimiters=';,')
+        encabezados = next(csv.reader(io.StringIO(muestra), dialect=dialecto), [])
+    except csv.Error as error:
+        raise forms.ValidationError('No fue posible reconocer una estructura CSV válida.') from error
+    if len(encabezados) < 2:
+        raise forms.ValidationError('El CSV debe contener al menos dos columnas.')
+    return archivo
 
 
 def normalizar_rut_formulario(valor):
@@ -174,8 +242,24 @@ class RecuperarPasswordForm(PasswordResetForm):
         )
 
 
+class ReautenticacionForm(forms.Form):
+    """Solicita nuevamente la contraseña para operaciones sensibles."""
+
+    password = forms.CharField(
+        label='Contraseña',
+        strip=False,
+        widget=forms.PasswordInput(
+            attrs={
+                'autocomplete': 'current-password',
+                'autofocus': True,
+                'class': 'form-control',
+            }
+        ),
+    )
+
+
 class ConsultaPublicaRutForm(forms.Form):
-    """Formulario publico para consultar asistencia de un socio por RUT."""
+    """Formulario publico para solicitar una verificacion por correo."""
 
     MENSAJE_GENERICO = 'No fue posible encontrar informacion para los datos ingresados.'
 
@@ -206,27 +290,17 @@ class ConsultaPublicaRutForm(forms.Form):
     )
 
     def __init__(self, *args, **kwargs):
-        """Configura campos publicos y estado resuelto de socio."""
-        self.socio = None
+        """Configura los campos publicos de solicitud."""
         super().__init__(*args, **kwargs)
         self.fields['anio'].initial = timezone.localdate().year
         self.fields['anio'].max_value = timezone.localdate().year + 1
         marcar_campo_rut(self.fields['rut'])
 
     def clean_rut(self):
-        """Normaliza el RUT y evita exponer si el dato no coincide."""
+        """Normaliza el RUT sin consultar ni revelar si existe un socio."""
         lectura_rut = parsear_lectura_rut(self.cleaned_data['rut'])
         if not lectura_rut:
             raise forms.ValidationError(self.MENSAJE_GENERICO)
-
-        socio = Usuario.objects.filter(
-            rut__iexact=lectura_rut.rut,
-            rol=Usuario.SOCIO,
-        ).first()
-        if not socio:
-            raise forms.ValidationError(self.MENSAJE_GENERICO)
-
-        self.socio = socio
         return lectura_rut.rut
 
     def clean_anio(self):
@@ -236,6 +310,46 @@ class ConsultaPublicaRutForm(forms.Form):
         if anio > maximo:
             raise forms.ValidationError('Ingrese un año válido.')
         return anio
+
+
+class CodigoConsultaAsistenciaForm(forms.Form):
+    """Valida el codigo de un solo uso sin incluirlo en la URL."""
+
+    codigo = forms.CharField(
+        label='Código de verificación',
+        min_length=6,
+        max_length=6,
+        widget=forms.TextInput(
+            attrs={
+                'autocomplete': 'one-time-code',
+                'autofocus': True,
+                'class': 'form-control form-control-lg',
+                'inputmode': 'numeric',
+                'pattern': '[0-9]{6}',
+                'placeholder': '000000',
+            }
+        ),
+    )
+
+    def clean_codigo(self):
+        """Exige exactamente seis digitos decimales."""
+        codigo = (self.cleaned_data['codigo'] or '').strip()
+        if not codigo.isdecimal() or len(codigo) != 6:
+            raise forms.ValidationError('Ingresa el código de seis dígitos.')
+        return codigo
+
+
+class AceptacionPrivacidadConsultaForm(forms.Form):
+    """Recoge una accion afirmativa para la version vigente del aviso."""
+
+    acepta = forms.BooleanField(
+        required=True,
+        label=TEXTO_ACEPTACION_CONSULTA,
+        widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        error_messages={
+            'required': 'Debes aceptar para utilizar la consulta digital.',
+        },
+    )
 
 
 class UsuarioCreationForm(TelefonoMovilFormMixin, UserCreationForm):
@@ -652,10 +766,7 @@ class CargaAsistenciaHistoricaForm(forms.Form):
 
     def clean_archivo(self):
         """Acepta archivos CSV exportados desde planillas."""
-        archivo = self.cleaned_data['archivo']
-        if not archivo.name.lower().endswith('.csv'):
-            raise forms.ValidationError('El archivo debe tener extension .csv.')
-        return archivo
+        return validar_archivo_csv(self.cleaned_data['archivo'])
 
 
 class CargaMasivaSociosForm(forms.Form):
@@ -689,10 +800,7 @@ class CargaMasivaSociosForm(forms.Form):
 
     def clean_archivo(self):
         """Acepta archivos CSV exportados desde planillas."""
-        archivo = self.cleaned_data['archivo']
-        if not archivo.name.lower().endswith('.csv'):
-            raise forms.ValidationError('El archivo debe tener extension .csv.')
-        return archivo
+        return validar_archivo_csv(self.cleaned_data['archivo'])
 
 
 class JustificacionInasistenciaForm(forms.Form):

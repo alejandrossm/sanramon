@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Confirmar contraseña | Sistema San Ramon{% endblock %}
+
+{% block content %}
+<section class="mx-auto" style="max-width: 560px;">
+    <div class="d-flex align-items-center gap-3 mb-4">
+        {% include "includes/icon.html" with name="shield-check" classes="fs-3 text-primary" %}
+        <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Operación sensible</p>
+            <h1 class="h3 mb-1">Confirma tu contraseña</h1>
+            <p class="text-muted mb-0">La confirmación será válida durante 10 minutos.</p>
+        </div>
+    </div>
+
+    <div class="bg-white border rounded shadow-sm p-4">
+        <form method="post" class="d-grid gap-3">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ next }}">
+            {% for error in form.non_field_errors %}
+                <div class="alert alert-danger mb-0">{{ error }}</div>
+            {% endfor %}
+            <div>
+                <label for="{{ form.password.id_for_label }}" class="form-label">
+                    {{ form.password.label }}
+                </label>
+                {{ form.password }}
+                {% for error in form.password.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                {% endfor %}
+            </div>
+            <button type="submit" class="btn btn-primary">
+                {% include "includes/icon.html" with name="lock" %}
+                <span>Confirmar y continuar</span>
+            </button>
+            <a href="{% url 'usuarios:configuracion' %}" class="btn btn-outline-secondary">
+                Cancelar
+            </a>
+        </form>
+    </div>
+</section>
+{% endblock %}

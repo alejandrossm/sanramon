@@ -23,6 +23,8 @@ db.sqlite3
 *.sqlite3-wal
 runserver*.log
 auditoria.log
+auditoria.log.lock
+auditoria-*.log.gz
 .coverage
 coverage.xml
 htmlcov/

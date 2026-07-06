@@ -83,6 +83,25 @@ ALLOWED_HOSTS = env_list(
 
 CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_TRUSTED_ORIGINS')
 
+# Seguridad HTTP. En desarrollo conserva HTTP local; en produccion falla cerrado.
+SECURE_SSL_REDIRECT = env_bool('DJANGO_SECURE_SSL_REDIRECT', not DEBUG)
+SESSION_COOKIE_SECURE = env_bool('DJANGO_SESSION_COOKIE_SECURE', not DEBUG)
+CSRF_COOKIE_SECURE = env_bool('DJANGO_CSRF_COOKIE_SECURE', not DEBUG)
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'Lax'
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = 'same-origin'
+X_FRAME_OPTIONS = 'DENY'
+
+# HSTS se habilita despues de comprobar certificado y redireccion HTTPS.
+SECURE_HSTS_SECONDS = int(os.environ.get('DJANGO_SECURE_HSTS_SECONDS', '0'))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool(
+    'DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS',
+    False,
+)
+SECURE_HSTS_PRELOAD = env_bool('DJANGO_SECURE_HSTS_PRELOAD', False)
+
 
 # Application definition
 
@@ -215,3 +234,71 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 AUDITORIA_LOG_PATH = BASE_DIR / 'auditoria.log'
+
+# Consulta publica protegida por codigo de un solo uso.
+CONSULTA_CODIGO_DURACION_MINUTOS = int(
+    os.environ.get('CONSULTA_CODIGO_DURACION_MINUTOS', '10')
+)
+CONSULTA_CODIGO_MAX_INTENTOS = int(
+    os.environ.get('CONSULTA_CODIGO_MAX_INTENTOS', '5')
+)
+CONSULTA_CODIGO_VENTANA_MINUTOS = int(
+    os.environ.get('CONSULTA_CODIGO_VENTANA_MINUTOS', '15')
+)
+CONSULTA_CODIGO_MAX_SOLICITUDES_IP = int(
+    os.environ.get('CONSULTA_CODIGO_MAX_SOLICITUDES_IP', '10')
+)
+CONSULTA_CODIGO_MAX_SOLICITUDES_SOCIO = int(
+    os.environ.get('CONSULTA_CODIGO_MAX_SOLICITUDES_SOCIO', '3')
+)
+CONSULTA_SESION_DURACION_MINUTOS = int(
+    os.environ.get('CONSULTA_SESION_DURACION_MINUTOS', '15')
+)
+CONSULTA_CODIGO_RETENCION_DIAS = int(
+    os.environ.get('CONSULTA_CODIGO_RETENCION_DIAS', '30')
+)
+
+# Seguridad de autenticacion y operaciones sensibles.
+SEGURIDAD_LOGIN_VENTANA_MINUTOS = int(
+    os.environ.get('SEGURIDAD_LOGIN_VENTANA_MINUTOS', '15')
+)
+SEGURIDAD_LOGIN_MAX_IDENTIFICADOR = int(
+    os.environ.get('SEGURIDAD_LOGIN_MAX_IDENTIFICADOR', '5')
+)
+SEGURIDAD_LOGIN_MAX_IP = int(os.environ.get('SEGURIDAD_LOGIN_MAX_IP', '20'))
+SEGURIDAD_RECUPERACION_VENTANA_MINUTOS = int(
+    os.environ.get('SEGURIDAD_RECUPERACION_VENTANA_MINUTOS', '60')
+)
+SEGURIDAD_RECUPERACION_MAX_IDENTIFICADOR = int(
+    os.environ.get('SEGURIDAD_RECUPERACION_MAX_IDENTIFICADOR', '3')
+)
+SEGURIDAD_RECUPERACION_MAX_IP = int(
+    os.environ.get('SEGURIDAD_RECUPERACION_MAX_IP', '10')
+)
+SEGURIDAD_REAUTENTICACION_MINUTOS = int(
+    os.environ.get('SEGURIDAD_REAUTENTICACION_MINUTOS', '10')
+)
+SEGURIDAD_INTENTOS_RETENCION_DIAS = int(
+    os.environ.get('SEGURIDAD_INTENTOS_RETENCION_DIAS', '30')
+)
+
+# Claves separadas por coma. La primera cifra; las restantes permiten rotacion.
+RESPALDO_ENCRYPTION_KEYS = env_list('RESPALDO_ENCRYPTION_KEYS')
+AUDITORIA_HMAC_KEY = os.environ.get('AUDITORIA_HMAC_KEY', SECRET_KEY)
+AUDITORIA_ROTACION_BYTES = int(
+    os.environ.get('AUDITORIA_ROTACION_BYTES', str(10 * 1024 * 1024))
+)
+AUDITORIA_RETENCION_MESES = int(
+    os.environ.get('AUDITORIA_RETENCION_MESES', '12')
+)
+
+# Las cargas CSV aceptadas permanecen en memoria y se rechazan sobre este limite.
+CARGA_CSV_MAX_BYTES = int(
+    os.environ.get('CARGA_CSV_MAX_BYTES', str(2 * 1024 * 1024))
+)
+FILE_UPLOAD_MAX_MEMORY_SIZE = CARGA_CSV_MAX_BYTES + (64 * 1024)
+
+if not DEBUG and not RESPALDO_ENCRYPTION_KEYS:
+    raise RuntimeError('RESPALDO_ENCRYPTION_KEYS debe estar definido en produccion.')
+if not DEBUG and 'AUDITORIA_HMAC_KEY' not in os.environ:
+    raise RuntimeError('AUDITORIA_HMAC_KEY debe estar definido en produccion.')

@@ -1,0 +1,44 @@
+{% extends "base_public.html" %}
+
+{% block title %}Verificar consulta | Valle San Ramon{% endblock %}
+
+{% block content %}
+<section class="container py-4 py-lg-5">
+    <div class="mx-auto" style="max-width: 640px;">
+        <div class="d-flex align-items-center gap-3 mb-4">
+            {% include "includes/icon.html" with name="envelope-check" classes="fs-3 text-primary" %}
+            <div>
+                <p class="text-uppercase text-primary fw-semibold small mb-1">Verificación</p>
+                <h1 class="h3 mb-1">Ingresa el código</h1>
+                <p class="text-muted mb-0">
+                    Si el RUT está registrado, enviamos un código al correo asociado.
+                </p>
+            </div>
+        </div>
+
+        <section class="public-panel p-4" aria-label="Verificar código">
+            <form method="post" class="d-grid gap-3">
+                {% csrf_token %}
+                <div>
+                    <label for="{{ form.codigo.id_for_label }}" class="form-label">{{ form.codigo.label }}</label>
+                    {{ form.codigo }}
+                    {% for error in form.codigo.errors %}
+                        <div class="invalid-feedback d-block">{{ error }}</div>
+                    {% endfor %}
+                </div>
+                <button type="submit" class="btn btn-primary btn-lg">
+                    {% include "includes/icon.html" with name="shield-check" %}
+                    <span>Verificar</span>
+                </button>
+            </form>
+        </section>
+
+        <div class="d-flex flex-wrap gap-2 mt-3">
+            <a href="{% url 'usuarios:consulta_publica_asistencia' %}" class="btn btn-outline-secondary">
+                Solicitar otro código
+            </a>
+            <a href="{% url 'usuarios:home' %}" class="btn btn-link">Volver al inicio</a>
+        </div>
+    </div>
+</section>
+{% endblock %}

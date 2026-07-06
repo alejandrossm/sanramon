@@ -42,6 +42,7 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
 - [x] Mostrar la causa de las justificaciones de inasistencia en una vista operativa o historica, para que el administrador pueda revisar el motivo registrado.
 - [x] Revisar que un socio bloqueado no contabilice nuevas asistencias como ausente.
 - [x] Sprint 3 HU-12: consulta publica por RUT para socios, mostrando estado del socio, historial de asistencia, resumen anual, reuniones totales, asistencias y ausencias.
+  - [x] Refuerzo 2026-06-29: el RUT solo inicia la solicitud; el acceso exige codigo temporal enviado al correo, aceptacion versionada y sesion limitada.
 - [x] Sprint 3 HU-12: calcular la proxima reunion automaticamente como servicio reutilizable; por ajuste de interfaz no se muestra en la vista publica.
 - [x] Carga masiva de socios: agregar opcion en Configuracion bajo Registro de logs para recibir CSV del administrador, validar toda la planilla antes de persistir, crear socios solo si todos los datos son correctos, y mostrar en un modal con scroll los socios/filas con errores cuando la planilla no sea valida.
 

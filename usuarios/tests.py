@@ -1,6 +1,8 @@
 import csv
+import re
+import sqlite3
 import zipfile
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from io import BytesIO, StringIO
 from pathlib import Path
 from tempfile import NamedTemporaryFile, gettempdir
@@ -12,6 +14,7 @@ from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.contrib.staticfiles import finders
+from django.core.cache import cache
 from django.core import mail
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -25,14 +28,21 @@ from django.utils import timezone
 from .admin import UsuarioAdmin
 from .auditoria import (
     ACCION_CARGA_HISTORICA_REVERTIDA,
+    ACCION_CARGA_HISTORICA,
     ACCION_CARGA_MASIVA_SOCIOS,
+    ACCION_LOG_AUDITORIA_DESCARGADO,
+    ACCION_REPORTE_EXPORTADO,
     ACCION_RESPALDO_BASE_DATOS,
     ACCION_REUNION_CANCELADA,
     ACCION_REUNION_ELIMINADA,
     ACCION_SOCIO_ELIMINADO,
+    ACCION_USUARIO_ACTIVADO,
     ACCION_USUARIO_DESACTIVADO,
     ACCION_USUARIO_ELIMINADO,
     leer_eventos_auditoria,
+    listar_archivos_auditoria,
+    registrar_evento_auditoria,
+    verificar_integridad_archivo,
 )
 from .forms import (
     JustificacionInasistenciaForm,
@@ -48,11 +58,18 @@ from .identificacion import (
     parsear_lectura_rut,
 )
 from .models import (
+    AceptacionPrivacidadConsulta,
     AsistenciaReunion,
     CargaAsistenciaHistorica,
     DesbloqueoSocio,
+    IntentoAcceso,
     NotificacionBloqueoSocio,
     Reunion,
+    SolicitudCodigoConsulta,
+)
+from .privacidad import (
+    POLITICA_PRIVACIDAD_VERSION,
+    SESION_SOLICITUD_ID,
 )
 from .permisos import (
     GRUPO_ADMINISTRADOR,
@@ -73,6 +90,8 @@ from .servicios_asistencia import (
     obtener_resumen_asistencia_socio,
     puede_eliminar_socio_seguro,
 )
+from .respaldos import descifrar_respaldo
+from .seguridad import SESION_REAUTENTICADA_HASTA
 from .views import (
     ROLES_FILTRABLES_USUARIOS,
     obtener_resumen_estado_asistencia_socios,
@@ -87,6 +106,10 @@ from .views import (
     PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'],
     EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
     AUDITORIA_LOG_PATH=Path(gettempdir()) / 'sanramon_test_auditoria.log',
+    RESPALDO_ENCRYPTION_KEYS=[
+        'tK4O8lU1LMYcatkJFS352xgHz8obw8AvOPRIYV55phM='
+    ],
+    AUDITORIA_HMAC_KEY='clave-hmac-auditoria-exclusiva-para-pruebas',
 )
 class UsuariosModuloTests(TestCase):
     """Pruebas de autenticacion, roles, permisos y gestion de usuarios."""
@@ -94,6 +117,8 @@ class UsuariosModuloTests(TestCase):
     def setUp(self):
         """Crea usuarios base para validar reglas por rol."""
         Path(settings.AUDITORIA_LOG_PATH).unlink(missing_ok=True)
+        cache.delete('privacidad:purga-solicitudes-otp:v1')
+        cache.delete('seguridad:purga-intentos:v1')
         self.User = get_user_model()
         self.admin_user = self.User.objects.create_user(
             username='admin',
@@ -151,6 +176,24 @@ class UsuariosModuloTests(TestCase):
             origen=origen,
             registrada_por=self.admin_user,
         )
+
+    def solicitar_codigo_consulta(self, rut=None, anio=2026):
+        """Solicita y extrae el OTP entregado por el backend de pruebas."""
+        response = self.client.post(
+            reverse('usuarios:consulta_publica_asistencia'),
+            {
+                'rut': rut or self.socio_user.rut,
+                'anio': str(anio),
+            },
+        )
+        self.assertRedirects(
+            response,
+            reverse('usuarios:verificar_codigo_consulta'),
+        )
+        mensaje = mail.outbox[-1]
+        coincidencia = re.search(r'Tu código es: (\d{6})', mensaje.body)
+        self.assertIsNotNone(coincidencia)
+        return coincidencia.group(1)
 
     def test_permisos_base_estan_asignados_a_grupos_operativos(self):
         """Crea grupos equivalentes a roles sin acoplar permisos al codigo."""
@@ -865,6 +908,29 @@ class UsuariosModuloTests(TestCase):
         )
         self.assertRedirects(response, reverse('usuarios:dashboard'))
 
+    def test_login_bloquea_fuerza_bruta_por_identificador(self):
+        """Bloquea nuevos intentos durante la ventana configurada."""
+        with self.settings(SEGURIDAD_LOGIN_MAX_IDENTIFICADOR=2):
+            for _indice in range(2):
+                response = self.client.post(
+                    reverse('usuarios:login'),
+                    {'username': 'admin', 'password': 'incorrecta'},
+                )
+                self.assertEqual(response.status_code, 200)
+
+            response = self.client.post(
+                reverse('usuarios:login'),
+                {'username': 'admin', 'password': 'ClaveSegura123'},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Demasiados intentos')
+        self.assertFalse(response.wsgi_request.user.is_authenticated)
+        self.assertGreaterEqual(
+            IntentoAcceso.objects.filter(tipo=IntentoAcceso.LOGIN).count(),
+            2,
+        )
+
     def test_login_muestra_link_de_recuperacion_password(self):
         """Expone el acceso publico para recuperar contrasena."""
         response = self.client.get(reverse('usuarios:login'))
@@ -900,7 +966,7 @@ class UsuariosModuloTests(TestCase):
         self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
 
     def test_consulta_publica_rut_invalido_muestra_mensaje_generico(self):
-        """No diferencia entre RUT invalido y datos sin coincidencia."""
+        """No entrega datos ni confirma coincidencias sin verificar correo."""
         response = self.client.post(
             reverse('usuarios:consulta_publica_asistencia'),
             {'rut': 'rut-invalido', 'anio': '2026'},
@@ -917,16 +983,53 @@ class UsuariosModuloTests(TestCase):
             reverse('usuarios:consulta_publica_asistencia'),
             {'rut': self.admin_user.rut, 'anio': '2026'},
         )
-
-        self.assertEqual(response.status_code, 200)
+        self.assertRedirects(
+            response,
+            reverse('usuarios:verificar_codigo_consulta'),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(len(mail.outbox), 0)
+        response = self.client.get(reverse('usuarios:verificar_codigo_consulta'))
         self.assertContains(
             response,
-            'No fue posible encontrar informacion para los datos ingresados.',
+            'Si el RUT está registrado, enviamos un código al correo asociado.',
         )
-        self.assertNotIn('socio', response.context)
+        self.assertContains(response, 'data-app-message')
+        self.assertContains(response, 'data-message-level="success"')
+        self.assertContains(
+            response,
+            'Código enviado. Si el RUT está registrado, revisa el correo asociado para continuar.',
+        )
+        self.assertNotContains(response, self.admin_user.email)
+        self.assertNotContains(response, self.admin_user.nombre_completo)
+
+    def test_consulta_publica_muestra_modal_generico_al_enviar_codigo(self):
+        """Confirma el envio sin exponer el correo ni la identidad del socio."""
+        response = self.client.post(
+            reverse('usuarios:consulta_publica_asistencia'),
+            {
+                'rut': self.socio_user.rut,
+                'anio': '2026',
+            },
+            follow=True,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse('usuarios:verificar_codigo_consulta'),
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertContains(response, 'data-app-message')
+        self.assertContains(response, 'data-message-level="success"')
+        self.assertContains(
+            response,
+            'Código enviado. Si el RUT está registrado, revisa el correo asociado para continuar.',
+        )
+        self.assertNotContains(response, self.socio_user.email)
+        self.assertNotContains(response, self.socio_user.nombre_completo)
 
     def test_consulta_publica_muestra_estado_resumen_e_historial(self):
-        """Permite al socio consultar su estado e historial anual por RUT."""
+        """Exige OTP y aceptacion antes de mostrar el historial anual."""
         self.registrar_asistencia_historica(
             self.socio_user,
             AsistenciaReunion.PRESENTE,
@@ -950,12 +1053,44 @@ class UsuariosModuloTests(TestCase):
             inasistencias_al_desbloquear=1,
         )
 
-        response = self.client.post(
+        codigo = self.solicitar_codigo_consulta(anio=2026)
+        solicitud = SolicitudCodigoConsulta.objects.get()
+        self.assertNotEqual(solicitud.codigo_hash, codigo)
+        self.assertNotIn(codigo, solicitud.codigo_hash)
+        self.assertEqual(mail.outbox[0].to, [self.socio_user.email])
+
+        response = self.client.get(
+            reverse('usuarios:resultado_consulta_asistencia'),
+        )
+        self.assertRedirects(
+            response,
             reverse('usuarios:consulta_publica_asistencia'),
-            {'rut': self.socio_user.rut, 'anio': '2026'},
+            fetch_redirect_response=False,
         )
 
+        response = self.client.post(
+            reverse('usuarios:verificar_codigo_consulta'),
+            {'codigo': codigo},
+        )
+        self.assertRedirects(
+            response,
+            reverse('usuarios:aceptar_privacidad_consulta'),
+        )
+
+        response = self.client.post(
+            reverse('usuarios:aceptar_privacidad_consulta'),
+            {'acepta': 'on'},
+        )
+        self.assertRedirects(
+            response,
+            reverse('usuarios:resultado_consulta_asistencia'),
+        )
+
+        response = self.client.get(
+            reverse('usuarios:resultado_consulta_asistencia'),
+        )
         self.assertEqual(response.status_code, 200)
+        self.assertIn('no-store', response['Cache-Control'])
         self.assertEqual(response.context['socio'], self.socio_user)
         self.assertNotIn('proxima_reunion', response.context)
         self.assertEqual(response.context['resumen_general']['total_reuniones'], 3)
@@ -976,6 +1111,103 @@ class UsuariosModuloTests(TestCase):
         self.assertNotContains(response, 'JUSTIFICACI')
         self.assertNotContains(response, 'Justificada')
         self.assertNotContains(response, '2025')
+        aceptacion = AceptacionPrivacidadConsulta.objects.get(
+            socio=self.socio_user,
+        )
+        self.assertEqual(
+            aceptacion.version_politica,
+            POLITICA_PRIVACIDAD_VERSION,
+        )
+        self.assertEqual(
+            aceptacion.metodo_verificacion,
+            AceptacionPrivacidadConsulta.METODO_EMAIL_OTP,
+        )
+
+    def test_codigo_consulta_es_de_uso_unico_y_limita_intentos(self):
+        """Rechaza reutilizacion y bloquea una solicitud tras cinco errores."""
+        codigo = self.solicitar_codigo_consulta()
+        solicitud_id = self.client.session[SESION_SOLICITUD_ID]
+
+        for _indice in range(5):
+            response = self.client.post(
+                reverse('usuarios:verificar_codigo_consulta'),
+                {'codigo': '999999' if codigo != '999999' else '888888'},
+            )
+            self.assertEqual(response.status_code, 200)
+
+        solicitud = SolicitudCodigoConsulta.objects.get(pk=solicitud_id)
+        self.assertEqual(solicitud.intentos_fallidos, 5)
+        response = self.client.post(
+            reverse('usuarios:verificar_codigo_consulta'),
+            {'codigo': codigo},
+        )
+        self.assertContains(response, 'máximo de intentos')
+
+        SolicitudCodigoConsulta.objects.all().delete()
+        mail.outbox.clear()
+        codigo = self.solicitar_codigo_consulta()
+        response = self.client.post(
+            reverse('usuarios:verificar_codigo_consulta'),
+            {'codigo': codigo},
+        )
+        self.assertEqual(response.status_code, 302)
+        solicitud = SolicitudCodigoConsulta.objects.get()
+        sesion = self.client.session
+        sesion[SESION_SOLICITUD_ID] = str(solicitud.pk)
+        sesion.save()
+        response = self.client.post(
+            reverse('usuarios:verificar_codigo_consulta'),
+            {'codigo': codigo},
+        )
+        self.assertContains(response, 'no es válido')
+
+    def test_codigo_consulta_expira_y_aplica_limite_por_socio(self):
+        """Impide usar codigos vencidos y frena reenvios abusivos."""
+        codigo = self.solicitar_codigo_consulta()
+        solicitud = SolicitudCodigoConsulta.objects.get()
+        solicitud.fecha_expiracion = timezone.now() - timedelta(seconds=1)
+        solicitud.save(update_fields=['fecha_expiracion'])
+        response = self.client.post(
+            reverse('usuarios:verificar_codigo_consulta'),
+            {'codigo': codigo},
+        )
+        self.assertContains(response, 'expiró')
+
+        SolicitudCodigoConsulta.objects.all().delete()
+        mail.outbox.clear()
+        with self.settings(CONSULTA_CODIGO_MAX_SOLICITUDES_SOCIO=1):
+            self.solicitar_codigo_consulta()
+            response = self.client.post(
+                reverse('usuarios:consulta_publica_asistencia'),
+                {'rut': self.socio_user.rut, 'anio': '2026'},
+            )
+        self.assertRedirects(
+            response,
+            reverse('usuarios:verificar_codigo_consulta'),
+        )
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_politica_privacidad_es_publica_y_versionada(self):
+        """Mantiene disponible el aviso usado por la consulta."""
+        response = self.client.get(reverse('usuarios:politica_privacidad'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, POLITICA_PRIVACIDAD_VERSION)
+        self.assertContains(response, 'Derechos de las personas')
+        self.assertContains(response, 'contacto@vallesanramon.cl')
+
+    def test_nueva_solicitud_purga_otp_antiguos(self):
+        """Elimina oportunistamente la evidencia tecnica con mas de 30 dias."""
+        self.solicitar_codigo_consulta()
+        solicitud = SolicitudCodigoConsulta.objects.get()
+        SolicitudCodigoConsulta.objects.filter(pk=solicitud.pk).update(
+            fecha_solicitud=timezone.now() - timedelta(days=31),
+        )
+
+        cache.delete('privacidad:purga-solicitudes-otp:v1')
+        mail.outbox.clear()
+        self.solicitar_codigo_consulta()
+        self.assertFalse(SolicitudCodigoConsulta.objects.filter(pk=solicitud.pk).exists())
 
     def test_recuperacion_password_muestra_link_a_home(self):
         """Permite volver a home desde el flujo publico de recuperacion."""
@@ -1032,6 +1264,59 @@ class UsuariosModuloTests(TestCase):
         self.assertRedirects(response, reverse('usuarios:password_reset_complete'))
         self.admin_user.refresh_from_db()
         self.assertTrue(self.admin_user.check_password('ClaveNuevaSegura123'))
+
+    def test_recuperacion_password_limita_envios_sin_revelar_cuenta(self):
+        """Mantiene la respuesta generica y deja de enviar al alcanzar el limite."""
+        with self.settings(SEGURIDAD_RECUPERACION_MAX_IDENTIFICADOR=2):
+            for _indice in range(3):
+                response = self.client.post(
+                    reverse('usuarios:password_reset'),
+                    {'email': self.admin_user.email},
+                )
+                self.assertRedirects(
+                    response,
+                    reverse('usuarios:password_reset_done'),
+                )
+
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertEqual(
+            IntentoAcceso.objects.filter(
+                tipo=IntentoAcceso.RECUPERACION,
+            ).count(),
+            2,
+        )
+
+    def test_exportacion_exige_reautenticacion_cuando_vence_sesion_reciente(self):
+        """Solicita contraseña y vuelve de forma segura a la descarga."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        sesion = self.client.session
+        sesion.pop(SESION_REAUTENTICADA_HASTA, None)
+        sesion.save()
+        destino = reverse('usuarios:exportar_socios_completo', args=['csv'])
+
+        response = self.client.get(destino)
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response['Location'].startswith(reverse('usuarios:reauth_seguridad')))
+
+        response = self.client.post(
+            reverse('usuarios:reauth_seguridad'),
+            {'password': 'incorrecta', 'next': destino},
+        )
+        self.assertContains(response, 'contraseña no es correcta')
+
+        response = self.client.post(
+            reverse('usuarios:reauth_seguridad'),
+            {'password': 'ClaveSegura123', 'next': destino},
+        )
+        self.assertRedirects(response, destino, fetch_redirect_response=False)
+
+        response = self.client.get(destino)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response['Content-Type'].startswith('text/csv'))
+        self.assertEqual(
+            leer_eventos_auditoria()[0]['accion'],
+            ACCION_REPORTE_EXPORTADO,
+        )
 
     def test_recuperacion_password_no_envia_correo_a_socio_activo(self):
         """No envia recuperacion a socios aunque tengan password utilizable."""
@@ -1328,8 +1613,13 @@ class UsuariosModuloTests(TestCase):
     def test_configuracion_admin_accede_logs_y_respaldo(self, mock_ruta_respaldo):
         """Centraliza descargas de logs y respaldo para el administrador."""
         with NamedTemporaryFile(delete=False, suffix='.sqlite3') as archivo:
-            archivo.write(b'SQLite format 3\x00')
             ruta_respaldo = Path(archivo.name)
+        conexion = sqlite3.connect(ruta_respaldo)
+        try:
+            conexion.execute('CREATE TABLE prueba (id INTEGER PRIMARY KEY)')
+            conexion.commit()
+        finally:
+            conexion.close()
         mock_ruta_respaldo.return_value = ruta_respaldo
         with NamedTemporaryFile(delete=False, suffix='.log') as archivo_auditoria:
             archivo_auditoria.write(b'evento-test\n')
@@ -1372,15 +1662,22 @@ class UsuariosModuloTests(TestCase):
                 self.assertEqual(response['Content-Type'], 'text/plain')
                 self.assertIn('attachment;', response['Content-Disposition'])
                 self.assertIn('.log', response['Content-Disposition'])
-                self.assertEqual(b''.join(response.streaming_content), b'evento-test\n')
+                contenido_log = b''.join(response.streaming_content)
+                self.assertIn(
+                    ACCION_LOG_AUDITORIA_DESCARGADO.encode(),
+                    contenido_log,
+                )
                 response.close()
 
                 response = self.client.get(reverse('usuarios:exportar_base_datos_respaldo'))
                 self.assertEqual(response.status_code, 200)
-                self.assertEqual(response['Content-Type'], 'application/vnd.sqlite3')
+                self.assertEqual(response['Content-Type'], 'application/octet-stream')
                 self.assertIn('attachment;', response['Content-Disposition'])
                 self.assertIn('respaldo_sanramon_', response['Content-Disposition'])
-                response.close()
+                self.assertIn('.sqlite3.fernet', response['Content-Disposition'])
+                self.assertTrue(
+                    descifrar_respaldo(response.content).startswith(b'SQLite format 3')
+                )
 
                 eventos = leer_eventos_auditoria()
                 self.assertEqual(eventos[0]['accion'], ACCION_RESPALDO_BASE_DATOS)
@@ -1388,6 +1685,11 @@ class UsuariosModuloTests(TestCase):
         finally:
             ruta_respaldo.unlink(missing_ok=True)
             ruta_auditoria.unlink(missing_ok=True)
+            ruta_auditoria.with_suffix('.log.lock').unlink(missing_ok=True)
+            for ruta_rotada in ruta_auditoria.parent.glob(
+                f'{ruta_auditoria.stem}-*.log.gz'
+            ):
+                ruta_rotada.unlink(missing_ok=True)
 
     def test_configuracion_permite_revertir_carga_historica_por_planilla(self):
         """Revierte todos los registros de una carga historica desde configuracion."""
@@ -1626,6 +1928,60 @@ class UsuariosModuloTests(TestCase):
                 self.assertIn('Suspension administrativa', contenido_log)
         finally:
             ruta_auditoria.unlink(missing_ok=True)
+            ruta_auditoria.with_suffix('.log.lock').unlink(missing_ok=True)
+            for ruta_rotada in ruta_auditoria.parent.glob(
+                f'{ruta_auditoria.stem}-*.log.gz'
+            ):
+                ruta_rotada.unlink(missing_ok=True)
+
+    def test_auditoria_detecta_alteracion_y_rota_archivo(self):
+        """Firma eventos, detecta manipulacion y preserva el archivo observado."""
+        with NamedTemporaryFile(delete=False, suffix='.log') as archivo:
+            ruta_auditoria = Path(archivo.name)
+
+        try:
+            with self.settings(AUDITORIA_LOG_PATH=ruta_auditoria):
+                registrar_evento_auditoria(
+                    self.admin_user,
+                    ACCION_USUARIO_DESACTIVADO,
+                    entidad_tipo='Usuario',
+                    entidad_id=self.encargado_user.pk,
+                    entidad='Usuario interno',
+                )
+                self.assertTrue(verificar_integridad_archivo(ruta_auditoria))
+
+                contenido = ruta_auditoria.read_text(encoding='utf-8')
+                ruta_auditoria.write_text(
+                    contenido.replace(
+                        ACCION_USUARIO_DESACTIVADO,
+                        ACCION_USUARIO_ELIMINADO,
+                        1,
+                    ),
+                    encoding='utf-8',
+                )
+                self.assertFalse(verificar_integridad_archivo(ruta_auditoria))
+
+                registrar_evento_auditoria(
+                    self.admin_user,
+                    ACCION_USUARIO_ACTIVADO,
+                    entidad_tipo='Usuario',
+                    entidad_id=self.encargado_user.pk,
+                    entidad='Usuario interno',
+                )
+                archivos = listar_archivos_auditoria()
+                actual = next(item for item in archivos if item['id'] == 'actual')
+                historicos = [item for item in archivos if item['id'] != 'actual']
+                self.assertTrue(actual['integridad_valida'])
+                self.assertEqual(len(historicos), 1)
+                self.assertFalse(historicos[0]['integridad_valida'])
+                self.assertTrue(historicos[0]['comprimido'])
+        finally:
+            ruta_auditoria.unlink(missing_ok=True)
+            ruta_auditoria.with_suffix('.log.lock').unlink(missing_ok=True)
+            for ruta_rotada in ruta_auditoria.parent.glob(
+                f'{ruta_auditoria.stem}-*.log.gz'
+            ):
+                ruta_rotada.unlink(missing_ok=True)
 
     @patch('usuarios.forms.timezone.localtime', return_value=datetime(2026, 5, 14, 12, 0))
     def test_crear_reunion_solo_disponible_para_administrador(self, _localtime):
@@ -2109,7 +2465,51 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(socio.telefono_movil, '+56933333333')
         self.assertEqual(socio.fecha_ingreso_proyecto, date(2026, 5, 15))
         self.assertFalse(socio.has_usable_password())
-        self.assertEqual(leer_eventos_auditoria()[0]['accion'], ACCION_CARGA_MASIVA_SOCIOS)
+        evento = leer_eventos_auditoria()[0]
+        self.assertEqual(evento['accion'], ACCION_CARGA_MASIVA_SOCIOS)
+        self.assertNotIn('socios.csv', evento['detalle'])
+
+    def test_carga_csv_rechaza_tamano_tipo_y_contenido_binario(self):
+        """Aplica controles previos antes de procesar una planilla."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        url = reverse('usuarios:cargar_socios_masivo')
+
+        with self.settings(CARGA_CSV_MAX_BYTES=16):
+            response = self.client.post(
+                url,
+                {
+                    'archivo': SimpleUploadedFile(
+                        'socios.csv',
+                        b'columna1,columna2\nvalor1,valor2\n',
+                        content_type='text/csv',
+                    )
+                },
+            )
+        self.assertContains(response, 'máximo permitido')
+
+        response = self.client.post(
+            url,
+            {
+                'archivo': SimpleUploadedFile(
+                    'socios.csv',
+                    b'columna1,columna2\nvalor1,valor2\n',
+                    content_type='application/pdf',
+                )
+            },
+        )
+        self.assertContains(response, 'tipo de contenido')
+
+        response = self.client.post(
+            url,
+            {
+                'archivo': SimpleUploadedFile(
+                    'socios.csv',
+                    b'columna1,columna2\nvalor\x00,valor2\n',
+                    content_type='text/csv',
+                )
+            },
+        )
+        self.assertContains(response, 'datos binarios')
 
     def test_carga_masiva_socios_csv_rollback_por_error(self):
         """No crea ningun socio si una fila de la planilla contiene errores."""
@@ -2179,11 +2579,16 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(asistencias.count(), 2)
         carga = CargaAsistenciaHistorica.objects.get(reunion=reunion)
         self.assertEqual(carga.cargado_por, self.admin_user)
-        self.assertEqual(carga.archivo_nombre, 'asistencia.csv')
+        self.assertRegex(carga.archivo_nombre, r'^CSV-[0-9a-f]{16}$')
+        self.assertNotEqual(carga.archivo_nombre, 'asistencia.csv')
         self.assertEqual(carga.total_registros, 2)
         self.assertEqual(carga.total_presentes, 1)
         self.assertEqual(carga.total_ausentes, 1)
         self.assertEqual(asistencias.filter(carga_historica=carga).count(), 2)
+        self.assertEqual(
+            leer_eventos_auditoria()[0]['accion'],
+            ACCION_CARGA_HISTORICA,
+        )
         self.assertTrue(
             asistencias.filter(
                 socio=self.socio_user,
@@ -2917,7 +3322,6 @@ class UsuariosModuloTests(TestCase):
                 estado=AsistenciaReunion.PRESENTE,
             ).exists()
         )
-
     def test_bloqueo_operativo_persiste_entre_anios_hasta_justificar(self):
         """El bloqueo vigente no se reinicia por cambiar de ano calendario."""
         anio_actual = timezone.localdate().year
@@ -4708,7 +5112,6 @@ class UsuariosModuloTests(TestCase):
                 asistencia=ausencia_justificable,
             ).exists()
         )
-
     def test_listado_justificaciones_admin_muestra_trazabilidad_general(self):
         """Expone una vista general de justificaciones solo para administradores."""
         ausencia_justificada = self.registrar_asistencia_historica(

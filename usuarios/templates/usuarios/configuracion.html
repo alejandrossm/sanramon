@@ -21,15 +21,29 @@
                 {% include "includes/icon.html" with name="list" classes="fs-4 text-primary flex-shrink-0" %}
                 <div>
                     <h2 class="h5 mb-1">Registro de logs</h2>
-                    <p class="text-muted mb-0">Descarga el archivo auditoria.log para revisar eventos cr&iacute;ticos fuera del sistema.</p>
+                    <p class="text-muted mb-0">Selecciona un log activo o hist&oacute;rico. La integridad se verifica antes de mostrarlo como disponible.</p>
                 </div>
             </div>
         </div>
         <div class="col-12 col-lg-auto">
-            <a href="{% url 'usuarios:descargar_registro_logs' %}" class="btn btn-outline-primary d-inline-flex align-items-center gap-2">
-                {% include "includes/icon.html" with name="download" %}
-                <span>Descargar .log</span>
-            </a>
+            {% if archivos_auditoria %}
+                <form method="get" action="{% url 'usuarios:descargar_registro_logs' %}" class="d-flex flex-column flex-sm-row gap-2">
+                    <label for="archivo-auditoria" class="visually-hidden">Archivo de auditor&iacute;a</label>
+                    <select id="archivo-auditoria" name="archivo" class="form-select">
+                        {% for archivo in archivos_auditoria %}
+                            <option value="{{ archivo.id }}">
+                                {{ archivo.label }} - {% if archivo.integridad_valida %}integridad v&aacute;lida{% else %}revisar integridad{% endif %}
+                            </option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="btn btn-outline-primary d-inline-flex align-items-center justify-content-center gap-2 text-nowrap">
+                        {% include "includes/icon.html" with name="download" %}
+                        <span>Descargar .log</span>
+                    </button>
+                </form>
+            {% else %}
+                <span class="text-muted">No hay logs disponibles.</span>
+            {% endif %}
         </div>
     </div>
 
@@ -63,7 +77,7 @@
                 {% include "includes/icon.html" with name="download" classes="fs-4 text-primary flex-shrink-0" %}
                 <div>
                     <h2 class="h5 mb-1">Respaldo de base de datos</h2>
-                    <p class="text-muted mb-0">Descarga una copia operativa de la base SQLite configurada.</p>
+                    <p class="text-muted mb-0">Descarga una copia consistente de SQLite, cifrada y autenticada con una clave externa.</p>
                 </div>
             </div>
         </div>

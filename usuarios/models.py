@@ -1,4 +1,6 @@
 import hashlib
+import uuid
+
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, UserManager
 from django.core.exceptions import ValidationError
@@ -962,3 +964,130 @@ class NotificacionBloqueoSocio(models.Model):
             fecha_envio=timezone.now(),
             total_inasistencias_efectivas=total_efectivas,
         )
+
+
+class SolicitudCodigoConsulta(models.Model):
+    """Solicitud efimera para verificar por correo una consulta de asistencia."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    socio = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.CASCADE,
+        related_name='solicitudes_codigo_consulta',
+    )
+    codigo_hash = models.CharField(max_length=64)
+    ip_hash = models.CharField(max_length=64, db_index=True)
+    fecha_solicitud = models.DateTimeField(default=timezone.now, db_index=True)
+    fecha_expiracion = models.DateTimeField()
+    intentos_fallidos = models.PositiveSmallIntegerField(default=0)
+    fecha_uso = models.DateTimeField(blank=True, null=True)
+    email_enviado = models.BooleanField(default=False)
+
+    class Meta:
+        """Orden e indices para expiracion y limites de solicitudes."""
+
+        ordering = ['-fecha_solicitud']
+        verbose_name = 'solicitud de codigo de consulta'
+        verbose_name_plural = 'solicitudes de codigo de consulta'
+        indexes = [
+            models.Index(
+                fields=['ip_hash', 'fecha_solicitud'],
+                name='consulta_ip_fecha_idx',
+            ),
+            models.Index(
+                fields=['socio', 'fecha_solicitud'],
+                name='consulta_socio_fecha_idx',
+            ),
+        ]
+
+    def __str__(self):
+        """Evita exponer RUT o correo en representaciones administrativas."""
+        return f'Solicitud {self.pk}'
+
+    def esta_vigente(self, ahora=None):
+        """Indica si el codigo aun puede validarse."""
+        ahora = ahora or timezone.now()
+        return (
+            self.email_enviado
+            and self.socio_id is not None
+            and self.fecha_uso is None
+            and self.fecha_expiracion > ahora
+        )
+
+
+class AceptacionPrivacidadConsulta(models.Model):
+    """Evidencia versionada del aviso aceptado para la consulta digital."""
+
+    METODO_EMAIL_OTP = 'EMAIL_OTP'
+    METODOS = [
+        (METODO_EMAIL_OTP, 'Codigo de un solo uso enviado por correo'),
+    ]
+
+    socio = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='aceptaciones_privacidad_consulta',
+    )
+    version_politica = models.CharField(max_length=20)
+    texto_hash = models.CharField(max_length=64)
+    metodo_verificacion = models.CharField(max_length=20, choices=METODOS)
+    fecha_aceptacion = models.DateTimeField(default=timezone.now)
+    ip_hash = models.CharField(max_length=64)
+
+    class Meta:
+        """Conserva una sola evidencia por socio y version informada."""
+
+        ordering = ['-fecha_aceptacion']
+        verbose_name = 'aceptacion de privacidad para consulta'
+        verbose_name_plural = 'aceptaciones de privacidad para consulta'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['socio', 'version_politica'],
+                name='aceptacion_privacidad_unica_socio_version',
+            ),
+        ]
+
+    def __str__(self):
+        """Representa la evidencia sin incluir identificadores personales."""
+        return f'Aceptacion socio #{self.socio_id} - {self.version_politica}'
+
+
+class IntentoAcceso(models.Model):
+    """Evidencia seudonimizada para limitar intentos de autenticacion."""
+
+    LOGIN = 'LOGIN'
+    RECUPERACION = 'RECUPERACION'
+    REAUTENTICACION = 'REAUTENTICACION'
+    TIPOS = [
+        (LOGIN, 'Inicio de sesion'),
+        (RECUPERACION, 'Recuperacion de contrasena'),
+        (REAUTENTICACION, 'Reautenticacion sensible'),
+    ]
+
+    tipo = models.CharField(max_length=20, choices=TIPOS)
+    identificador_hash = models.CharField(max_length=64, db_index=True)
+    ip_hash = models.CharField(max_length=64, db_index=True)
+    fecha = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        """Indices para ventanas de limitacion por identidad e IP."""
+
+        ordering = ['-fecha']
+        verbose_name = 'intento de acceso'
+        verbose_name_plural = 'intentos de acceso'
+        indexes = [
+            models.Index(
+                fields=['tipo', 'identificador_hash', 'fecha'],
+                name='acceso_tipo_id_fecha_idx',
+            ),
+            models.Index(
+                fields=['tipo', 'ip_hash', 'fecha'],
+                name='acceso_tipo_ip_fecha_idx',
+            ),
+        ]
+
+    def __str__(self):
+        """No expone el identificador original."""
+        return f'{self.tipo} - {self.fecha:%Y-%m-%d %H:%M:%S}'

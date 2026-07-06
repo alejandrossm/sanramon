@@ -2,10 +2,13 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
 from .models import (
+    AceptacionPrivacidadConsulta,
     AsistenciaReunion,
     DesbloqueoSocio,
+    IntentoAcceso,
     NotificacionBloqueoSocio,
     Reunion,
+    SolicitudCodigoConsulta,
     Usuario,
 )
 
@@ -188,3 +191,84 @@ class NotificacionBloqueoSocioAdmin(admin.ModelAdmin):
     )
     readonly_fields = ('fecha_envio', 'firma_bloqueo')
     ordering = ('-fecha_envio',)
+
+
+@admin.register(SolicitudCodigoConsulta)
+class SolicitudCodigoConsultaAdmin(admin.ModelAdmin):
+    """Consulta tecnica de solicitudes OTP sin exponer sus huellas."""
+
+    list_display = (
+        'id',
+        'socio_id',
+        'fecha_solicitud',
+        'fecha_expiracion',
+        'intentos_fallidos',
+        'fecha_uso',
+        'email_enviado',
+    )
+    list_filter = ('email_enviado', 'fecha_solicitud', 'fecha_uso')
+    readonly_fields = (
+        'id',
+        'socio',
+        'codigo_hash',
+        'ip_hash',
+        'fecha_solicitud',
+        'fecha_expiracion',
+        'intentos_fallidos',
+        'fecha_uso',
+        'email_enviado',
+    )
+    ordering = ('-fecha_solicitud',)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(AceptacionPrivacidadConsulta)
+class AceptacionPrivacidadConsultaAdmin(admin.ModelAdmin):
+    """Evidencia inmutable de la version informada al socio."""
+
+    list_display = (
+        'socio_id',
+        'version_politica',
+        'metodo_verificacion',
+        'fecha_aceptacion',
+    )
+    list_filter = ('version_politica', 'metodo_verificacion', 'fecha_aceptacion')
+    readonly_fields = (
+        'socio',
+        'version_politica',
+        'texto_hash',
+        'metodo_verificacion',
+        'fecha_aceptacion',
+        'ip_hash',
+    )
+    ordering = ('-fecha_aceptacion',)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(IntentoAcceso)
+class IntentoAccesoAdmin(admin.ModelAdmin):
+    """Consulta tecnica de limites sin identificadores legibles."""
+
+    list_display = ('tipo', 'fecha')
+    list_filter = ('tipo', 'fecha')
+    readonly_fields = ('tipo', 'identificador_hash', 'ip_hash', 'fecha')
+    ordering = ('-fecha',)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
