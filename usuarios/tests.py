@@ -986,6 +986,7 @@ class UsuariosModuloTests(TestCase):
         self.assertRedirects(
             response,
             reverse('usuarios:verificar_codigo_consulta'),
+            fetch_redirect_response=False,
         )
         self.assertEqual(len(mail.outbox), 0)
         response = self.client.get(reverse('usuarios:verificar_codigo_consulta'))
@@ -993,8 +994,39 @@ class UsuariosModuloTests(TestCase):
             response,
             'Si el RUT está registrado, enviamos un código al correo asociado.',
         )
+        self.assertContains(response, 'data-app-message')
+        self.assertContains(response, 'data-message-level="success"')
+        self.assertContains(
+            response,
+            'Código enviado. Si el RUT está registrado, revisa el correo asociado para continuar.',
+        )
         self.assertNotContains(response, self.admin_user.email)
         self.assertNotContains(response, self.admin_user.nombre_completo)
+
+    def test_consulta_publica_muestra_modal_generico_al_enviar_codigo(self):
+        """Confirma el envio sin exponer el correo ni la identidad del socio."""
+        response = self.client.post(
+            reverse('usuarios:consulta_publica_asistencia'),
+            {
+                'rut': self.socio_user.rut,
+                'anio': '2026',
+            },
+            follow=True,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse('usuarios:verificar_codigo_consulta'),
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertContains(response, 'data-app-message')
+        self.assertContains(response, 'data-message-level="success"')
+        self.assertContains(
+            response,
+            'Código enviado. Si el RUT está registrado, revisa el correo asociado para continuar.',
+        )
+        self.assertNotContains(response, self.socio_user.email)
+        self.assertNotContains(response, self.socio_user.nombre_completo)
 
     def test_consulta_publica_muestra_estado_resumen_e_historial(self):
         """Exige OTP y aceptacion antes de mostrar el historial anual."""

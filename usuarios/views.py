@@ -1000,6 +1000,13 @@ def consulta_publica_asistencia(request):
         )
         request.session[SESION_SOLICITUD_ID] = str(solicitud.pk)
         request.session[SESION_ANIO] = anio
+        messages.success(
+            request,
+            (
+                'Código enviado. Si el RUT está registrado, revisa el correo '
+                'asociado para continuar.'
+            ),
+        )
         return redirect('usuarios:verificar_codigo_consulta')
 
     return render(
