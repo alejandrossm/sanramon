@@ -92,23 +92,12 @@ def _hash_codigo(solicitud_id, codigo):
     ).hexdigest()
 
 
-def _limite_alcanzado(socio, ip_hash, ahora):
+def _limite_alcanzado(socio, ahora):
     ventana_minutos = _configuracion_entera(
         'CONSULTA_CODIGO_VENTANA_MINUTOS',
-        15,
+        2,
     )
     desde = ahora - timedelta(minutes=ventana_minutos)
-    maximo_ip = _configuracion_entera(
-        'CONSULTA_CODIGO_MAX_SOLICITUDES_IP',
-        10,
-    )
-    solicitudes_ip = SolicitudCodigoConsulta.objects.filter(
-        ip_hash=ip_hash,
-        fecha_solicitud__gte=desde,
-    ).count()
-    if solicitudes_ip >= maximo_ip:
-        return True
-
     if socio is None:
         return False
 
@@ -140,7 +129,7 @@ def crear_solicitud_codigo(socio, ip_hash, anio):
     """Crea una solicitud real o indistinguible y envia el codigo si procede."""
     ahora = timezone.now()
     purgar_solicitudes_antiguas(ahora)
-    limitado = _limite_alcanzado(socio, ip_hash, ahora)
+    limitado = _limite_alcanzado(socio, ahora)
     socio_solicitud = socio if socio is not None and not limitado else None
     codigo = generar_codigo()
     solicitud = SolicitudCodigoConsulta(
