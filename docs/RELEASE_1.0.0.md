@@ -6,7 +6,7 @@ aplicables esten aprobados sobre el mismo commit.
 
 ## Controles automatizados
 
-- [ ] El workflow CI pasa en Python 3.13.
+- [x] El workflow CI pasa en Python 3.13.
 - [x] Las pruebas de Django pasan localmente.
 - [x] `python manage.py makemigrations --check --dry-run` no detecta cambios.
 - [x] `python manage.py check --deploy` no presenta advertencias no aceptadas.
