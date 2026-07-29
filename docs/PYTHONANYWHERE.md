@@ -14,19 +14,46 @@ mkvirtualenv sanramon --python=python3.13
 
 Si `python3.13` no existe en la cuenta, revisar `Account > System Image` y cambiar a `innit`.
 
-## 2. Subir codigo e instalar dependencias
+## 2. Construir y subir el paquete minimo
+
+El repositorio completo es el entorno de trabajo y no se copia a produccion.
+El workflow CI genera el artefacto `sanramon-1.0.0`, que contiene:
+
+- codigo Django y migraciones;
+- plantillas y archivos estaticos;
+- `manage.py` y `requirements.txt`;
+- un manifiesto de archivos y checksums.
+
+No contiene documentacion, pruebas, CI, archivos Git, comandos de gestion
+propios del proyecto, configuracion local ni herramientas de desarrollo.
+
+Tambien puede construirse localmente:
+
+```bash
+python scripts/construir_release.py
+```
+
+El resultado queda en `dist/sanramon-1.0.0.zip` junto con su checksum. Descargar
+el artefacto de GitHub Actions, extraer el contenedor descargado y subir esos dos
+archivos a PythonAnywhere. Luego:
 
 ```bash
 cd ~
-git clone <url-del-repositorio> sanramon
+sha256sum -c sanramon-1.0.0.zip.sha256
+mkdir -p ~/sanramon
+unzip -q sanramon-1.0.0.zip -d ~/sanramon
 cd ~/sanramon
 workon sanramon
 pip install -r requirements.txt
 ```
 
+El ZIP no contiene `.env`, bases de datos, respaldos ni archivos generados. Por
+eso una actualizacion no reemplaza esos datos locales.
+
 ## 3. Crear variables de entorno
 
-Crear `~/sanramon/.env` tomando como base `.env.example`.
+Crear `~/sanramon/.env` con las variables indicadas a continuacion. Este archivo
+no forma parte del paquete de despliegue.
 
 Para generar una clave segura:
 
@@ -142,7 +169,6 @@ application = get_wsgi_application()
 cd ~/sanramon
 workon sanramon
 python manage.py migrate
-python manage.py verificar_identidades
 python manage.py collectstatic --noinput
 ```
 
@@ -188,8 +214,7 @@ verificado. Si el candidato falla:
 3. Restaurar el entorno con sus dependencias fijadas.
 4. Si hubo una migracion incompatible, restaurar el respaldo de base de datos
    previo al despliegue en vez de intentar revertir datos manualmente.
-5. Ejecutar `python manage.py check --deploy`, `python manage.py
-   verificar_identidades` y `collectstatic`.
+5. Ejecutar `python manage.py check --deploy` y `collectstatic`.
 6. Recargar la aplicacion y comprobar login, correo y archivos estaticos antes
    de reabrir escrituras.
 

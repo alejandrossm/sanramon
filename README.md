@@ -15,6 +15,16 @@ python manage.py makemigrations --check --dry-run
 python manage.py test
 ```
 
+## Paquete de produccion
+
+```bash
+python scripts/construir_release.py
+```
+
+El ZIP generado en `dist/` contiene solo los archivos requeridos por la
+aplicacion. La documentacion, pruebas, CI y comandos internos permanecen
+exclusivamente en el repositorio de trabajo.
+
 ## Despliegue
 
 - [PythonAnywhere](docs/PYTHONANYWHERE.md)

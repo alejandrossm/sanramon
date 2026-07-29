@@ -13,6 +13,7 @@ aplicables esten aprobados sobre el mismo commit.
 - [x] `python manage.py collectstatic --noinput --dry-run` pasa.
 - [x] `pip check` pasa.
 - [x] La auditoria de dependencias no detecta vulnerabilidades conocidas.
+- [x] El artefacto minimo se construye y pasa las comprobaciones desde el ZIP.
 
 ## Seguridad y datos
 

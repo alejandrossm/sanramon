@@ -27,6 +27,8 @@ Los cambios relevantes del proyecto se documentan en este archivo.
 - Prevencion global de colisiones entre nombres de usuario y correos.
 - CI sobre Python 3.13 con pruebas, migraciones, comprobaciones de despliegue
   y auditoria de dependencias.
+- Paquete ZIP reproducible con una lista cerrada de archivos requeridos en
+  produccion, sin pruebas, documentacion ni herramientas internas.
 
 ### Compatibilidad
 

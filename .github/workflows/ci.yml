@@ -46,7 +46,7 @@ jobs:
       - name: Verificar configuracion de produccion
         env:
           DJANGO_DEBUG: "False"
-          DJANGO_SECRET_KEY: "ci-release-check-only-not-a-production-secret"
+          DJANGO_SECRET_KEY: "ci-release-check-only-9Zp4x7Vk2m8Qa6Ls3Hd5Jf1Wy0Ru8Bc"
           DJANGO_ALLOWED_HOSTS: "example.com"
           DJANGO_CSRF_TRUSTED_ORIGINS: "https://example.com"
           DJANGO_SECURE_SSL_REDIRECT: "True"
@@ -58,6 +58,38 @@ jobs:
         run: |
           python manage.py check --deploy
           python manage.py collectstatic --noinput --dry-run --verbosity 0
+
+      - name: Construir paquete minimo de despliegue
+        run: python scripts/construir_release.py
+
+      - name: Verificar aplicacion desde el paquete minimo
+        env:
+          DJANGO_DEBUG: "False"
+          DJANGO_SECRET_KEY: "ci-artifact-check-only-9Zp4x7Vk2m8Qa6Ls3Hd5Jf1Wy0Ru"
+          DJANGO_ALLOWED_HOSTS: "example.com"
+          DJANGO_CSRF_TRUSTED_ORIGINS: "https://example.com"
+          DJANGO_SECURE_SSL_REDIRECT: "True"
+          DJANGO_SESSION_COOKIE_SECURE: "True"
+          DJANGO_CSRF_COOKIE_SECURE: "True"
+          DJANGO_SECURE_HSTS_SECONDS: "3600"
+          RESPALDO_ENCRYPTION_KEYS: "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
+          AUDITORIA_HMAC_KEY: "ci-artifact-auditoria-hmac-independiente"
+        run: |
+          python -m zipfile -e dist/sanramon-1.0.0.zip dist/release-smoke
+          cd dist/release-smoke
+          python manage.py makemigrations --check --dry-run
+          python manage.py check --deploy
+          python manage.py collectstatic --noinput --dry-run --verbosity 0
+
+      - name: Publicar paquete de despliegue
+        uses: actions/upload-artifact@v7
+        with:
+          name: sanramon-1.0.0
+          path: |
+            dist/sanramon-1.0.0.zip
+            dist/sanramon-1.0.0.zip.sha256
+          if-no-files-found: error
+          retention-days: 14
 
   dependencias:
     runs-on: ubuntu-latest
