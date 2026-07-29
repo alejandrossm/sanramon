@@ -285,7 +285,8 @@ class UsuariosModuloTests(TestCase):
         self.assertIn('hora', form.errors)
         self.assertIn('locacion', form.errors)
 
-    def test_formulario_reunion_exige_hora_en_formato_24_horas(self):
+    @patch('usuarios.forms.timezone.localtime', return_value=datetime(2026, 7, 1, 12, 0))
+    def test_formulario_reunion_exige_hora_en_formato_24_horas(self, _localtime):
         """Rechaza horas con AM/PM o sin cero inicial."""
         datos_base = {
             'fecha': '2026-07-20',
@@ -6326,6 +6327,97 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.wsgi_request.user.is_authenticated)
 
+    def test_modelo_rechaza_username_que_coincide_con_email_ajeno(self):
+        """Evita que un identificador de login represente dos cuentas."""
+        cuerpo_rut = '70000001'
+        usuario = self.User(
+            username=self.admin_user.email.upper(),
+            email='identidad.nueva@example.com',
+            first_name='Identidad',
+            last_name='Nueva',
+            rut=f'{cuerpo_rut}-{calcular_digito_verificador_rut(cuerpo_rut)}',
+            rol=self.User.ENCARGADO_REGISTRO,
+        )
+
+        with self.assertRaises(ValidationError) as contexto:
+            usuario.save()
+
+        self.assertIn('username', contexto.exception.message_dict)
+
+    def test_modelo_rechaza_email_que_coincide_con_username_ajeno(self):
+        """Aplica la proteccion de identidad aunque se omitan los formularios web."""
+        cuerpo_existente = '70000002'
+        self.User.objects.create_user(
+            username='identidad.cruzada@example.com',
+            email='correo.original@example.com',
+            password='ClaveSegura123',
+            first_name='Identidad',
+            last_name='Original',
+            rut=(
+                f'{cuerpo_existente}-'
+                f'{calcular_digito_verificador_rut(cuerpo_existente)}'
+            ),
+            rol=self.User.ENCARGADO_REGISTRO,
+        )
+        cuerpo_nuevo = '70000003'
+        usuario = self.User(
+            username='identidad_nueva',
+            email='IDENTIDAD.CRUZADA@example.com',
+            first_name='Identidad',
+            last_name='Nueva',
+            rut=f'{cuerpo_nuevo}-{calcular_digito_verificador_rut(cuerpo_nuevo)}',
+            rol=self.User.ENCARGADO_REGISTRO,
+        )
+
+        with self.assertRaises(ValidationError) as contexto:
+            usuario.save()
+
+        self.assertIn('email', contexto.exception.message_dict)
+
+    def test_comando_verifica_identidades_sin_exponer_datos(self):
+        """Confirma una base valida informando solo cantidades."""
+        output = StringIO()
+
+        call_command('verificar_identidades', stdout=output)
+
+        self.assertIn('sin colisiones', output.getvalue())
+        self.assertNotIn(self.admin_user.email, output.getvalue())
+
+    def test_comando_verifica_identidades_detecta_colision_historica(self):
+        """Detecta datos antiguos que pudieron omitir la validacion del modelo."""
+        cuerpo_uno = '70000004'
+        cuerpo_dos = '70000005'
+        self.User.objects.bulk_create(
+            [
+                self.User(
+                    username='identidad_historica_uno',
+                    email='colision.historica@example.com',
+                    first_name='Historica',
+                    last_name='Uno',
+                    rut=(
+                        f'{cuerpo_uno}-'
+                        f'{calcular_digito_verificador_rut(cuerpo_uno)}'
+                    ),
+                    rol=self.User.ENCARGADO_REGISTRO,
+                ),
+                self.User(
+                    username='COLISION.HISTORICA@example.com',
+                    email='identidad.historica.dos@example.com',
+                    first_name='Historica',
+                    last_name='Dos',
+                    rut=(
+                        f'{cuerpo_dos}-'
+                        f'{calcular_digito_verificador_rut(cuerpo_dos)}'
+                    ),
+                    rol=self.User.ENCARGADO_REGISTRO,
+                ),
+            ]
+        )
+
+        with self.assertRaises(CommandError):
+            call_command('verificar_identidades')
+
+    @override_settings(DEBUG=True)
     def test_comando_crea_usuarios_demo_con_acceso_solo_para_roles_internos(self):
         """Verifica que el comando demo no deje password utilizable en socios."""
         output = StringIO()
@@ -6340,6 +6432,13 @@ class UsuariosModuloTests(TestCase):
         self.assertFalse(socio.has_usable_password())
         self.assertIn('socio.demo@example.com / sin contrasena de acceso', output.getvalue())
 
+    @override_settings(DEBUG=False)
+    def test_comando_usuarios_demo_bloquea_produccion(self):
+        """Impide crear cuentas con credenciales demo cuando DEBUG esta desactivado."""
+        with self.assertRaises(CommandError):
+            call_command('crear_usuarios_prueba')
+
+    @override_settings(DEBUG=True)
     def test_comando_carga_encargados_paginacion_sin_validacion(self):
         """Carga encargados por bulk sin ejecutar validaciones del modelo."""
         output = StringIO()
@@ -6358,6 +6457,12 @@ class UsuariosModuloTests(TestCase):
         self.assertFalse(usuario.has_usable_password())
         self.assertIn('Encargados creados: 100; actualizados: 0', output.getvalue())
         self.assertIn('Encargados creados: 0; actualizados: 100', output.getvalue())
+
+    @override_settings(DEBUG=False)
+    def test_comando_paginacion_bloquea_produccion(self):
+        """Impide cargar cuentas masivas de prueba en produccion."""
+        with self.assertRaises(CommandError):
+            call_command('cargar_encargados_paginacion')
 
     @override_settings(DEBUG=True)
     def test_comando_resetea_asistencia_de_pruebas(self):

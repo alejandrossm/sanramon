@@ -4,7 +4,7 @@ Guia para publicar este proyecto Django en PythonAnywhere usando virtualenv, var
 
 ## 1. Version de Python
 
-El proyecto usa Django 6.0.6. En PythonAnywhere conviene usar Python 3.13 en una cuenta con system image `innit`.
+El proyecto usa Django 6.0.7. En PythonAnywhere conviene usar Python 3.13 en una cuenta con system image `innit`.
 
 En una consola Bash de PythonAnywhere:
 
@@ -142,6 +142,7 @@ application = get_wsgi_application()
 cd ~/sanramon
 workon sanramon
 python manage.py migrate
+python manage.py verificar_identidades
 python manage.py collectstatic --noinput
 ```
 
@@ -176,6 +177,27 @@ https://tuusuario.pythonanywhere.com/static/admin/css/base.css
 ```
 
 Si esa URL no muestra CSS, revisar que `collectstatic` haya creado `staticfiles/admin/css/base.css` y que el mapeo `/static/` apunte a `/home/tuusuario/sanramon/staticfiles`, no a `/home/tuusuario/sanramon/static`.
+
+## Retorno a la version anterior
+
+Antes de cada despliegue, registrar el commit activo y crear un respaldo cifrado
+verificado. Si el candidato falla:
+
+1. Detener escrituras o poner la aplicacion en mantenimiento.
+2. Volver al commit o tag anterior conocido.
+3. Restaurar el entorno con sus dependencias fijadas.
+4. Si hubo una migracion incompatible, restaurar el respaldo de base de datos
+   previo al despliegue en vez de intentar revertir datos manualmente.
+5. Ejecutar `python manage.py check --deploy`, `python manage.py
+   verificar_identidades` y `collectstatic`.
+6. Recargar la aplicacion y comprobar login, correo y archivos estaticos antes
+   de reabrir escrituras.
+
+El commit anterior puede registrarse antes del despliegue con:
+
+```bash
+git rev-parse HEAD
+```
 
 ## 7. HTTPS
 

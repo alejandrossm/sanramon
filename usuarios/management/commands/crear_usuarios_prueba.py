@@ -1,5 +1,6 @@
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from usuarios.identificacion import calcular_digito_verificador_rut
 
@@ -50,6 +51,11 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         """Crea o actualiza usuarios demo con acceso solo para roles internos."""
+        if not settings.DEBUG:
+            raise CommandError(
+                'Este comando solo puede ejecutarse con DEBUG=True.'
+            )
+
         User = get_user_model()
 
         for datos in self.usuarios:

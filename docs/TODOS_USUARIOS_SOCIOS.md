@@ -18,11 +18,11 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
 - [x] Separar administradores web de superadministradores Django: `ADMINISTRADOR` queda para el sistema web y `SUPERADMINISTRADOR` queda reservado para cuentas `is_staff` e `is_superuser`.
 - [x] Ocultar superadministradores del listado web de usuarios e impedir que se editen, desactiven o eliminen desde las vistas del sistema.
 - [x] Recuperacion de contrasena por Gmail para usuarios internos activos con contrasena utilizable: administradores y encargados.
-- [ ] Antes de subir a produccion, endurecer configuracion HTTPS: activar `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE` y evaluar `SECURE_HSTS_SECONDS` despues de confirmar que todo el sitio opera solo por HTTPS.
+- [x] Endurecer configuracion HTTPS: `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE` y `SECURE_HSTS_SECONDS` se configuran por entorno y fallan cerrado con `DEBUG=False`.
 - [ ] Antes de subir a produccion, activar `Force HTTPS` en PythonAnywhere para que `http://alejandrossm.pythonanywhere.com/` redirija a `https://alejandrossm.pythonanywhere.com/`.
-- [ ] Antes de subir a produccion, agregar proteccion contra fuerza bruta en login, por ejemplo `django-axes` o rate limiting equivalente.
-- [ ] Antes de subir a produccion, bloquear los comandos demo que crean usuarios con passwords predecibles, especialmente `crear_usuarios_prueba`.
-- [ ] Antes de subir a produccion, validar globalmente que ningun `username` coincida con el `email` de cualquier cuenta, y que ningun `email` coincida con el `username` de otra cuenta, para evitar ambiguedades en el login por usuario o correo.
+- [x] Agregar limitacion de intentos en login, recuperacion y reautenticacion.
+- [x] Bloquear con `DEBUG=False` los comandos que crean usuarios o datos demo.
+- [x] Validar globalmente en el modelo que ningun `username` o `email` coincida, sin distinguir mayusculas, con los identificadores de otra cuenta.
 
 ## Socios
 

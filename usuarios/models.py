@@ -174,12 +174,33 @@ class Usuario(AbstractUser):
         super().clean_fields(exclude=exclude)
 
     def clean(self):
-        """Valida invariantes de rol que no deben depender solo de formularios."""
+        """Valida invariantes de identidad y rol fuera de los formularios."""
         super().clean()
+        self.username = (self.username or '').strip()
         self.email = (self.email or '').strip().lower()
         self.rut = normalizar_rut(self.rut)
 
         errores = {}
+        otros_usuarios = type(self).objects.exclude(pk=self.pk)
+        if self.username:
+            if otros_usuarios.filter(username__iexact=self.username).exists():
+                errores['username'] = (
+                    'Ya existe un usuario con este nombre, sin distinguir mayusculas.'
+                )
+            elif otros_usuarios.filter(email__iexact=self.username).exists():
+                errores['username'] = (
+                    'El nombre de usuario coincide con el correo de otra cuenta.'
+                )
+        if self.email:
+            if otros_usuarios.filter(email__iexact=self.email).exists():
+                errores['email'] = (
+                    'Ya existe un usuario con este correo, sin distinguir mayusculas.'
+                )
+            elif otros_usuarios.filter(username__iexact=self.email).exists():
+                errores['email'] = (
+                    'El correo coincide con el nombre de usuario de otra cuenta.'
+                )
+
         if self.rol == self.SOCIO and (self.is_staff or self.is_superuser):
             errores['rol'] = 'Un socio no puede tener permisos administrativos.'
         if self.is_superuser and self.rol != self.SUPERADMINISTRADOR:
@@ -212,6 +233,7 @@ class Usuario(AbstractUser):
 
     def save(self, *args, **kwargs):
         """Normaliza email y RUT antes de persistir el usuario."""
+        self.username = (self.username or '').strip()
         self.email = (self.email or '').strip().lower()
         self.rut = normalizar_rut(self.rut)
         self.telefono_movil = normalizar_telefono_movil(self.telefono_movil)

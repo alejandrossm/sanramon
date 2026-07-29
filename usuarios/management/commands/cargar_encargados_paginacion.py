@@ -1,5 +1,6 @@
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from usuarios.identificacion import calcular_digito_verificador_rut
 
@@ -23,6 +24,11 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         """Crea o actualiza encargados usando operaciones bulk directas."""
+        if not settings.DEBUG:
+            raise CommandError(
+                'Este comando solo puede ejecutarse con DEBUG=True.'
+            )
+
         cantidad = options['cantidad']
         if cantidad < 1:
             self.stderr.write(self.style.ERROR('La cantidad debe ser mayor a 0.'))
