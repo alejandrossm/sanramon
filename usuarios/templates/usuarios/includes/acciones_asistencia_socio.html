@@ -21,6 +21,7 @@
             data-confirm-icon="warning"
         >
             {% csrf_token %}
+            <input type="hidden" name="anio" value="{{ anio_reporte }}">
             <button
                 type="submit"
                 class="btn btn-danger btn-sm"
@@ -43,7 +44,7 @@
     {% endif %}
     {% if puede_justificar_inasistencias and socio.indicador_asistencia.key == 'bloqueado' %}
         <a
-            href="{% url 'usuarios:detalle_asistencia_socio' socio.pk %}"
+            href="{% url 'usuarios:detalle_asistencia_socio' socio.pk %}?{{ anio_query }}"
             class="btn btn-outline-primary btn-sm"
             title="Ver detalle para justificar inasistencia"
             aria-label="Ver detalle para justificar inasistencia"
@@ -52,7 +53,7 @@
         </a>
     {% else %}
         <a
-            href="{% url 'usuarios:detalle_asistencia_socio' socio.pk %}"
+            href="{% url 'usuarios:detalle_asistencia_socio' socio.pk %}?{{ anio_query }}"
             class="btn btn-outline-primary btn-sm"
             title="Ver detalle de asistencia"
             aria-label="Ver detalle de asistencia"

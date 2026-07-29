@@ -1,0 +1,124 @@
+{% extends "base_public.html" %}
+
+{% block title %}Política de privacidad | Valle San Ramon{% endblock %}
+
+{% block content %}
+<article class="container py-4 py-lg-5">
+    <div class="mx-auto" style="max-width: 900px;">
+        <header class="mb-4">
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Protección de datos personales</p>
+            <h1 class="h2 mb-2">Política de privacidad</h1>
+            <p class="text-muted mb-0">Versión {{ version_politica }}</p>
+        </header>
+
+        <div class="public-panel p-4 p-lg-5 d-grid gap-4">
+            <section>
+                <h2 class="h5">1. Responsable y contacto</h2>
+                <p class="mb-0">
+                    El Proyecto Valle San Ramón es responsable operativo del sistema de asistencia.
+                    Las consultas sobre privacidad y el ejercicio de derechos pueden dirigirse a
+                    <a href="mailto:contacto@vallesanramon.cl">contacto@vallesanramon.cl</a>.
+                </p>
+            </section>
+
+            <section>
+                <h2 class="h5">2. Datos tratados</h2>
+                <p class="mb-0">
+                    El sistema trata datos de identificación y contacto, condición de socio,
+                    fechas de ingreso, reuniones, registros de asistencia o ausencia,
+                    justificaciones administrativas, notificaciones, permisos de usuarios
+                    internos y evidencias técnicas de seguridad y auditoría.
+                </p>
+            </section>
+
+            <section>
+                <h2 class="h5">3. Finalidades</h2>
+                <ul class="mb-0">
+                    <li>Administrar socios, reuniones y asistencia.</li>
+                    <li>Permitir al socio consultar su propio historial.</li>
+                    <li>Notificar estados operativos relacionados con la asistencia.</li>
+                    <li>Proteger el sistema, prevenir accesos indebidos y mantener trazabilidad.</li>
+                    <li>Cumplir obligaciones legales y atender solicitudes de los titulares.</li>
+                </ul>
+            </section>
+
+            <section>
+                <h2 class="h5">4. Consulta digital</h2>
+                <p class="mb-0">
+                    La consulta requiere un código temporal enviado al correo registrado.
+                    El código vence, tiene uso único y se conserva únicamente como una huella
+                    criptográfica. La aceptación de esta política se registra con su versión,
+                    fecha, método de verificación y una huella no reversible de la dirección IP.
+                </p>
+            </section>
+
+            <section>
+                <h2 class="h5">5. Acceso y destinatarios</h2>
+                <p class="mb-0">
+                    Los datos no son de acceso público. Solo pueden acceder el propio socio
+                    verificado y el personal autorizado según sus funciones. Los proveedores de
+                    alojamiento y correo pueden tratar los datos estrictamente necesarios para
+                    prestar sus servicios, sujetos a las condiciones y contratos aplicables.
+                </p>
+            </section>
+
+            <section>
+                <h2 class="h5">6. Conservación</h2>
+                <p class="mb-0">
+                    Los códigos y solicitudes técnicas se eliminan periódicamente. Los datos de
+                    socios, asistencia, auditoría y respaldos se conservan mientras sean
+                    necesarios para sus finalidades y durante los plazos legales u operativos
+                    aplicables; posteriormente deben eliminarse o anonimizarse.
+                </p>
+            </section>
+
+            <section>
+                <h2 class="h5">7. Seguridad</h2>
+                <p class="mb-0">
+                    Se aplican controles de acceso por roles, verificación por correo, códigos
+                    de uso único, límites de intentos, protección contra solicitudes abusivas,
+                    auditoría y respaldos. Ningún sistema elimina completamente el riesgo, por lo
+                    que estos controles se revisan y actualizan periódicamente.
+                </p>
+            </section>
+
+            <section>
+                <h2 class="h5">8. Derechos de las personas</h2>
+                <p>
+                    El titular puede solicitar acceso, rectificación, supresión, oposición,
+                    portabilidad o bloqueo de sus datos cuando corresponda. La solicitud debe
+                    permitir verificar la identidad del titular y describir claramente lo pedido.
+                </p>
+                <p class="mb-0">
+                    Canal: <a href="mailto:contacto@vallesanramon.cl">contacto@vallesanramon.cl</a>.
+                    Si no puede utilizar medios digitales, puede solicitar atención asistida al
+                    equipo del proyecto.
+                </p>
+            </section>
+
+            <section>
+                <h2 class="h5">9. Decisiones sobre asistencia</h2>
+                <p class="mb-0">
+                    El sistema calcula indicadores y bloqueos operativos según inasistencias.
+                    El socio puede solicitar revisión humana y presentar antecedentes para
+                    justificar una inasistencia mediante los canales del proyecto.
+                </p>
+            </section>
+
+            <section>
+                <h2 class="h5">10. Cambios de esta política</h2>
+                <p class="mb-0">
+                    Cada modificación tendrá una nueva versión. Cuando el cambio afecte la
+                    consulta digital, se solicitará una nueva aceptación después de verificar
+                    nuevamente el acceso al correo registrado.
+                </p>
+            </section>
+        </div>
+
+        <a href="{% url 'usuarios:home' %}" class="btn btn-outline-secondary mt-4">
+            {% include "includes/icon.html" with name="arrow-left" %}
+            <span>Volver al inicio</span>
+        </a>
+    </div>
+</article>
+{% endblock %}

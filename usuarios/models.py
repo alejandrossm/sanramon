@@ -1,4 +1,6 @@
 import hashlib
+import uuid
+
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, UserManager
 from django.core.exceptions import ValidationError
@@ -6,7 +8,7 @@ from django.core.validators import RegexValidator
 from django.db import models, transaction
 from django.utils import timezone
 
-from .identificacion import normalizar_rut
+from .identificacion import MENSAJE_RUT_INVALIDO, normalizar_rut, validar_rut_chileno
 from .permisos import (
     GRUPO_POR_ROL,
     GRUPOS_OPERATIVOS,
@@ -76,8 +78,9 @@ class Usuario(AbstractUser):
         validators=[
             RegexValidator(
                 regex=r'^[0-9kK.\-\s]+$',
-                message='Ingrese un RUT válido.',
-            )
+                message=MENSAJE_RUT_INVALIDO,
+            ),
+            validar_rut_chileno,
         ],
         verbose_name='RUT',
     )
@@ -171,12 +174,33 @@ class Usuario(AbstractUser):
         super().clean_fields(exclude=exclude)
 
     def clean(self):
-        """Valida invariantes de rol que no deben depender solo de formularios."""
+        """Valida invariantes de identidad y rol fuera de los formularios."""
         super().clean()
+        self.username = (self.username or '').strip()
         self.email = (self.email or '').strip().lower()
         self.rut = normalizar_rut(self.rut)
 
         errores = {}
+        otros_usuarios = type(self).objects.exclude(pk=self.pk)
+        if self.username:
+            if otros_usuarios.filter(username__iexact=self.username).exists():
+                errores['username'] = (
+                    'Ya existe un usuario con este nombre, sin distinguir mayusculas.'
+                )
+            elif otros_usuarios.filter(email__iexact=self.username).exists():
+                errores['username'] = (
+                    'El nombre de usuario coincide con el correo de otra cuenta.'
+                )
+        if self.email:
+            if otros_usuarios.filter(email__iexact=self.email).exists():
+                errores['email'] = (
+                    'Ya existe un usuario con este correo, sin distinguir mayusculas.'
+                )
+            elif otros_usuarios.filter(username__iexact=self.email).exists():
+                errores['email'] = (
+                    'El correo coincide con el nombre de usuario de otra cuenta.'
+                )
+
         if self.rol == self.SOCIO and (self.is_staff or self.is_superuser):
             errores['rol'] = 'Un socio no puede tener permisos administrativos.'
         if self.is_superuser and self.rol != self.SUPERADMINISTRADOR:
@@ -209,6 +233,7 @@ class Usuario(AbstractUser):
 
     def save(self, *args, **kwargs):
         """Normaliza email y RUT antes de persistir el usuario."""
+        self.username = (self.username or '').strip()
         self.email = (self.email or '').strip().lower()
         self.rut = normalizar_rut(self.rut)
         self.telefono_movil = normalizar_telefono_movil(self.telefono_movil)
@@ -439,6 +464,62 @@ class Reunion(models.Model):
         return not self.tiene_datos_registrados()
 
 
+class CargaAsistenciaHistorica(models.Model):
+    """Lote trazable de una carga historica importada desde planilla."""
+
+    reunion = models.ForeignKey(
+        Reunion,
+        on_delete=models.CASCADE,
+        related_name='cargas_historicas',
+    )
+    cargado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='cargas_asistencia_historica',
+    )
+    fecha_carga = models.DateTimeField(default=timezone.now)
+    archivo_nombre = models.CharField(max_length=255, blank=True)
+    total_registros = models.PositiveIntegerField(default=0)
+    total_presentes = models.PositiveIntegerField(default=0)
+    total_ausentes = models.PositiveIntegerField(default=0)
+    revertida = models.BooleanField(default=False)
+    revertida_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='reversiones_carga_asistencia_historica',
+    )
+    fecha_reversion = models.DateTimeField(blank=True, null=True)
+    registros_revertidos = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        """Orden y nombres legibles del lote de carga historica."""
+
+        ordering = ['-fecha_carga']
+        verbose_name = 'carga historica de asistencia'
+        verbose_name_plural = 'cargas historicas de asistencia'
+
+    def __str__(self):
+        """Representa la carga por reunion y fecha de importacion."""
+        return f'Carga #{self.pk} - {self.reunion}'
+
+    def marcar_revertida(self, usuario, registros_revertidos):
+        """Registra la reversion del lote."""
+        self.revertida = True
+        self.revertida_por = usuario
+        self.fecha_reversion = timezone.now()
+        self.registros_revertidos = registros_revertidos
+        self.save(
+            update_fields=[
+                'revertida',
+                'revertida_por',
+                'fecha_reversion',
+                'registros_revertidos',
+            ]
+        )
+
+
 class AsistenciaReunion(models.Model):
     """Registro de asistencia de un socio en una reunion."""
 
@@ -487,6 +568,13 @@ class AsistenciaReunion(models.Model):
         related_name='asistencias_registradas',
     )
     fecha_registro = models.DateTimeField(default=timezone.now)
+    carga_historica = models.ForeignKey(
+        CargaAsistenciaHistorica,
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name='asistencias',
+    )
 
     class Meta:
         """Orden e invariantes del registro de asistencia."""
@@ -545,26 +633,43 @@ class AsistenciaReunion(models.Model):
         }
 
     @classmethod
-    def contar_inasistencias_socio(cls, socio):
-        """Cuenta las ausencias registradas de un socio."""
-        return cls.objects.filter(
+    def obtener_anio_operativo(cls, anio=None):
+        """Normaliza el ano usado por vistas que requieren periodo explicito."""
+        return anio or timezone.localdate().year
+
+    @classmethod
+    def filtrar_por_anio(cls, queryset, anio=None):
+        """Aplica filtro anual solo cuando el llamador lo solicita."""
+        if anio is None:
+            return queryset
+        return queryset.filter(reunion__fecha__year=anio)
+
+    @classmethod
+    def contar_inasistencias_socio(cls, socio, anio=None):
+        """Cuenta ausencias registradas; si se entrega ano, limita el periodo."""
+        queryset = cls.objects.filter(
             socio=socio,
             estado=cls.AUSENTE,
-        ).count()
+        )
+        return cls.filtrar_por_anio(queryset, anio=anio).count()
 
     @classmethod
-    def contar_inasistencias_efectivas_socio(cls, socio):
-        """Cuenta ausencias sin justificacion administrativa asociada."""
-        return cls.obtener_ausencias_justificables(socio).count()
+    def contar_inasistencias_efectivas_socio(cls, socio, anio=None):
+        """Cuenta ausencias sin justificar; si se entrega ano, limita el periodo."""
+        return cls.obtener_ausencias_justificables(socio, anio=anio).count()
 
     @classmethod
-    def obtener_firmas_bloqueo_socios(cls, socios_ids):
+    def obtener_firmas_bloqueo_socios(cls, socios_ids, anio=None):
         """Calcula una firma estable del bloqueo vigente para varios socios."""
-        ausencias = cls.objects.filter(
+        queryset = cls.objects.filter(
             socio_id__in=socios_ids,
             estado=cls.AUSENTE,
             justificacion__isnull=True,
-        ).order_by('socio_id', 'pk').values_list('socio_id', 'pk')
+        )
+        ausencias = cls.filtrar_por_anio(queryset, anio=anio).order_by(
+            'socio_id',
+            'pk',
+        ).values_list('socio_id', 'pk')
         ausencias_por_socio = {}
         for socio_id, asistencia_id in ausencias:
             ausencias_por_socio.setdefault(socio_id, []).append(str(asistencia_id))
@@ -575,27 +680,36 @@ class AsistenciaReunion(models.Model):
         }
 
     @classmethod
-    def obtener_firma_bloqueo_socio(cls, socio):
+    def obtener_firma_bloqueo_socio(cls, socio, anio=None):
         """Devuelve la firma del bloqueo vigente de un socio."""
-        return cls.obtener_firmas_bloqueo_socios([socio.pk]).get(socio.pk, '')
+        return cls.obtener_firmas_bloqueo_socios([socio.pk], anio=anio).get(
+            socio.pk,
+            '',
+        )
 
     @classmethod
-    def obtener_ausencias_justificables(cls, socio):
-        """Lista ausencias del socio que todavia pueden justificarse."""
-        return cls.objects.filter(
+    def obtener_ausencias_justificables(cls, socio, anio=None):
+        """Lista ausencias del socio pendientes de justificacion."""
+        queryset = cls.objects.filter(
             socio=socio,
             estado=cls.AUSENTE,
             justificacion__isnull=True,
-        ).select_related('reunion').order_by(
+        )
+        return cls.filtrar_por_anio(queryset, anio=anio).select_related(
+            'reunion'
+        ).order_by(
             'reunion__fecha',
             'reunion__hora',
             'fecha_registro',
         )
 
     @classmethod
-    def socio_esta_bloqueado(cls, socio):
-        """Indica si el socio alcanzo el umbral operativo de bloqueo."""
-        return cls.contar_inasistencias_efectivas_socio(socio) >= cls.INASISTENCIAS_PARA_BLOQUEO
+    def socio_esta_bloqueado(cls, socio, anio=None):
+        """Indica si el socio alcanzo el umbral de bloqueo pendiente."""
+        return (
+            cls.contar_inasistencias_efectivas_socio(socio, anio=anio)
+            >= cls.INASISTENCIAS_PARA_BLOQUEO
+        )
 
     @classmethod
     def registrar_presente(cls, reunion, socio, usuario, origen):
@@ -692,16 +806,28 @@ class DesbloqueoSocio(models.Model):
         super().save(*args, **kwargs)
 
     @classmethod
-    def registrar(cls, socio, usuario, motivo, asistencia):
+    def registrar(cls, socio, usuario, motivo, asistencia, anio=None):
         """Justifica una inasistencia si el socio esta bloqueado."""
-        total_inasistencias = AsistenciaReunion.contar_inasistencias_socio(socio)
-        total_efectivas = AsistenciaReunion.contar_inasistencias_efectivas_socio(socio)
+        anio_operativo = int(anio) if anio not in (None, '') else None
+        total_inasistencias = AsistenciaReunion.contar_inasistencias_socio(
+            socio,
+            anio=anio_operativo,
+        )
+        total_efectivas = AsistenciaReunion.contar_inasistencias_efectivas_socio(
+            socio,
+            anio=anio_operativo,
+        )
         if total_efectivas < AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO:
             raise ValidationError({'socio': 'El socio no esta bloqueado por inasistencias.'})
         if asistencia is None:
             raise ValidationError({'asistencia': 'Debe seleccionar una inasistencia.'})
         if asistencia.socio_id != socio.pk:
             raise ValidationError({'asistencia': 'La inasistencia debe pertenecer al socio justificado.'})
+        if (
+            anio_operativo is not None
+            and asistencia.reunion.fecha.year != anio_operativo
+        ):
+            raise ValidationError({'asistencia': 'La inasistencia no pertenece al ano operativo.'})
         if asistencia.estado != AsistenciaReunion.AUSENTE:
             raise ValidationError({'asistencia': 'Solo se pueden justificar ausencias.'})
         if cls.objects.filter(asistencia=asistencia).exists():
@@ -804,12 +930,15 @@ class NotificacionBloqueoSocio(models.Model):
         )
 
     @classmethod
-    def bloqueo_actual_ya_notificado(cls, socio):
-        """Indica si el bloqueo vigente del socio ya fue notificado."""
-        if not AsistenciaReunion.socio_esta_bloqueado(socio):
+    def bloqueo_actual_ya_notificado(cls, socio, anio=None):
+        """Indica si el bloqueo vigente anual del socio ya fue notificado."""
+        if not AsistenciaReunion.socio_esta_bloqueado(socio, anio=anio):
             return False
 
-        firma_bloqueo = AsistenciaReunion.obtener_firma_bloqueo_socio(socio)
+        firma_bloqueo = AsistenciaReunion.obtener_firma_bloqueo_socio(
+            socio,
+            anio=anio,
+        )
         if not firma_bloqueo:
             return False
 
@@ -819,15 +948,21 @@ class NotificacionBloqueoSocio(models.Model):
         ).exists()
 
     @classmethod
-    def registrar_bloqueo_actual(cls, socio, usuario):
-        """Registra la trazabilidad del aviso para el bloqueo vigente."""
-        total_efectivas = AsistenciaReunion.contar_inasistencias_efectivas_socio(socio)
+    def registrar_bloqueo_actual(cls, socio, usuario, anio=None):
+        """Registra la trazabilidad del aviso para el bloqueo vigente anual."""
+        total_efectivas = AsistenciaReunion.contar_inasistencias_efectivas_socio(
+            socio,
+            anio=anio,
+        )
         if total_efectivas < AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO:
             raise ValidationError(
                 {'socio': 'El socio no esta bloqueado por inasistencias.'}
             )
 
-        firma_bloqueo = AsistenciaReunion.obtener_firma_bloqueo_socio(socio)
+        firma_bloqueo = AsistenciaReunion.obtener_firma_bloqueo_socio(
+            socio,
+            anio=anio,
+        )
         if not firma_bloqueo:
             raise ValidationError(
                 {'socio': 'No fue posible determinar el bloqueo vigente del socio.'}
@@ -851,3 +986,130 @@ class NotificacionBloqueoSocio(models.Model):
             fecha_envio=timezone.now(),
             total_inasistencias_efectivas=total_efectivas,
         )
+
+
+class SolicitudCodigoConsulta(models.Model):
+    """Solicitud efimera para verificar por correo una consulta de asistencia."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    socio = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.CASCADE,
+        related_name='solicitudes_codigo_consulta',
+    )
+    codigo_hash = models.CharField(max_length=64)
+    ip_hash = models.CharField(max_length=64, db_index=True)
+    fecha_solicitud = models.DateTimeField(default=timezone.now, db_index=True)
+    fecha_expiracion = models.DateTimeField()
+    intentos_fallidos = models.PositiveSmallIntegerField(default=0)
+    fecha_uso = models.DateTimeField(blank=True, null=True)
+    email_enviado = models.BooleanField(default=False)
+
+    class Meta:
+        """Orden e indices para expiracion y limites de solicitudes."""
+
+        ordering = ['-fecha_solicitud']
+        verbose_name = 'solicitud de codigo de consulta'
+        verbose_name_plural = 'solicitudes de codigo de consulta'
+        indexes = [
+            models.Index(
+                fields=['ip_hash', 'fecha_solicitud'],
+                name='consulta_ip_fecha_idx',
+            ),
+            models.Index(
+                fields=['socio', 'fecha_solicitud'],
+                name='consulta_socio_fecha_idx',
+            ),
+        ]
+
+    def __str__(self):
+        """Evita exponer RUT o correo en representaciones administrativas."""
+        return f'Solicitud {self.pk}'
+
+    def esta_vigente(self, ahora=None):
+        """Indica si el codigo aun puede validarse."""
+        ahora = ahora or timezone.now()
+        return (
+            self.email_enviado
+            and self.socio_id is not None
+            and self.fecha_uso is None
+            and self.fecha_expiracion > ahora
+        )
+
+
+class AceptacionPrivacidadConsulta(models.Model):
+    """Evidencia versionada del aviso aceptado para la consulta digital."""
+
+    METODO_EMAIL_OTP = 'EMAIL_OTP'
+    METODOS = [
+        (METODO_EMAIL_OTP, 'Codigo de un solo uso enviado por correo'),
+    ]
+
+    socio = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='aceptaciones_privacidad_consulta',
+    )
+    version_politica = models.CharField(max_length=20)
+    texto_hash = models.CharField(max_length=64)
+    metodo_verificacion = models.CharField(max_length=20, choices=METODOS)
+    fecha_aceptacion = models.DateTimeField(default=timezone.now)
+    ip_hash = models.CharField(max_length=64)
+
+    class Meta:
+        """Conserva una sola evidencia por socio y version informada."""
+
+        ordering = ['-fecha_aceptacion']
+        verbose_name = 'aceptacion de privacidad para consulta'
+        verbose_name_plural = 'aceptaciones de privacidad para consulta'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['socio', 'version_politica'],
+                name='aceptacion_privacidad_unica_socio_version',
+            ),
+        ]
+
+    def __str__(self):
+        """Representa la evidencia sin incluir identificadores personales."""
+        return f'Aceptacion socio #{self.socio_id} - {self.version_politica}'
+
+
+class IntentoAcceso(models.Model):
+    """Evidencia seudonimizada para limitar intentos de autenticacion."""
+
+    LOGIN = 'LOGIN'
+    RECUPERACION = 'RECUPERACION'
+    REAUTENTICACION = 'REAUTENTICACION'
+    TIPOS = [
+        (LOGIN, 'Inicio de sesion'),
+        (RECUPERACION, 'Recuperacion de contrasena'),
+        (REAUTENTICACION, 'Reautenticacion sensible'),
+    ]
+
+    tipo = models.CharField(max_length=20, choices=TIPOS)
+    identificador_hash = models.CharField(max_length=64, db_index=True)
+    ip_hash = models.CharField(max_length=64, db_index=True)
+    fecha = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        """Indices para ventanas de limitacion por identidad e IP."""
+
+        ordering = ['-fecha']
+        verbose_name = 'intento de acceso'
+        verbose_name_plural = 'intentos de acceso'
+        indexes = [
+            models.Index(
+                fields=['tipo', 'identificador_hash', 'fecha'],
+                name='acceso_tipo_id_fecha_idx',
+            ),
+            models.Index(
+                fields=['tipo', 'ip_hash', 'fecha'],
+                name='acceso_tipo_ip_fecha_idx',
+            ),
+        ]
+
+    def __str__(self):
+        """No expone el identificador original."""
+        return f'{self.tipo} - {self.fecha:%Y-%m-%d %H:%M:%S}'

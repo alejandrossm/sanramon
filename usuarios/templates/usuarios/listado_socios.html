@@ -85,6 +85,44 @@
     </div>
 </form>
 
+{% if puede_exportar_reportes %}
+    <div class="d-flex justify-content-end mb-2">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Exportar reporte completo de socios">
+            <a
+                href="{% url 'usuarios:exportar_socios_completo' 'csv' %}?{{ export_query }}"
+                class="btn btn-outline-primary btn-sm"
+                title="Descargar reporte completo de socios CSV"
+                aria-label="Descargar reporte completo de socios CSV"
+            >
+                {% include "includes/icon.html" with name="download" %}
+                <span>CSV</span>
+            </a>
+            <a
+                href="{% url 'usuarios:exportar_socios_completo' 'xlsx' %}?{{ export_query }}"
+                class="btn btn-outline-primary btn-sm"
+                title="Descargar reporte completo de socios XLSX"
+                aria-label="Descargar reporte completo de socios XLSX"
+            >
+                {% include "includes/icon.html" with name="file-spreadsheet" %}
+                <span>XLSX</span>
+            </a>
+            {% comment %}
+            Botón PDF desactivado temporalmente. Para reactivarlo, elimina este
+            bloque comment/endcomment; la ruta y la lógica de exportación se conservan.
+            <a
+                href="{% url 'usuarios:exportar_socios_completo' 'pdf' %}?{{ export_query }}"
+                class="btn btn-outline-primary btn-sm"
+                title="Descargar reporte completo de socios PDF"
+                aria-label="Descargar reporte completo de socios PDF"
+            >
+                {% include "includes/icon.html" with name="file-pdf" %}
+                <span>PDF</span>
+            </a>
+            {% endcomment %}
+        </div>
+    </div>
+{% endif %}
+
 <div class="table-responsive rounded overflow-hidden shadow-sm border bg-white d-none d-md-block">
     <table class="table table-hover align-middle mb-0">
         <thead>

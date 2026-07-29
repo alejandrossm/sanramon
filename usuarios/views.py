@@ -1,6 +1,8 @@
 from functools import wraps
+from pathlib import Path
 from smtplib import SMTPException
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
@@ -14,6 +16,7 @@ from django.contrib.auth.views import (
 )
 from django.core.mail import BadHeaderError, send_mail
 from django.core.exceptions import ValidationError
+from django.http import FileResponse, HttpResponse
 from django.core.paginator import Paginator
 from django.db import IntegrityError
 from django.db.models import Count, Q
@@ -21,13 +24,47 @@ from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse_lazy
+from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_POST
 
 from .identificacion import parsear_lectura_rut
+from .auditoria import (
+    ACCION_CARGA_HISTORICA_REVERTIDA,
+    ACCION_CARGA_HISTORICA,
+    ACCION_CARGA_MASIVA_SOCIOS,
+    ACCION_CONSULTA_PUBLICA_ACCEDIDA,
+    ACCION_CONSULTA_PUBLICA_VERIFICADA,
+    ACCION_LOGIN_BLOQUEADO,
+    ACCION_LOG_AUDITORIA_DESCARGADO,
+    ACCION_PRIVACIDAD_CONSULTA_ACEPTADA,
+    ACCION_REAUTENTICACION_EXITOSA,
+    ACCION_REAUTENTICACION_FALLIDA,
+    ACCION_RECUPERACION_LIMITADA,
+    ACCION_REPORTE_EXPORTADO,
+    ACCION_RESPALDO_BASE_DATOS,
+    ACCION_REUNION_CANCELADA,
+    ACCION_REUNION_ELIMINADA,
+    ACCION_SOCIO_ELIMINADO,
+    ACCION_USUARIO_ACTIVADO,
+    ACCION_USUARIO_DESACTIVADO,
+    ACCION_USUARIO_ELIMINADO,
+    listar_archivos_auditoria,
+    obtener_archivo_auditoria_autorizado,
+    obtener_ruta_auditoria,
+    registrar_evento_auditoria,
+)
 from .forms import (
+    AceptacionPrivacidadConsultaForm,
+    CargaAsistenciaHistoricaForm,
+    CargaMasivaSociosForm,
     CambioPasswordForm,
+    CodigoConsultaAsistenciaForm,
+    ConsultaPublicaRutForm,
     JustificacionInasistenciaForm,
     LoginForm,
+    ReautenticacionForm,
     RecuperarPasswordForm,
     RegistroAsistenciaRutForm,
     ReunionCancelacionForm,
@@ -38,13 +75,49 @@ from .forms import (
     UsuarioCreationForm,
     UsuarioUpdateForm,
 )
+from .carga_historica import (
+    ErrorCargaAsistenciaHistorica,
+    cargar_asistencia_historica_desde_csv,
+    construir_plantilla_carga_historica,
+    construir_plantilla_carga_historica_csv,
+    revertir_carga_asistencia_historica,
+)
+from .carga_masiva_socios import (
+    ErrorCargaMasivaSocios,
+    cargar_socios_desde_csv,
+    construir_plantilla_carga_masiva_socios,
+)
 from .models import (
     AsistenciaReunion,
+    CargaAsistenciaHistorica,
     DesbloqueoSocio,
+    IntentoAcceso,
     NotificacionBloqueoSocio,
     Reunion,
     Usuario,
 )
+from .privacidad import (
+    POLITICA_PRIVACIDAD_VERSION,
+    RESULTADO_CODIGO_VALIDO,
+    SESION_ANIO,
+    SESION_SOLICITUD_ID,
+    aceptacion_privacidad_vigente,
+    autorizar_sesion_consulta,
+    crear_solicitud_codigo,
+    limpiar_sesion_consulta,
+    obtener_ip_hash,
+    obtener_socio_autorizado,
+    registrar_aceptacion_privacidad,
+    verificar_codigo,
+)
+from .reportes_asistencia import (
+    construir_csv,
+    construir_dataset_asistencia_anual,
+    construir_dataset_socios_completo,
+    construir_pdf,
+    construir_xlsx,
+)
+from .respaldos import ErrorCifradoRespaldo, cifrar_respaldo_sqlite
 from .permisos import (
     PERM_ACCEDER_ASISTENCIA,
     PERM_ADMINISTRAR_PRIVILEGIOS,
@@ -59,6 +132,23 @@ from .permisos import (
     rol_es_interno_gestionable,
     usuario_es_socio,
     usuario_tiene_permiso,
+)
+from .servicios_asistencia import (
+    agregar_resumen_asistencia_socios,
+    anotar_resumen_asistencia_socios,
+    filtrar_socios_por_indicador_asistencia,
+    obtener_historial_asistencia_socio,
+    obtener_indicador_asistencia,
+    obtener_resumen_anual_asistencia_socio,
+    obtener_resumen_asistencia_socio,
+    puede_eliminar_socio_seguro,
+)
+from .seguridad import (
+    acceso_limitado,
+    limpiar_intentos,
+    marcar_reautenticacion,
+    reautenticacion_reciente_required,
+    registrar_intento,
 )
 
 
@@ -139,9 +229,11 @@ def obtener_mensaje_validacion(error):
     return error.messages[0] if error.messages else 'No fue posible completar la accion.'
 
 
-def obtener_contexto_notificacion_bloqueo(socio):
+def obtener_contexto_notificacion_bloqueo(socio, anio=None):
     """Construye el contenido del aviso estandar para socios bloqueados."""
-    ausencias_pendientes = list(AsistenciaReunion.obtener_ausencias_justificables(socio))
+    ausencias_pendientes = list(
+        AsistenciaReunion.obtener_ausencias_justificables(socio, anio=anio)
+    )
     total_inasistencias_efectivas = len(ausencias_pendientes)
     umbral_bloqueo = AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO
 
@@ -204,6 +296,15 @@ INDICADORES_FILTRABLES_ASISTENCIA = [
     ('una_inasistencia', 'Una inasistencia'),
     ('bloqueado', 'Bloqueado'),
 ]
+
+ANIO_REPORTE_MINIMO = 2000
+
+FORMATOS_REPORTE_ASISTENCIA = {
+    'csv': 'text/csv; charset=utf-8',
+    'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'pdf': 'application/pdf',
+}
+TIPO_CONTENIDO_SQLITE = 'application/vnd.sqlite3'
 
 
 def obtener_columnas_ordenables(params, orden_actual, direccion_actual, columnas_base):
@@ -340,6 +441,214 @@ def aplicar_filtros_orden_socios(request, socios, columnas_ordenables):
         'orden_actual': orden_actual,
         'direccion_actual': direccion_actual,
     }
+
+
+def obtener_anio_reporte_asistencia(params, usar_anio_actual_por_defecto=False):
+    """Normaliza el ano de reporte usado por listado y exportaciones."""
+    anio_actual = timezone.localdate().year
+    valor = (params.get('anio') or '').strip()
+    if not valor:
+        return (anio_actual if usar_anio_actual_por_defecto else None), False
+
+    try:
+        anio = int(valor)
+    except ValueError:
+        return (anio_actual if usar_anio_actual_por_defecto else None), False
+
+    if anio < ANIO_REPORTE_MINIMO or anio > anio_actual + 1:
+        return (anio_actual if usar_anio_actual_por_defecto else None), False
+
+    return anio, True
+
+
+def obtener_anio_operativo_asistencia(params):
+    """Obtiene el ano operativo anual para asistencia y bloqueo."""
+    anio, _activo = obtener_anio_reporte_asistencia(
+        params,
+        usar_anio_actual_por_defecto=True,
+    )
+    return anio
+
+
+def obtener_consulta_listado_asistencia(request, forzar_anio=False):
+    """Devuelve socios filtrados para listado o reporte sin aplicar paginacion."""
+    socios_base = Usuario.objects.filter(rol=Usuario.SOCIO)
+    total_socios = socios_base.count()
+    socios_activos = socios_base.filter(is_active=True).count()
+    consulta = aplicar_filtros_orden_socios(
+        request,
+        socios_base,
+        COLUMNAS_ORDENABLES_ASISTENCIA,
+    )
+    filtros = consulta['filtros'].copy()
+
+    anio_reporte, anio_filtro_activo = obtener_anio_reporte_asistencia(
+        request.GET,
+        usar_anio_actual_por_defecto=True,
+    )
+    filtros['anio'] = anio_reporte or ''
+
+    indicador_actual = request.GET.get('indicador', '').strip()
+    indicadores_validos = {
+        indicador for indicador, _label in INDICADORES_FILTRABLES_ASISTENCIA
+    }
+    if indicador_actual not in indicadores_validos:
+        indicador_actual = ''
+    filtros['indicador'] = indicador_actual
+    socios_filtrados_por_indicador = bool(indicador_actual)
+
+    socios = anotar_resumen_asistencia_socios(
+        consulta['socios'],
+        anio=anio_reporte,
+    )
+    if socios_filtrados_por_indicador:
+        socios = filtrar_socios_por_indicador_asistencia(
+            socios,
+            indicador_actual,
+            campo_total='total_ausencias_efectivas_operativas',
+        )
+
+    anio_exportacion = anio_reporte or timezone.localdate().year
+    params_exportacion = request.GET.copy()
+    if 'page' in params_exportacion:
+        del params_exportacion['page']
+    params_exportacion['anio'] = str(anio_exportacion)
+
+    return {
+        **consulta,
+        'socios': socios,
+        'filtros': filtros,
+        'filtros_activos': (
+            consulta['filtros_activos']
+            or anio_filtro_activo
+            or socios_filtrados_por_indicador
+        ),
+        'anio_reporte': anio_reporte,
+        'anio_exportacion': anio_exportacion,
+        'total_socios': total_socios,
+        'socios_activos': socios_activos,
+        'socios_inactivos': total_socios - socios_activos,
+        'export_query': params_exportacion.urlencode(),
+    }
+
+
+def obtener_consulta_listado_socios(request, forzar_anio=False):
+    """Devuelve socios administrativos filtrados para listado o reporte."""
+    socios_base = Usuario.objects.filter(rol=Usuario.SOCIO)
+    total_socios = socios_base.count()
+    socios_activos = socios_base.filter(is_active=True).count()
+    consulta = aplicar_filtros_orden_socios(
+        request,
+        socios_base,
+        COLUMNAS_ORDENABLES_SOCIOS,
+    )
+    filtros = consulta['filtros'].copy()
+
+    anio_reporte, anio_filtro_activo = obtener_anio_reporte_asistencia(
+        request.GET,
+        usar_anio_actual_por_defecto=forzar_anio,
+    )
+    filtros['anio'] = anio_reporte or ''
+    socios = anotar_resumen_asistencia_socios(
+        consulta['socios'],
+        anio=anio_reporte,
+    )
+
+    anio_exportacion = anio_reporte or timezone.localdate().year
+    params_exportacion = request.GET.copy()
+    if 'page' in params_exportacion:
+        del params_exportacion['page']
+    if forzar_anio:
+        params_exportacion['anio'] = str(anio_exportacion)
+    elif 'anio' in params_exportacion:
+        del params_exportacion['anio']
+
+    return {
+        **consulta,
+        'socios': socios,
+        'filtros': filtros,
+        'filtros_activos': consulta['filtros_activos'] or anio_filtro_activo,
+        'anio_reporte': anio_reporte,
+        'anio_exportacion': anio_exportacion,
+        'total_socios': total_socios,
+        'socios_activos': socios_activos,
+        'socios_inactivos': total_socios - socios_activos,
+        'export_query': params_exportacion.urlencode(),
+    }
+
+
+def responder_reporte_asistencia_anual(formato, consulta, prefijo_archivo):
+    """Construye la respuesta descargable para reportes anuales de socios."""
+    socios = agregar_resumen_asistencia_socios(
+        consulta['socios'],
+        anio=consulta['anio_reporte'],
+    )
+    encabezados, filas = construir_dataset_asistencia_anual(
+        socios,
+        consulta['anio_reporte'],
+    )
+
+    if formato == 'csv':
+        contenido = construir_csv(encabezados, filas)
+    elif formato == 'xlsx':
+        contenido = construir_xlsx(encabezados, filas)
+    else:
+        contenido = construir_pdf(
+            encabezados,
+            filas,
+            'Reporte anual de asistencia',
+            f"Ano {consulta['anio_reporte']} - socios exportados: {len(filas)}",
+        )
+
+    nombre_archivo = f"{prefijo_archivo}_{consulta['anio_reporte']}.{formato}"
+    response = HttpResponse(contenido, content_type=FORMATOS_REPORTE_ASISTENCIA[formato])
+    response['Content-Disposition'] = f'attachment; filename="{nombre_archivo}"'
+    return response
+
+
+def responder_reporte_socios_completo(formato, consulta):
+    """Construye la respuesta descargable para el registro completo de socios."""
+    socios = agregar_resumen_asistencia_socios(
+        consulta['socios'],
+        usar_bloqueo_operativo=True,
+    )
+    encabezados, filas = construir_dataset_socios_completo(socios)
+
+    if formato == 'csv':
+        contenido = construir_csv(encabezados, filas)
+    elif formato == 'xlsx':
+        contenido = construir_xlsx(encabezados, filas, nombre_hoja='Socios')
+    else:
+        contenido = construir_pdf(
+            encabezados,
+            filas,
+            'Reporte completo de socios',
+            f'Socios exportados: {len(filas)}',
+        )
+
+    nombre_archivo = f'reporte_socios_completo.{formato}'
+    response = HttpResponse(contenido, content_type=FORMATOS_REPORTE_ASISTENCIA[formato])
+    response['Content-Disposition'] = f'attachment; filename="{nombre_archivo}"'
+    return response
+
+
+def obtener_ruta_sqlite_respaldo():
+    """Devuelve la ruta fisica de la base SQLite configurada."""
+    configuracion = settings.DATABASES.get('default', {})
+    if 'sqlite3' not in configuracion.get('ENGINE', ''):
+        return None
+
+    nombre_base = configuracion.get('NAME')
+    if not nombre_base or str(nombre_base) == ':memory:':
+        return None
+
+    ruta = Path(nombre_base)
+    if not ruta.is_absolute():
+        ruta = Path(settings.BASE_DIR) / ruta
+    if not ruta.exists() or not ruta.is_file():
+        return None
+
+    return ruta
 
 
 def redireccion_sin_permiso(user):
@@ -493,6 +802,21 @@ def asistencia_required(view_func):
     return wrapper
 
 
+def obtener_url_post_login(user):
+    """Devuelve el destino interno permitido segun rol."""
+    if es_socio(user):
+        return reverse_lazy('usuarios:mis_asistencias')
+    return reverse_lazy('usuarios:dashboard')
+
+
+def index(request):
+    """Muestra la portada publica y redirige usuarios autenticados al sistema."""
+    if request.user.is_authenticated:
+        return redirect(obtener_url_post_login(request.user))
+
+    return render(request, 'usuarios/index.html')
+
+
 class UsuarioLoginView(LoginView):
     """Vista de login con redireccion por rol despues de autenticar."""
 
@@ -500,11 +824,48 @@ class UsuarioLoginView(LoginView):
     template_name = 'usuarios/login.html'
     redirect_authenticated_user = True
 
+    def post(self, request, *args, **kwargs):
+        """Bloquea validaciones cuando la ventana de intentos fue agotada."""
+        identificador = request.POST.get('username', '')
+        if acceso_limitado(IntentoAcceso.LOGIN, identificador, request):
+            registrar_evento_auditoria(
+                None,
+                ACCION_LOGIN_BLOQUEADO,
+                entidad_tipo='Autenticacion',
+                entidad='Inicio de sesion',
+                detalle='Solicitud bloqueada por limite de intentos.',
+            )
+            form = self.get_form()
+            form.add_error(
+                None,
+                'Demasiados intentos. Intenta nuevamente más tarde.',
+            )
+            return super().form_invalid(form)
+        return super().post(request, *args, **kwargs)
+
+    def form_invalid(self, form):
+        """Registra el fallo sin conservar usuario, correo ni IP legibles."""
+        registrar_intento(
+            IntentoAcceso.LOGIN,
+            self.request.POST.get('username', ''),
+            self.request,
+        )
+        return super().form_invalid(form)
+
+    def form_valid(self, form):
+        """Limpia fallos del identificador despues de autenticar."""
+        identificadores = {
+            self.request.POST.get('username', ''),
+            form.get_user().username,
+            form.get_user().email,
+        }
+        for identificador in identificadores:
+            limpiar_intentos(IntentoAcceso.LOGIN, identificador)
+        return super().form_valid(form)
+
     def get_success_url(self):
         """Redirige socios a asistencias y otros roles al dashboard."""
-        if es_socio(self.request.user):
-            return reverse_lazy('usuarios:mis_asistencias')
-        return reverse_lazy('usuarios:dashboard')
+        return obtener_url_post_login(self.request.user)
 
 
 class UsuarioLogoutView(LogoutView):
@@ -521,6 +882,21 @@ class UsuarioPasswordResetView(PasswordResetView):
     email_template_name = 'usuarios/password_reset_email.html'
     subject_template_name = 'usuarios/password_reset_subject.txt'
     success_url = reverse_lazy('usuarios:password_reset_done')
+
+    def post(self, request, *args, **kwargs):
+        """Limita solicitudes conservando una respuesta no enumerable."""
+        identificador = request.POST.get('email', '')
+        if acceso_limitado(IntentoAcceso.RECUPERACION, identificador, request):
+            registrar_evento_auditoria(
+                None,
+                ACCION_RECUPERACION_LIMITADA,
+                entidad_tipo='Autenticacion',
+                entidad='Recuperacion de contrasena',
+                detalle='Solicitud bloqueada por limite de recuperacion.',
+            )
+            return redirect(self.success_url)
+        registrar_intento(IntentoAcceso.RECUPERACION, identificador, request)
+        return super().post(request, *args, **kwargs)
 
 
 class UsuarioPasswordResetDoneView(PasswordResetDoneView):
@@ -541,6 +917,241 @@ class UsuarioPasswordResetCompleteView(PasswordResetCompleteView):
     """Muestra el resultado final del restablecimiento de contrasena."""
 
     template_name = 'usuarios/password_reset_complete.html'
+
+
+@login_required
+@never_cache
+def reauth_seguridad(request):
+    """Confirma la contraseña antes de una descarga con datos personales."""
+    destino = request.POST.get('next') or request.GET.get('next') or reverse_lazy(
+        'usuarios:configuracion'
+    )
+    if not url_has_allowed_host_and_scheme(
+        destino,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        destino = reverse_lazy('usuarios:configuracion')
+
+    form = ReautenticacionForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        identificador = str(request.user.pk)
+        if acceso_limitado(IntentoAcceso.REAUTENTICACION, identificador, request):
+            form.add_error(
+                None,
+                'Demasiados intentos. Intenta nuevamente más tarde.',
+            )
+        elif request.user.check_password(form.cleaned_data['password']):
+            limpiar_intentos(IntentoAcceso.REAUTENTICACION, identificador)
+            request.session.cycle_key()
+            marcar_reautenticacion(request)
+            registrar_evento_auditoria(
+                request.user,
+                ACCION_REAUTENTICACION_EXITOSA,
+                entidad_tipo='Autenticacion',
+                entidad='Operacion sensible',
+                detalle='Contrasena confirmada para descarga sensible.',
+            )
+            return redirect(destino)
+        else:
+            registrar_intento(
+                IntentoAcceso.REAUTENTICACION,
+                identificador,
+                request,
+            )
+            registrar_evento_auditoria(
+                request.user,
+                ACCION_REAUTENTICACION_FALLIDA,
+                entidad_tipo='Autenticacion',
+                entidad='Operacion sensible',
+                detalle='Fallo de reautenticacion.',
+            )
+            form.add_error(None, 'La contraseña no es correcta.')
+
+    return render(
+        request,
+        'usuarios/reauth_seguridad.html',
+        {
+            'form': form,
+            'next': destino,
+        },
+    )
+
+
+@never_cache
+def consulta_publica_asistencia(request):
+    """Inicia una consulta sin revelar si el RUT pertenece a un socio."""
+    if request.method == 'GET':
+        limpiar_sesion_consulta(request)
+    form = ConsultaPublicaRutForm(request.POST or None)
+
+    if request.method == 'POST' and form.is_valid():
+        limpiar_sesion_consulta(request)
+        rut = form.cleaned_data['rut']
+        anio = form.cleaned_data['anio']
+        socio = Usuario.objects.filter(
+            rut__iexact=rut,
+            rol=Usuario.SOCIO,
+        ).first()
+        solicitud = crear_solicitud_codigo(
+            socio,
+            obtener_ip_hash(request),
+            anio,
+        )
+        request.session[SESION_SOLICITUD_ID] = str(solicitud.pk)
+        request.session[SESION_ANIO] = anio
+        messages.success(
+            request,
+            (
+                'Código enviado. Si el RUT está registrado, revisa el correo '
+                'asociado para continuar.'
+            ),
+        )
+        return redirect('usuarios:verificar_codigo_consulta')
+
+    return render(
+        request,
+        'usuarios/consulta_publica_asistencia.html',
+        {
+            'form': form,
+        },
+    )
+
+
+@never_cache
+def verificar_codigo_consulta(request):
+    """Verifica el codigo asociado a la solicitud guardada en la sesion."""
+    solicitud_id = request.session.get(SESION_SOLICITUD_ID)
+    if not solicitud_id:
+        return redirect('usuarios:consulta_publica_asistencia')
+
+    form = CodigoConsultaAsistenciaForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        resultado, socio = verificar_codigo(
+            solicitud_id,
+            form.cleaned_data['codigo'],
+        )
+        if resultado == RESULTADO_CODIGO_VALIDO and socio is not None:
+            autorizar_sesion_consulta(request, socio)
+            registrar_evento_auditoria(
+                None,
+                ACCION_CONSULTA_PUBLICA_VERIFICADA,
+                entidad_tipo='Socio',
+                entidad_id=socio.pk,
+                entidad=f'Socio #{socio.pk}',
+                detalle='Identidad verificada mediante codigo de correo de un solo uso.',
+            )
+            if aceptacion_privacidad_vigente(socio):
+                return redirect('usuarios:resultado_consulta_asistencia')
+            return redirect('usuarios:aceptar_privacidad_consulta')
+
+        form.add_error(
+            'codigo',
+            'El código no es válido, expiró o alcanzó el máximo de intentos.',
+        )
+
+    return render(
+        request,
+        'usuarios/verificar_codigo_consulta.html',
+        {
+            'form': form,
+        },
+    )
+
+
+@never_cache
+def aceptar_privacidad_consulta(request):
+    """Recoge la aceptacion vigente tras verificar el control del correo."""
+    socio = obtener_socio_autorizado(request)
+    if socio is None:
+        messages.error(
+            request,
+            'La verificación expiró. Solicita un nuevo código.',
+        )
+        return redirect('usuarios:consulta_publica_asistencia')
+
+    if aceptacion_privacidad_vigente(socio):
+        return redirect('usuarios:resultado_consulta_asistencia')
+
+    form = AceptacionPrivacidadConsultaForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        registrar_aceptacion_privacidad(socio, obtener_ip_hash(request))
+        registrar_evento_auditoria(
+            None,
+            ACCION_PRIVACIDAD_CONSULTA_ACEPTADA,
+            entidad_tipo='Socio',
+            entidad_id=socio.pk,
+            entidad=f'Socio #{socio.pk}',
+            detalle=f'Politica de privacidad version {POLITICA_PRIVACIDAD_VERSION}.',
+        )
+        return redirect('usuarios:resultado_consulta_asistencia')
+
+    return render(
+        request,
+        'usuarios/aceptar_privacidad_consulta.html',
+        {
+            'form': form,
+            'version_politica': POLITICA_PRIVACIDAD_VERSION,
+        },
+    )
+
+
+@never_cache
+def resultado_consulta_asistencia(request):
+    """Muestra datos solo durante una sesion verificada y con aviso aceptado."""
+    socio = obtener_socio_autorizado(request)
+    if socio is None:
+        messages.error(
+            request,
+            'La verificación expiró. Solicita un nuevo código.',
+        )
+        return redirect('usuarios:consulta_publica_asistencia')
+    if not aceptacion_privacidad_vigente(socio):
+        return redirect('usuarios:aceptar_privacidad_consulta')
+
+    anio = request.session.get(SESION_ANIO, timezone.localdate().year)
+    try:
+        anio = int(anio)
+    except (TypeError, ValueError):
+        anio = timezone.localdate().year
+    if anio < 2000 or anio > timezone.localdate().year + 1:
+        anio = timezone.localdate().year
+
+    resumen_general = obtener_resumen_asistencia_socio(socio)
+    resumen_anual = obtener_resumen_anual_asistencia_socio(socio, anio)
+    registrar_evento_auditoria(
+        None,
+        ACCION_CONSULTA_PUBLICA_ACCEDIDA,
+        entidad_tipo='Socio',
+        entidad_id=socio.pk,
+        entidad=f'Socio #{socio.pk}',
+        detalle=f'Consulta protegida de asistencia para el ano {anio}.',
+    )
+    return render(
+        request,
+        'usuarios/resultado_consulta_asistencia.html',
+        {
+            'socio': socio,
+            'anio': anio,
+            'resumen_general': resumen_general,
+            'resumen_anual': resumen_anual,
+            'historial': obtener_historial_asistencia_socio(socio, anio),
+            'indicador_asistencia': obtener_indicador_asistencia(
+                resumen_general['total_ausencias_efectivas'],
+            ),
+        },
+    )
+
+
+def politica_privacidad(request):
+    """Publica la version vigente de la politica de tratamiento."""
+    return render(
+        request,
+        'usuarios/politica_privacidad.html',
+        {
+            'version_politica': POLITICA_PRIVACIDAD_VERSION,
+        },
+    )
 
 
 @login_required
@@ -588,32 +1199,16 @@ def mis_asistencias(request):
 @asistencia_required
 def listado_socios_asistencia(request):
     """Lista socios disponibles para los futuros flujos de asistencia."""
-    socios = Usuario.objects.filter(rol=Usuario.SOCIO)
-    total_socios = socios.count()
-    socios_activos = socios.filter(is_active=True).count()
-    consulta = aplicar_filtros_orden_socios(
-        request,
-        socios,
-        COLUMNAS_ORDENABLES_ASISTENCIA,
-    )
+    consulta = obtener_consulta_listado_asistencia(request)
     socios = consulta['socios']
-    filtros = consulta['filtros'].copy()
-    indicador_actual = request.GET.get('indicador', '').strip()
-    indicadores_validos = {
-        indicador for indicador, _label in INDICADORES_FILTRABLES_ASISTENCIA
-    }
-    if indicador_actual not in indicadores_validos:
-        indicador_actual = ''
-    filtros['indicador'] = indicador_actual
-    socios_filtrados_por_indicador = bool(indicador_actual)
-
-    socios = anotar_resumen_asistencia_socios(socios)
-    if socios_filtrados_por_indicador:
-        socios = filtrar_socios_por_indicador_asistencia(socios, indicador_actual)
 
     paginator = Paginator(socios, 50)
     page_obj = paginator.get_page(request.GET.get('page'))
-    page_obj.object_list = agregar_resumen_asistencia_socios(page_obj.object_list)
+    page_obj.object_list = agregar_resumen_asistencia_socios(
+        page_obj.object_list,
+        anio=consulta['anio_reporte'],
+        usar_bloqueo_operativo=True,
+    )
     page_obj.object_list = agregar_estado_notificacion_bloqueo_socios(
         page_obj.object_list
     )
@@ -630,8 +1225,8 @@ def listado_socios_asistencia(request):
             'page_numbers': paginator.get_elided_page_range(page_obj.number),
             'pagination_ellipsis': Paginator.ELLIPSIS,
             'pagination_query': pagination_params.urlencode(),
-            'filtros': filtros,
-            'filtros_activos': consulta['filtros_activos'] or socios_filtrados_por_indicador,
+            'filtros': consulta['filtros'],
+            'filtros_activos': consulta['filtros_activos'],
             'estados_filtrables': ESTADOS_FILTRABLES,
             'indicadores_filtrables': INDICADORES_FILTRABLES_ASISTENCIA,
             'columnas_ordenables': obtener_columnas_ordenables_asistencia(
@@ -641,12 +1236,274 @@ def listado_socios_asistencia(request):
             ),
             'orden_actual': consulta['orden_actual'],
             'direccion_actual': consulta['direccion_actual'],
-            'total_socios': total_socios,
-            'socios_activos': socios_activos,
-            'socios_inactivos': total_socios - socios_activos,
+            'total_socios': consulta['total_socios'],
+            'socios_activos': consulta['socios_activos'],
+            'socios_inactivos': consulta['socios_inactivos'],
+            'anio_reporte': consulta['anio_reporte'],
+            'anio_query': f'anio={consulta["anio_reporte"]}',
+            'anio_exportacion': consulta['anio_exportacion'],
+            'export_query': consulta['export_query'],
+            'puede_exportar_reportes': puede_gestionar_usuarios(request.user),
             'puede_registrar_socios': puede_registrar_socios(request.user),
             'puede_editar_socios': puede_editar_socios(request.user),
             'puede_justificar_inasistencias': puede_gestionar_usuarios(request.user),
+        },
+    )
+
+
+@gestor_usuarios_required
+@reautenticacion_reciente_required
+def exportar_asistencia_anual(request, formato):
+    """Descarga el resumen anual completo del listado operativo de asistencia."""
+    formato = (formato or '').lower()
+    if formato not in FORMATOS_REPORTE_ASISTENCIA:
+        messages.error(request, 'Formato de reporte no disponible.')
+        return redirect('usuarios:listado_socios_asistencia')
+
+    consulta = obtener_consulta_listado_asistencia(request, forzar_anio=True)
+    response = responder_reporte_asistencia_anual(
+        formato,
+        consulta,
+        'reporte_asistencia_anual',
+    )
+    registrar_evento_auditoria(
+        request.user,
+        ACCION_REPORTE_EXPORTADO,
+        entidad_tipo='Reporte',
+        entidad='Asistencia anual',
+        detalle=f'Formato: {formato}. Ano: {consulta["anio_reporte"]}.',
+    )
+    return response
+
+
+@gestor_usuarios_required
+@reautenticacion_reciente_required
+def exportar_socios_completo(request, formato):
+    """Descarga el registro completo de socios desde el listado administrativo."""
+    formato = (formato or '').lower()
+    if formato not in FORMATOS_REPORTE_ASISTENCIA:
+        messages.error(request, 'Formato de reporte no disponible.')
+        return redirect('usuarios:listado_socios')
+
+    consulta = obtener_consulta_listado_socios(request)
+    response = responder_reporte_socios_completo(formato, consulta)
+    registrar_evento_auditoria(
+        request.user,
+        ACCION_REPORTE_EXPORTADO,
+        entidad_tipo='Reporte',
+        entidad='Socios completo',
+        detalle=f'Formato: {formato}.',
+    )
+    return response
+
+
+@gestor_usuarios_required
+@reautenticacion_reciente_required
+def exportar_socios_asistencia_anual(request, formato):
+    """Descarga el reporte anual de asistencia para socios."""
+    formato = (formato or '').lower()
+    if formato not in FORMATOS_REPORTE_ASISTENCIA:
+        messages.error(request, 'Formato de reporte no disponible.')
+        return redirect('usuarios:listado_socios')
+
+    consulta = obtener_consulta_listado_socios(request, forzar_anio=True)
+    response = responder_reporte_asistencia_anual(
+        formato,
+        consulta,
+        'reporte_socios_asistencia_anual',
+    )
+    registrar_evento_auditoria(
+        request.user,
+        ACCION_REPORTE_EXPORTADO,
+        entidad_tipo='Reporte',
+        entidad='Socios asistencia anual',
+        detalle=f'Formato: {formato}. Ano: {consulta["anio_reporte"]}.',
+    )
+    return response
+
+
+@gestor_usuarios_required
+def configuracion(request):
+    """Centraliza acciones criticas de configuracion."""
+    cargas_historicas = (
+        CargaAsistenciaHistorica.objects.filter(revertida=False)
+        .select_related('reunion', 'cargado_por')
+        .annotate(total_registros_actuales=Count('asistencias'))
+        .order_by('-fecha_carga')[:20]
+    )
+    return render(
+        request,
+        'usuarios/configuracion.html',
+        {
+            'cargas_historicas': cargas_historicas,
+            'archivos_auditoria': listar_archivos_auditoria(),
+        },
+    )
+
+
+@require_POST
+@gestor_usuarios_required
+def revertir_carga_asistencia_historica_view(request, pk):
+    """Revierte una carga historica importada por planilla."""
+    carga_historica = get_object_or_404(
+        CargaAsistenciaHistorica.objects.select_related('reunion'),
+        pk=pk,
+        revertida=False,
+    )
+
+    try:
+        resultado = revertir_carga_asistencia_historica(
+            carga_historica,
+            request.user,
+        )
+    except ErrorCargaAsistenciaHistorica as error:
+        messages.error(request, str(error))
+    else:
+        registros = resultado['registros_revertidos']
+        registrar_evento_auditoria(
+            request.user,
+            ACCION_CARGA_HISTORICA_REVERTIDA,
+            entidad_tipo='Carga historica',
+            entidad_id=carga_historica.pk,
+            entidad=str(carga_historica.reunion),
+            detalle=f'Reversion de carga por planilla. Registros revertidos: {registros}.',
+        )
+        messages.success(
+            request,
+            f'Carga historica revertida correctamente. Registros revertidos: {registros}.',
+        )
+
+    return redirect('usuarios:configuracion')
+
+
+@gestor_usuarios_required
+@reautenticacion_reciente_required
+def descargar_registro_logs(request):
+    """Descarga exclusivamente un log incluido en la lista autorizada."""
+    identificador = request.GET.get('archivo', 'actual')
+    archivo = obtener_archivo_auditoria_autorizado(identificador)
+    if not archivo:
+        messages.error(request, 'El archivo de auditoria solicitado no esta disponible.')
+        return redirect('usuarios:configuracion')
+
+    registrar_evento_auditoria(
+        request.user,
+        ACCION_LOG_AUDITORIA_DESCARGADO,
+        entidad_tipo='Auditoria',
+        entidad=archivo['id'],
+        detalle='Descarga de archivo de auditoria autorizado.',
+    )
+    archivo = obtener_archivo_auditoria_autorizado(identificador)
+    if not archivo:
+        messages.error(request, 'El archivo expiro durante la operacion.')
+        return redirect('usuarios:configuracion')
+    content_type = 'application/gzip' if archivo['comprimido'] else 'text/plain'
+    return FileResponse(
+        open(archivo['ruta'], 'rb'),
+        as_attachment=True,
+        filename=archivo['ruta'].name,
+        content_type=content_type,
+    )
+
+
+@gestor_usuarios_required
+@reautenticacion_reciente_required
+def exportar_base_datos_respaldo(request):
+    """Descarga una copia SQLite consistente con cifrado autenticado."""
+    ruta_base_datos = obtener_ruta_sqlite_respaldo()
+    if not ruta_base_datos:
+        messages.error(
+            request,
+            'No hay una base de datos SQLite disponible para exportar.',
+        )
+        return redirect('usuarios:configuracion')
+
+    try:
+        contenido_cifrado = cifrar_respaldo_sqlite(ruta_base_datos)
+    except (ErrorCifradoRespaldo, OSError):
+        messages.error(
+            request,
+            'No fue posible crear el respaldo cifrado. Revisa la configuracion de claves.',
+        )
+        return redirect('usuarios:configuracion')
+
+    marca_tiempo = timezone.localtime().strftime('%Y%m%d_%H%M%S')
+    nombre_archivo = f'respaldo_sanramon_{marca_tiempo}.sqlite3.fernet'
+    registrar_evento_auditoria(
+        request.user,
+        ACCION_RESPALDO_BASE_DATOS,
+        entidad_tipo='Base de datos',
+        entidad_id=ruta_base_datos.name,
+        entidad='Base de datos SQLite',
+        detalle='Respaldo SQLite consistente, cifrado y autenticado.',
+    )
+    response = HttpResponse(
+        contenido_cifrado,
+        content_type='application/octet-stream',
+    )
+    response['Content-Disposition'] = f'attachment; filename="{nombre_archivo}"'
+    return response
+
+
+@registro_socios_required
+@reautenticacion_reciente_required
+def descargar_plantilla_carga_masiva_socios(request):
+    """Descarga CSV con encabezados y socios actuales para carga masiva."""
+    contenido = construir_plantilla_carga_masiva_socios()
+    response = HttpResponse(
+        contenido,
+        content_type=FORMATOS_REPORTE_ASISTENCIA['csv'],
+    )
+    response['Content-Disposition'] = (
+        'attachment; filename="plantilla_carga_masiva_socios.csv"'
+    )
+    registrar_evento_auditoria(
+        request.user,
+        ACCION_REPORTE_EXPORTADO,
+        entidad_tipo='Reporte',
+        entidad='Plantilla carga socios',
+        detalle='Exportacion CSV para respaldo o carga masiva.',
+    )
+    return response
+
+
+@registro_socios_required
+def cargar_socios_masivo(request):
+    """Crea socios en lote desde una planilla CSV validada."""
+    errores_carga = []
+    if request.method == 'POST':
+        form = CargaMasivaSociosForm(request.POST, request.FILES)
+        if form.is_valid():
+            archivo = form.cleaned_data['archivo']
+            try:
+                resultado = cargar_socios_desde_csv(archivo)
+            except ErrorCargaMasivaSocios as error:
+                errores_carga = error.errores
+                form.add_error(None, str(error))
+            else:
+                total = resultado['total']
+                registrar_evento_auditoria(
+                    request.user,
+                    ACCION_CARGA_MASIVA_SOCIOS,
+                    entidad_tipo='Socio',
+                    entidad_id='lote',
+                    entidad='Carga masiva de socios',
+                    detalle=f'Socios creados: {total}.',
+                )
+                messages.success(
+                    request,
+                    f'Carga masiva completada. Socios creados: {total}.',
+                )
+                return redirect('usuarios:listado_socios')
+    else:
+        form = CargaMasivaSociosForm()
+
+    return render(
+        request,
+        'usuarios/cargar_socios_masivo.html',
+        {
+            'form': form,
+            'errores_carga': errores_carga,
         },
     )
 
@@ -655,9 +1512,20 @@ def listado_socios_asistencia(request):
 def detalle_asistencia_socio(request, pk):
     """Muestra resumen operativo y justificaciones de un socio."""
     socio = get_object_or_404(Usuario, pk=pk, rol=Usuario.SOCIO)
-    socio = agregar_resumen_asistencia_socios([socio])[0]
+    anio_operativo = obtener_anio_operativo_asistencia(request.GET)
+    socio = agregar_resumen_asistencia_socios(
+        [socio],
+        anio=anio_operativo,
+        usar_bloqueo_operativo=True,
+    )[0]
     justificaciones = obtener_justificaciones_base().filter(socio=socio)
-    ausencias_pendientes = AsistenciaReunion.obtener_ausencias_justificables(socio)
+    ausencias_pendientes = AsistenciaReunion.obtener_ausencias_justificables(
+        socio
+    )
+    socio.total_justificaciones = justificaciones.count()
+    socio.total_ausencias_efectivas = (
+        AsistenciaReunion.contar_inasistencias_efectivas_socio(socio)
+    )
 
     return render(
         request,
@@ -667,6 +1535,8 @@ def detalle_asistencia_socio(request, pk):
             'justificaciones': justificaciones,
             'ausencias_pendientes': ausencias_pendientes,
             'puede_justificar_inasistencias': puede_gestionar_usuarios(request.user),
+            'anio_reporte': anio_operativo,
+            'anio_query': f'anio={anio_operativo}',
         },
     )
 
@@ -729,34 +1599,6 @@ def obtener_justificaciones_base():
     )
 
 
-def agregar_resumen_asistencia_socios(socios):
-    """Agrega indicadores derivados de contadores de asistencia anotados."""
-    socios_resumidos = []
-    for socio in socios:
-        if not hasattr(socio, 'total_reuniones'):
-            resumen = obtener_resumen_asistencia_socio(socio)
-            socio.total_reuniones = resumen['total_reuniones']
-            socio.total_asistencias = resumen['total_asistencias']
-            socio.total_ausencias = resumen['total_ausencias']
-            socio.total_justificaciones = DesbloqueoSocio.objects.filter(socio=socio).count()
-        if not hasattr(socio, 'total_ausencias_efectivas'):
-            socio.total_ausencias_efectivas = (
-                AsistenciaReunion.contar_inasistencias_efectivas_socio(socio)
-            )
-        socio.indicador_asistencia = obtener_indicador_asistencia(
-            socio.total_ausencias_efectivas,
-        )
-        socio.puede_eliminar_seguro = not resumen_tiene_asistencias_contabilizadas(
-            {
-                'total_reuniones': socio.total_reuniones,
-                'total_asistencias': socio.total_asistencias,
-                'total_ausencias': socio.total_ausencias,
-            }
-        )
-        socios_resumidos.append(socio)
-    return socios_resumidos
-
-
 def agregar_estado_notificacion_bloqueo_socios(socios):
     """Marca si el bloqueo vigente del socio ya fue notificado."""
     socios = list(socios)
@@ -764,7 +1606,12 @@ def agregar_estado_notificacion_bloqueo_socios(socios):
 
     for socio in socios:
         socio.notificacion_bloqueo_enviada = False
-        if getattr(socio, 'total_ausencias_efectivas', 0) >= (
+        total_operativo = getattr(
+            socio,
+            'total_ausencias_efectivas_operativas',
+            getattr(socio, 'total_ausencias_efectivas', 0),
+        )
+        if total_operativo >= (
             AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO
         ):
             socios_bloqueados_ids.append(socio.pk)
@@ -786,98 +1633,6 @@ def agregar_estado_notificacion_bloqueo_socios(socios):
         )
 
     return socios
-
-
-def anotar_resumen_asistencia_socios(socios):
-    """Agrega contadores de asistencia al queryset en una consulta agrupada."""
-    return socios.annotate(
-        total_reuniones=Count('asistencias_reunion', distinct=True),
-        total_asistencias=Count(
-            'asistencias_reunion',
-            filter=Q(asistencias_reunion__estado=AsistenciaReunion.PRESENTE),
-            distinct=True,
-        ),
-        total_ausencias=Count(
-            'asistencias_reunion',
-            filter=Q(asistencias_reunion__estado=AsistenciaReunion.AUSENTE),
-            distinct=True,
-        ),
-        total_justificaciones=Count('desbloqueos_asistencia', distinct=True),
-        total_ausencias_efectivas=Count(
-            'asistencias_reunion',
-            filter=Q(
-                asistencias_reunion__estado=AsistenciaReunion.AUSENTE,
-                asistencias_reunion__justificacion__isnull=True,
-            ),
-            distinct=True,
-        ),
-    )
-
-
-def filtrar_socios_por_indicador_asistencia(socios, indicador):
-    """Filtra un queryset anotado segun el indicador visual de asistencia."""
-    if indicador == 'sin_ausencias':
-        return socios.filter(total_ausencias_efectivas__lte=0)
-    if indicador == 'una_inasistencia':
-        return socios.filter(total_ausencias_efectivas=1)
-    if indicador == 'bloqueado':
-        return socios.filter(
-            total_ausencias_efectivas__gte=AsistenciaReunion.INASISTENCIAS_PARA_BLOQUEO
-        )
-    return socios
-
-
-def obtener_resumen_asistencia_socio(socio):
-    """Devuelve los contadores de asistencia usados por vistas y eliminacion segura."""
-    return AsistenciaReunion.objects.filter(socio=socio).aggregate(
-        total_reuniones=Count('pk'),
-        total_asistencias=Count(
-            'pk',
-            filter=Q(estado=AsistenciaReunion.PRESENTE),
-        ),
-        total_ausencias=Count(
-            'pk',
-            filter=Q(estado=AsistenciaReunion.AUSENTE),
-        ),
-    )
-
-
-def resumen_tiene_asistencias_contabilizadas(resumen):
-    """Indica si el socio ya tiene historial operativo que impide eliminarlo."""
-    return any(
-        resumen[campo] > 0
-        for campo in ('total_reuniones', 'total_asistencias', 'total_ausencias')
-    )
-
-
-def puede_eliminar_socio_seguro(socio):
-    """Permite eliminar solo socios sin asistencias, reuniones ni ausencias registradas."""
-    if socio.rol != Usuario.SOCIO:
-        return False
-    return not resumen_tiene_asistencias_contabilizadas(
-        obtener_resumen_asistencia_socio(socio)
-    )
-
-
-def obtener_indicador_asistencia(total_ausencias):
-    """Calcula el indicador visual segun la cantidad de ausencias."""
-    if total_ausencias >= 2:
-        return {
-            'key': 'bloqueado',
-            'label': 'Bloqueado',
-            'badge_class': 'text-bg-danger',
-        }
-    if total_ausencias == 1:
-        return {
-            'key': 'una_inasistencia',
-            'label': 'Una inasistencia',
-            'badge_class': 'text-bg-warning',
-        }
-    return {
-        'key': 'sin_ausencias',
-        'label': 'Sin ausencias',
-        'badge_class': 'text-bg-success',
-    }
 
 
 @login_required
@@ -909,7 +1664,7 @@ def crear_reunion(request):
                 request,
                 f'Reunion del {reunion.fecha:%d-%m-%Y} a las {reunion.hora:%H:%M} creada correctamente.',
             )
-            return redirect('usuarios:crear_reunion')
+            return redirect('usuarios:listado_reuniones')
         if form.reunion_duplicada:
             messages.warning(request, form.REUNION_DUPLICADA_MENSAJE)
         if form.reunion_pasada_requiere_historica:
@@ -928,6 +1683,13 @@ def listado_reuniones(request):
         'activada_por',
         'finalizada_por',
         'cancelada_por',
+    ).annotate(
+        total_asistencias_registradas=Count('asistencias', distinct=True),
+        total_cargas_historicas_revertidas=Count(
+            'cargas_historicas',
+            filter=Q(cargas_historicas__revertida=True),
+            distinct=True,
+        ),
     )
     reunion_activa = reuniones_base.filter(estado=Reunion.ACTIVA).first()
     anios_reuniones = [
@@ -953,6 +1715,110 @@ def listado_reuniones(request):
             'anios_reuniones': anios_reuniones,
             'anio_actual': anio_actual,
             'filtros_activos': bool(anio_actual),
+        },
+    )
+
+
+@gestor_usuarios_required
+def descargar_plantilla_asistencia_historica(request):
+    """Descarga plantilla XLSX para preparar carga historica."""
+    contenido = construir_plantilla_carga_historica()
+    response = HttpResponse(
+        contenido,
+        content_type=FORMATOS_REPORTE_ASISTENCIA['xlsx'],
+    )
+    response['Content-Disposition'] = (
+        'attachment; filename="plantilla_asistencia_historica.xlsx"'
+    )
+    return response
+
+
+@gestor_usuarios_required
+def descargar_plantilla_asistencia_historica_csv(request):
+    """Descarga CSV de referencia para preparar carga historica."""
+    contenido = construir_plantilla_carga_historica_csv()
+    response = HttpResponse(
+        contenido,
+        content_type=FORMATOS_REPORTE_ASISTENCIA['csv'],
+    )
+    response['Content-Disposition'] = (
+        'attachment; filename="plantilla_asistencia_historica.csv"'
+    )
+    return response
+
+
+@gestor_usuarios_required
+def cargar_asistencia_historica(request, pk):
+    """Carga asistencia desde CSV para reuniones historicas."""
+    reunion = get_object_or_404(Reunion, pk=pk)
+
+    if reunion.estado != Reunion.HISTORICA:
+        messages.error(
+            request,
+            'La carga historica solo esta disponible para reuniones historicas.',
+        )
+        return redirect('usuarios:listado_reuniones')
+
+    if reunion.asistencias.exists():
+        messages.warning(
+            request,
+            (
+                'La carga historica de esta reunion ya fue registrada manualmente. '
+                'Para corregir un ingreso, use justificaciones buscando por el RUT '
+                'del usuario y la fecha correspondiente.'
+            ),
+        )
+        return redirect('usuarios:listado_reuniones')
+
+    if reunion.cargas_historicas.filter(revertida=True).exists():
+        messages.warning(
+            request,
+            'La carga historica de esta reunion fue revertida y no admite una nueva carga por planilla.',
+        )
+        return redirect('usuarios:listado_reuniones')
+
+    if request.method == 'POST':
+        form = CargaAsistenciaHistoricaForm(request.POST, request.FILES)
+        if form.is_valid():
+            try:
+                resultado = cargar_asistencia_historica_desde_csv(
+                    reunion,
+                    form.cleaned_data['archivo'],
+                    request.user,
+                )
+            except ErrorCargaAsistenciaHistorica as error:
+                form.add_error(None, str(error))
+            else:
+                registrar_evento_auditoria(
+                    request.user,
+                    ACCION_CARGA_HISTORICA,
+                    entidad_tipo='Reunion',
+                    entidad_id=reunion.pk,
+                    entidad=f'Reunion #{reunion.pk}',
+                    detalle=(
+                        f'Registros: {resultado["total"]}. '
+                        f'Presentes: {resultado["presentes"]}. '
+                        f'Ausentes: {resultado["ausentes"]}.'
+                    ),
+                )
+                messages.success(
+                    request,
+                    (
+                        f'Carga historica completada. Registros: {resultado["total"]}. '
+                        f'Presentes: {resultado["presentes"]}. '
+                        f'Ausentes: {resultado["ausentes"]}.'
+                    ),
+                )
+                return redirect('usuarios:listado_reuniones')
+    else:
+        form = CargaAsistenciaHistoricaForm()
+
+    return render(
+        request,
+        'usuarios/cargar_asistencia_historica.html',
+        {
+            'form': form,
+            'reunion': reunion,
         },
     )
 
@@ -1029,6 +1895,17 @@ def cancelar_reunion(request, pk):
             except ValidationError as error:
                 form.add_error(None, obtener_mensaje_validacion(error))
             else:
+                registrar_evento_auditoria(
+                    request.user,
+                    ACCION_REUNION_CANCELADA,
+                    entidad_tipo='Reunion',
+                    entidad_id=reunion.pk,
+                    entidad=f'{reunion.fecha:%d-%m-%Y} {reunion.hora:%H:%M} - {reunion.locacion}',
+                    detalle=(
+                        f'Motivo: {reunion.motivo_cancelacion}. '
+                        f'Asistencias eliminadas: {resultado["asistencias_eliminadas"]}.'
+                    ),
+                )
                 messages.success(
                     request,
                     (
@@ -1065,6 +1942,14 @@ def eliminar_reunion(request, pk):
         return redirect('usuarios:listado_reuniones')
 
     descripcion = f'{reunion.fecha:%d-%m-%Y} a las {reunion.hora:%H:%M}'
+    registrar_evento_auditoria(
+        request.user,
+        ACCION_REUNION_ELIMINADA,
+        entidad_tipo='Reunion',
+        entidad_id=reunion.pk,
+        entidad=f'{descripcion} - {reunion.locacion}',
+        detalle='Reunion eliminada sin asistencias registradas.',
+    )
     reunion.delete()
     messages.success(request, f'Reunion del {descripcion} eliminada correctamente.')
     return redirect('usuarios:listado_reuniones')
@@ -1219,21 +2104,16 @@ def listado_usuarios(request):
 @gestor_usuarios_required
 def listado_socios(request):
     """Lista socios en una vista administrativa separada de usuarios internos."""
-    socios = Usuario.objects.filter(rol=Usuario.SOCIO)
-    total_socios = socios.count()
-    socios_activos = socios.filter(is_active=True).count()
-    consulta = aplicar_filtros_orden_socios(
-        request,
-        socios,
-        COLUMNAS_ORDENABLES_SOCIOS,
-    )
+    consulta = obtener_consulta_listado_socios(request)
     socios = consulta['socios']
-    socios = anotar_resumen_asistencia_socios(socios)
     paginator = Paginator(socios, 50)
     page_obj = paginator.get_page(request.GET.get('page'))
-    page_obj.object_list = agregar_resumen_asistencia_socios(page_obj.object_list)
+    page_obj.object_list = agregar_resumen_asistencia_socios(
+        page_obj.object_list,
+        anio=consulta['anio_reporte'],
+    )
     page_obj.object_list = agregar_estado_notificacion_bloqueo_socios(
-        page_obj.object_list
+        page_obj.object_list,
     )
     pagination_params = request.GET.copy()
     if 'page' in pagination_params:
@@ -1258,9 +2138,11 @@ def listado_socios(request):
             ),
             'orden_actual': consulta['orden_actual'],
             'direccion_actual': consulta['direccion_actual'],
-            'total_socios': total_socios,
-            'socios_activos': socios_activos,
-            'socios_inactivos': total_socios - socios_activos,
+            'total_socios': consulta['total_socios'],
+            'socios_activos': consulta['socios_activos'],
+            'socios_inactivos': consulta['socios_inactivos'],
+            'export_query': consulta['export_query'],
+            'puede_exportar_reportes': puede_gestionar_usuarios(request.user),
         },
     )
 
@@ -1373,6 +2255,9 @@ def editar_socio(request, pk):
 def justificar_inasistencia(request, pk):
     """Registra una justificacion administrativa para un socio bloqueado."""
     socio = get_object_or_404(Usuario, pk=pk, rol=Usuario.SOCIO)
+    anio_operativo = obtener_anio_operativo_asistencia(
+        request.POST if request.method == 'POST' else request.GET
+    )
 
     if not AsistenciaReunion.socio_esta_bloqueado(socio):
         messages.error(request, 'El socio no esta bloqueado por inasistencias.')
@@ -1383,6 +2268,7 @@ def justificar_inasistencia(request, pk):
             request.POST,
             socio=socio,
             usuario=request.user,
+            anio=anio_operativo,
         )
         if form.is_valid():
             try:
@@ -1391,7 +2277,9 @@ def justificar_inasistencia(request, pk):
                 form.add_error(None, obtener_mensaje_validacion(error))
             else:
                 inasistencias_efectivas = (
-                    AsistenciaReunion.contar_inasistencias_efectivas_socio(socio)
+                    AsistenciaReunion.contar_inasistencias_efectivas_socio(
+                        socio,
+                    )
                 )
                 messages.success(
                     request,
@@ -1408,7 +2296,9 @@ def justificar_inasistencia(request, pk):
         asistencia_id = request.GET.get('asistencia')
         if asistencia_id:
             asistencia = (
-                AsistenciaReunion.obtener_ausencias_justificables(socio)
+                AsistenciaReunion.obtener_ausencias_justificables(
+                    socio,
+                )
                 .filter(pk=asistencia_id)
                 .first()
             )
@@ -1418,6 +2308,7 @@ def justificar_inasistencia(request, pk):
             socio=socio,
             usuario=request.user,
             initial=initial,
+            anio=anio_operativo,
         )
 
     return render(
@@ -1426,10 +2317,16 @@ def justificar_inasistencia(request, pk):
         {
             'form': form,
             'socio': socio,
-            'total_inasistencias': AsistenciaReunion.contar_inasistencias_socio(socio),
-            'total_inasistencias_efectivas': (
-                AsistenciaReunion.contar_inasistencias_efectivas_socio(socio)
+            'total_inasistencias': AsistenciaReunion.contar_inasistencias_socio(
+                socio,
             ),
+            'total_inasistencias_efectivas': (
+                AsistenciaReunion.contar_inasistencias_efectivas_socio(
+                    socio,
+                )
+            ),
+            'anio_reporte': anio_operativo,
+            'anio_query': f'anio={anio_operativo}',
         },
     )
 
@@ -1479,7 +2376,10 @@ def notificar_bloqueo_socio(request, pk):
         return redirect('usuarios:listado_socios_asistencia')
 
     try:
-        NotificacionBloqueoSocio.registrar_bloqueo_actual(socio, request.user)
+        NotificacionBloqueoSocio.registrar_bloqueo_actual(
+            socio,
+            request.user,
+        )
     except ValidationError as error:
         messages.info(request, obtener_mensaje_validacion(error))
         return redirect('usuarios:listado_socios_asistencia')
@@ -1508,6 +2408,14 @@ def cambiar_estado_usuario(request, pk):
     usuario.save(update_fields=['is_active'])
 
     estado = 'activado' if usuario.is_active else 'desactivado'
+    registrar_evento_auditoria(
+        request.user,
+        ACCION_USUARIO_ACTIVADO if usuario.is_active else ACCION_USUARIO_DESACTIVADO,
+        entidad_tipo='Usuario',
+        entidad_id=usuario.pk,
+        entidad=f'{usuario.username} - {usuario.nombre_completo}',
+        detalle=f'Usuario {estado}. Rol: {usuario.get_rol_display()}.',
+    )
     messages.success(request, f'Usuario {usuario.username} {estado} correctamente.')
     if usuario.rol == Usuario.SOCIO:
         return redirect('usuarios:listado_socios')
@@ -1532,6 +2440,9 @@ def eliminar_usuario(request, pk):
         return redirect('usuarios:listado_usuarios')
 
     nombre_usuario = usuario.nombre_completo
+    usuario_id = usuario.pk
+    usuario_entidad = f'{usuario.username} - {nombre_usuario}'
+    usuario_detalle = f'Rol: {usuario.get_rol_display()}. Correo: {usuario.email}.'
     try:
         usuario.delete()
     except ProtectedError:
@@ -1544,6 +2455,14 @@ def eliminar_usuario(request, pk):
         )
         return redirect('usuarios:listado_usuarios')
 
+    registrar_evento_auditoria(
+        request.user,
+        ACCION_USUARIO_ELIMINADO,
+        entidad_tipo='Usuario',
+        entidad_id=usuario_id,
+        entidad=usuario_entidad,
+        detalle=usuario_detalle,
+    )
     messages.success(request, f'Usuario {nombre_usuario} eliminado correctamente.')
     return redirect('usuarios:listado_usuarios')
 
@@ -1563,6 +2482,17 @@ def eliminar_socio(request, pk):
         return redirect('usuarios:listado_socios')
 
     nombre_socio = socio.nombre_completo
+    socio_id = socio.pk
+    socio_entidad = f'{socio.username} - {nombre_socio}'
+    socio_detalle = f'RUT: {socio.rut}. Correo: {socio.email}.'
     socio.delete()
+    registrar_evento_auditoria(
+        request.user,
+        ACCION_SOCIO_ELIMINADO,
+        entidad_tipo='Socio',
+        entidad_id=socio_id,
+        entidad=socio_entidad,
+        detalle=socio_detalle,
+    )
     messages.success(request, f'Socio {nombre_socio} eliminado correctamente.')
     return redirect('usuarios:listado_socios')

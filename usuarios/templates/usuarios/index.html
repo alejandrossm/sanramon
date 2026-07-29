@@ -1,0 +1,67 @@
+{% extends "base_public.html" %}
+{% load static %}
+
+{% block title %}Proyecto San Ramon | Valle San Ramon{% endblock %}
+
+{% block content %}
+<section class="public-landing-hero" id="inicio" aria-label="Proyecto San Ramon">
+    <img src="{% static 'images/f01.jpeg' %}" alt="Reunion informativa del proyecto San Ramon" class="public-hero-image">
+    <div class="public-hero-overlay">
+        <div class="container">
+            <div class="public-hero-content">
+                <p class="text-uppercase fw-semibold small mb-2">Mega proyecto habitacional</p>
+                <h1 class="display-5 mb-3">Valle San Ramón</h1>
+                <p class="lead mb-4">
+                    Para que las familias salgan de la vulnerabilidad social, el primer paso es la obtención de la casa propia.
+                </p>
+                <div class="d-flex flex-wrap gap-2">
+                    <a href="{% url 'usuarios:consulta_publica_asistencia' %}" class="btn btn-primary btn-lg public-form-button">
+                        {% include "includes/icon.html" with name="clipboard-check" %}
+                        <span>Ver mi asistencia</span>
+                    </a>
+                    <a href="#proyecto" class="btn btn-light btn-lg public-form-button">
+                        {% include "includes/icon.html" with name="arrow-down" %}
+                        <span>Conocer el proyecto</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="container py-4 py-lg-5" id="proyecto">
+    <div class="row">
+        <div class="col-12 col-lg-8">
+            <p class="text-uppercase text-primary fw-semibold small mb-2">Comunidad y seguimiento</p>
+            <h2 class="h1 mb-3">Informaci&oacute;n del proyecto</h2>
+            <p class="text-muted mb-0">
+                Esta plataforma acompa&ntilde;a el proceso de reuniones y asistencia de los socios, permitiendo consultar el estado individual y mantener trazabilidad operativa del sistema.
+            </p>
+        </div>
+    </div>
+</section>
+
+<section class="public-gallery-section py-4 py-lg-5" aria-label="Galeria del proyecto">
+    <div class="container">
+        <div class="mb-3">
+            <div>
+                <p class="text-uppercase text-primary fw-semibold small mb-2">Registro visual</p>
+                <h2 class="h1 mb-0">Reuniones del proyecto</h2>
+            </div>
+        </div>
+
+        <div class="row g-3">
+            <div class="col-12 col-lg-6">
+                <img src="{% static 'images/f02.jpeg' %}" alt="Socios participando en reunion del proyecto" class="public-gallery-image is-large">
+            </div>
+            <div class="col-12 col-lg-6">
+                <div class="row g-3">
+                    <div class="col-12">
+                        <img src="{% static 'images/f03.jpeg' %}" alt="Asamblea de socios del proyecto San Ramon" class="public-gallery-image is-wide">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

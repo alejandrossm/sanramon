@@ -1,6 +1,52 @@
 // Comportamientos propios del formulario de reuniones.
 // Se carga solo en crear_reunion.html para no mezclar reglas de dominio en base.html.
 document.addEventListener('DOMContentLoaded', () => {
+    const SUBMIT_LOCK_TIMEOUT_MS = 8000;
+
+    const lockFormSubmitWhileNavigating = (form) => {
+        if (!form || !form.dataset || form.dataset.reunionSubmitLockReady === 'true') {
+            return;
+        }
+
+        form.dataset.reunionSubmitLockReady = 'true';
+        form.addEventListener('submit', (event) => {
+            if (form.dataset.reunionSubmitting === 'true') {
+                event.preventDefault();
+                return;
+            }
+
+            form.dataset.reunionSubmitting = 'true';
+            form.setAttribute('aria-busy', 'true');
+
+            const submitButtons = form.querySelectorAll(
+                'button[type="submit"], input[type="submit"]',
+            );
+            submitButtons.forEach((button) => {
+                button.disabled = true;
+                if (button.tagName === 'INPUT') {
+                    button.dataset.originalValue = button.value;
+                    button.value = 'Guardando...';
+                } else {
+                    button.dataset.originalText = button.textContent;
+                    button.textContent = 'Guardando...';
+                }
+            });
+
+            window.setTimeout(() => {
+                form.dataset.reunionSubmitting = 'false';
+                form.removeAttribute('aria-busy');
+                submitButtons.forEach((button) => {
+                    button.disabled = false;
+                    if (button.tagName === 'INPUT' && button.dataset.originalValue) {
+                        button.value = button.dataset.originalValue;
+                    } else if (button.dataset.originalText) {
+                        button.textContent = button.dataset.originalText;
+                    }
+                });
+            }, SUBMIT_LOCK_TIMEOUT_MS);
+        });
+    };
+
     document.querySelectorAll('[data-reunion-date]').forEach((dateInput) => {
         const form = dateInput.closest('form') || document;
         const timeInput = form.querySelector('[data-reunion-time]');
@@ -9,6 +55,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!statusSelect) {
             return;
         }
+
+        lockFormSubmitWhileNavigating(form);
 
         const historicalValue = statusSelect.dataset.historicalValue;
         const getHiddenStatusInput = () => form.querySelector('[data-reunion-status-hidden]');

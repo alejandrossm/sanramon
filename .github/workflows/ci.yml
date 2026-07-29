@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+  pull_request:
+    branches:
+      - develop
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  pruebas:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar codigo
+        uses: actions/checkout@v7
+
+      - name: Configurar Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Verificar dependencias instaladas
+        run: python -m pip check
+
+      - name: Verificar migraciones
+        run: |
+          python manage.py makemigrations --check --dry-run
+          python manage.py migrate --noinput
+          python manage.py verificar_identidades
+
+      - name: Ejecutar pruebas
+        run: python manage.py test --verbosity 1
+
+      - name: Verificar configuracion de produccion
+        env:
+          DJANGO_DEBUG: "False"
+          DJANGO_SECRET_KEY: "ci-release-check-only-9Zp4x7Vk2m8Qa6Ls3Hd5Jf1Wy0Ru8Bc"
+          DJANGO_ALLOWED_HOSTS: "example.com"
+          DJANGO_CSRF_TRUSTED_ORIGINS: "https://example.com"
+          DJANGO_SECURE_SSL_REDIRECT: "True"
+          DJANGO_SESSION_COOKIE_SECURE: "True"
+          DJANGO_CSRF_COOKIE_SECURE: "True"
+          DJANGO_SECURE_HSTS_SECONDS: "3600"
+          RESPALDO_ENCRYPTION_KEYS: "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
+          AUDITORIA_HMAC_KEY: "ci-auditoria-hmac-independiente"
+        run: |
+          python manage.py check --deploy
+          python manage.py collectstatic --noinput --dry-run --verbosity 0
+
+      - name: Construir paquete minimo de despliegue
+        run: python scripts/construir_release.py
+
+      - name: Verificar aplicacion desde el paquete minimo
+        env:
+          DJANGO_DEBUG: "False"
+          DJANGO_SECRET_KEY: "ci-artifact-check-only-9Zp4x7Vk2m8Qa6Ls3Hd5Jf1Wy0Ru"
+          DJANGO_ALLOWED_HOSTS: "example.com"
+          DJANGO_CSRF_TRUSTED_ORIGINS: "https://example.com"
+          DJANGO_SECURE_SSL_REDIRECT: "True"
+          DJANGO_SESSION_COOKIE_SECURE: "True"
+          DJANGO_CSRF_COOKIE_SECURE: "True"
+          DJANGO_SECURE_HSTS_SECONDS: "3600"
+          RESPALDO_ENCRYPTION_KEYS: "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
+          AUDITORIA_HMAC_KEY: "ci-artifact-auditoria-hmac-independiente"
+        run: |
+          python -m zipfile -e dist/sanramon-1.0.0.zip dist/release-smoke
+          cd dist/release-smoke
+          python manage.py makemigrations --check --dry-run
+          python manage.py check --deploy
+          python manage.py collectstatic --noinput --dry-run --verbosity 0
+
+      - name: Publicar paquete de despliegue
+        uses: actions/upload-artifact@v7
+        with:
+          name: sanramon-1.0.0
+          path: |
+            dist/sanramon-1.0.0.zip
+            dist/sanramon-1.0.0.zip.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  dependencias:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar codigo
+        uses: actions/checkout@v7
+
+      - name: Auditar vulnerabilidades conocidas
+        uses: pypa/gh-action-pip-audit@v1.1.0
+        with:
+          inputs: requirements.txt

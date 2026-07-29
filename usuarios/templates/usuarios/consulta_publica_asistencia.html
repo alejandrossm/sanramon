@@ -1,0 +1,58 @@
+{% extends "base_public.html" %}
+
+{% block title %}Consulta de asistencia | Valle San Ramon{% endblock %}
+
+{% block content %}
+<section class="container py-4 py-lg-5">
+    <div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-start mb-4">
+        <div class="d-flex align-items-center gap-3">
+            {% include "includes/icon.html" with name="search" classes="fs-4 text-primary" %}
+            <div>
+                <p class="text-uppercase text-primary fw-semibold small mb-1">Consulta protegida</p>
+                <h1 class="h3 mb-1">Asistencia de socio</h1>
+                <p class="text-muted mb-0">Recibirás un código en el correo registrado.</p>
+            </div>
+        </div>
+        <a href="{% url 'usuarios:home' %}" class="btn btn-outline-secondary align-self-start">
+            {% include "includes/icon.html" with name="arrow-left" %}
+            <span>Volver</span>
+        </a>
+    </div>
+
+    <div class="alert alert-info" role="status">
+        Para proteger tu información, no mostraremos si el RUT está registrado.
+        Si los datos coinciden, enviaremos un código de seis dígitos al correo informado al proyecto.
+    </div>
+
+    <section class="public-panel p-4" aria-label="Solicitar código de consulta">
+        <form method="post" class="row g-3 align-items-end">
+            {% csrf_token %}
+            <div class="col-12 col-md-5">
+                <label for="{{ form.rut.id_for_label }}" class="form-label">{{ form.rut.label }}</label>
+                {{ form.rut }}
+                {% for error in form.rut.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                {% endfor %}
+            </div>
+            <div class="col-12 col-md-3">
+                <label for="{{ form.anio.id_for_label }}" class="form-label">{{ form.anio.label }}</label>
+                {{ form.anio }}
+                {% for error in form.anio.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                {% endfor %}
+            </div>
+            <div class="col-12 col-md-4 d-grid">
+                <button type="submit" class="btn btn-primary btn-lg public-form-button">
+                    {% include "includes/icon.html" with name="envelope" %}
+                    <span>Enviar código</span>
+                </button>
+            </div>
+        </form>
+    </section>
+
+    <p class="text-muted small mt-3 mb-0">
+        Si no tienes acceso al correo registrado, solicita atención asistida al proyecto.
+        Revisa nuestra <a href="{% url 'usuarios:politica_privacidad' %}">política de privacidad</a>.
+    </p>
+</section>
+{% endblock %}

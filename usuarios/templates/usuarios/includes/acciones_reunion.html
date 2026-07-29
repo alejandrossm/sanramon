@@ -42,8 +42,40 @@
                 Iniciar
             </button>
         </span>
-    {% else %}
-        <span class="text-muted small">No disponible</span>
+    {% endif %}
+
+    {% if reunion.estado == reunion.HISTORICA %}
+        {% if reunion.total_asistencias_registradas %}
+            <span
+                class="badge text-bg-info d-inline-flex align-items-center gap-1"
+                tabindex="0"
+                data-bs-toggle="tooltip"
+                data-bs-placement="top"
+                data-bs-title="Si desea corregir alg&uacute;n ingreso, debe hacerlo desde Justificaciones, buscando por el RUT del usuario y la fecha correspondiente."
+            >
+                {% include "includes/icon.html" with name="check-circle" %}
+                <span>Cargada manualmente</span>
+            </span>
+        {% elif reunion.total_cargas_historicas_revertidas %}
+            <span
+                class="badge text-bg-warning d-inline-flex align-items-center gap-1"
+                tabindex="0"
+                data-bs-toggle="tooltip"
+                data-bs-placement="top"
+                data-bs-title="La carga anterior fue revertida. No hay registros de asistencia activos para esta reuni&oacute;n."
+            >
+                {% include "includes/icon.html" with name="alert-triangle" %}
+                <span>Reuni&oacute;n revertida</span>
+            </span>
+        {% else %}
+            <a
+                href="{% url 'usuarios:cargar_asistencia_historica' reunion.pk %}"
+                class="btn btn-outline-primary btn-sm"
+            >
+                {% include "includes/icon.html" with name="arrow-up" %}
+                <span>Carga hist&oacute;rica</span>
+            </a>
+        {% endif %}
     {% endif %}
 
     {% if reunion.puede_cancelarse %}

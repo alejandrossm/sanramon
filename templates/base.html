@@ -7,7 +7,7 @@
     <title>{% block title %}Sistema San Ramon{% endblock %}</title>
     <link href="{% static 'vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet">
     <link href="{% static 'vendor/bootstrap-icons/bootstrap-icons.min.css' %}" rel="stylesheet">
-    <link href="{% static 'css/styles.css' %}?v=table-truncate-1" rel="stylesheet">
+    <link href="{% static 'css/styles.css' %}?v=placeholder-1" rel="stylesheet">
 </head>
 <body>
     <div class="app-shell">
@@ -124,6 +124,14 @@
                         {% include "includes/icon.html" with name="key" classes="sidebar-icon flex-shrink-0" %}
                         <span>Mi contrase&ntilde;a</span>
                     </a>
+
+                    {% if nav_puede_gestionar_usuarios %}
+                        <p class="sidebar-section-title text-uppercase fw-bold small mb-1 mt-3 px-3">Configuraci&oacute;n</p>
+                        <a class="sidebar-link d-flex align-items-center gap-3 rounded text-decoration-none fw-semibold px-3 py-2" href="{% url 'usuarios:configuracion' %}">
+                            {% include "includes/icon.html" with name="settings" classes="sidebar-icon flex-shrink-0" %}
+                            <span>Configuraci&oacute;n</span>
+                        </a>
+                    {% endif %}
                 </nav>
 
                 <form method="post" action="{% url 'usuarios:logout' %}" class="mt-auto pt-3">
@@ -166,7 +174,7 @@
             </main>
 
             <footer class="app-footer">
-                valle san ram&oacute;n
+                © 2026 Valle San Ramón
             </footer>
         </div>
     </div>

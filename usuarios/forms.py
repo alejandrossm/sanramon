@@ -1,8 +1,11 @@
+import csv
+import io
 import re
 
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import Column, Layout, Row, Submit
+from crispy_forms.layout import HTML, Column, Layout, Row, Submit
 from django import forms
+from django.conf import settings
 from django.contrib.auth.forms import (
     AuthenticationForm,
     PasswordChangeForm,
@@ -14,6 +17,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 
 from .identificacion import (
+    MENSAJE_RUT_INVALIDO,
     ORIGEN_QR_REGISTRO_CIVIL,
     normalizar_rut,
     parsear_lectura_rut,
@@ -37,6 +41,7 @@ from .permisos import (
     rol_es_superadministrador,
     usuario_tiene_permiso,
 )
+from .privacidad import TEXTO_ACEPTACION_CONSULTA
 
 
 def marcar_campo_rut(field):
@@ -48,6 +53,78 @@ def marcar_campo_rut(field):
             'inputmode': 'text',
         }
     )
+
+
+TIPOS_CONTENIDO_CSV = {
+    'application/csv',
+    'application/octet-stream',
+    'application/vnd.ms-excel',
+    'text/csv',
+    'text/plain',
+}
+
+
+def validar_archivo_csv(archivo):
+    """Valida tamaño, tipo declarado y estructura textual CSV basica."""
+    maximo = int(getattr(settings, 'CARGA_CSV_MAX_BYTES', 2 * 1024 * 1024))
+    if archivo.size > maximo:
+        raise forms.ValidationError(
+            f'El archivo supera el máximo permitido de {maximo // (1024 * 1024)} MB.'
+        )
+    if not archivo.name.lower().endswith('.csv'):
+        raise forms.ValidationError('El archivo debe tener extensión .csv.')
+
+    tipo = (getattr(archivo, 'content_type', '') or '').lower()
+    if tipo and tipo not in TIPOS_CONTENIDO_CSV:
+        raise forms.ValidationError('El tipo de contenido del archivo no corresponde a CSV.')
+
+    posicion = archivo.tell()
+    try:
+        muestra_binaria = archivo.read(min(65536, maximo))
+    finally:
+        archivo.seek(posicion)
+    if not muestra_binaria:
+        raise forms.ValidationError('El archivo CSV está vacío.')
+    if b'\x00' in muestra_binaria:
+        raise forms.ValidationError('El archivo contiene datos binarios y no es un CSV válido.')
+
+    try:
+        muestra = muestra_binaria.decode('utf-8-sig')
+    except UnicodeDecodeError:
+        try:
+            muestra = muestra_binaria.decode('cp1252')
+        except UnicodeDecodeError as error:
+            raise forms.ValidationError(
+                'El archivo debe utilizar codificación UTF-8 o Windows-1252.'
+            ) from error
+
+    controles = sum(
+        1
+        for caracter in muestra
+        if ord(caracter) < 32 and caracter not in {'\r', '\n', '\t'}
+    )
+    if controles:
+        raise forms.ValidationError('El archivo contiene caracteres de control no permitidos.')
+
+    primera_linea, _separador, resto = muestra.partition('\n')
+    if primera_linea.strip().lower().startswith('sep='):
+        muestra = resto
+    try:
+        dialecto = csv.Sniffer().sniff(muestra[:4096], delimiters=';,')
+        encabezados = next(csv.reader(io.StringIO(muestra), dialect=dialecto), [])
+    except csv.Error as error:
+        raise forms.ValidationError('No fue posible reconocer una estructura CSV válida.') from error
+    if len(encabezados) < 2:
+        raise forms.ValidationError('El CSV debe contener al menos dos columnas.')
+    return archivo
+
+
+def normalizar_rut_formulario(valor):
+    """Normaliza un RUT ingresado por formulario y valida su digito verificador."""
+    lectura_rut = parsear_lectura_rut(valor)
+    if not lectura_rut:
+        raise forms.ValidationError(MENSAJE_RUT_INVALIDO)
+    return lectura_rut.rut
 
 
 def configurar_campo_telefono_movil(field, valor_inicial=None):
@@ -165,6 +242,116 @@ class RecuperarPasswordForm(PasswordResetForm):
         )
 
 
+class ReautenticacionForm(forms.Form):
+    """Solicita nuevamente la contraseña para operaciones sensibles."""
+
+    password = forms.CharField(
+        label='Contraseña',
+        strip=False,
+        widget=forms.PasswordInput(
+            attrs={
+                'autocomplete': 'current-password',
+                'autofocus': True,
+                'class': 'form-control',
+            }
+        ),
+    )
+
+
+class ConsultaPublicaRutForm(forms.Form):
+    """Formulario publico para solicitar una verificacion por correo."""
+
+    MENSAJE_GENERICO = 'No fue posible encontrar informacion para los datos ingresados.'
+
+    rut = forms.CharField(
+        label='RUT',
+        max_length=12,
+        widget=forms.TextInput(
+            attrs={
+                'autocomplete': 'off',
+                'autofocus': True,
+                'class': 'form-control form-control-lg',
+                'inputmode': 'text',
+                'placeholder': '12.345.678-5',
+            }
+        ),
+    )
+    anio = forms.IntegerField(
+        label='Año',
+        required=False,
+        min_value=2000,
+        widget=forms.NumberInput(
+            attrs={
+                'class': 'form-control form-control-lg',
+                'inputmode': 'numeric',
+                'placeholder': '2026',
+            }
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        """Configura los campos publicos de solicitud."""
+        super().__init__(*args, **kwargs)
+        self.fields['anio'].initial = timezone.localdate().year
+        self.fields['anio'].max_value = timezone.localdate().year + 1
+        marcar_campo_rut(self.fields['rut'])
+
+    def clean_rut(self):
+        """Normaliza el RUT sin consultar ni revelar si existe un socio."""
+        lectura_rut = parsear_lectura_rut(self.cleaned_data['rut'])
+        if not lectura_rut:
+            raise forms.ValidationError(self.MENSAJE_GENERICO)
+        return lectura_rut.rut
+
+    def clean_anio(self):
+        """Usa el año actual cuando la consulta no especifica periodo."""
+        anio = self.cleaned_data.get('anio') or timezone.localdate().year
+        maximo = timezone.localdate().year + 1
+        if anio > maximo:
+            raise forms.ValidationError('Ingrese un año válido.')
+        return anio
+
+
+class CodigoConsultaAsistenciaForm(forms.Form):
+    """Valida el codigo de un solo uso sin incluirlo en la URL."""
+
+    codigo = forms.CharField(
+        label='Código de verificación',
+        min_length=6,
+        max_length=6,
+        widget=forms.TextInput(
+            attrs={
+                'autocomplete': 'one-time-code',
+                'autofocus': True,
+                'class': 'form-control form-control-lg',
+                'inputmode': 'numeric',
+                'pattern': '[0-9]{6}',
+                'placeholder': '000000',
+            }
+        ),
+    )
+
+    def clean_codigo(self):
+        """Exige exactamente seis digitos decimales."""
+        codigo = (self.cleaned_data['codigo'] or '').strip()
+        if not codigo.isdecimal() or len(codigo) != 6:
+            raise forms.ValidationError('Ingresa el código de seis dígitos.')
+        return codigo
+
+
+class AceptacionPrivacidadConsultaForm(forms.Form):
+    """Recoge una accion afirmativa para la version vigente del aviso."""
+
+    acepta = forms.BooleanField(
+        required=True,
+        label=TEXTO_ACEPTACION_CONSULTA,
+        widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        error_messages={
+            'required': 'Debes aceptar para utilizar la consulta digital.',
+        },
+    )
+
+
 class UsuarioCreationForm(TelefonoMovilFormMixin, UserCreationForm):
     """Formulario de alta de usuarios con control de roles según actor."""
 
@@ -234,7 +421,7 @@ class UsuarioCreationForm(TelefonoMovilFormMixin, UserCreationForm):
 
     def clean_rut(self):
         """Normaliza y valida unicidad del RUT ingresado."""
-        rut = normalizar_rut(self.cleaned_data['rut'])
+        rut = normalizar_rut_formulario(self.cleaned_data['rut'])
         if Usuario.objects.filter(rut__iexact=rut).exists():
             raise forms.ValidationError('Ya existe un usuario con este RUT.')
         return rut
@@ -332,7 +519,7 @@ class SocioCreationForm(TelefonoMovilFormMixin, FechaIngresoProyectoFormMixin, f
 
     def clean_rut(self):
         """Normaliza y valida unicidad del RUT ingresado."""
-        rut = normalizar_rut(self.cleaned_data['rut'])
+        rut = normalizar_rut_formulario(self.cleaned_data['rut'])
         if Usuario.objects.filter(rut__iexact=rut).exists():
             raise forms.ValidationError('Ya existe un usuario con este RUT.')
         return rut
@@ -443,10 +630,29 @@ class ReunionCreationForm(forms.ModelForm):
             Row(
                 Column('fecha', css_class='col-md-4'),
                 Column('hora', css_class='col-md-4'),
-                Column('estado', css_class='col-md-4'),
+                Column('locacion', css_class='col-md-4'),
             ),
             Row(
-                Column('locacion', css_class='col-md-6'),
+                Column(
+                    'estado',
+                    css_class='col-md-4',
+                ),
+                Column(
+                    HTML(
+                        '''
+                        <div class="pt-md-4 d-flex flex-column flex-sm-row align-items-sm-center gap-2">
+                            <a href="{% url 'usuarios:descargar_plantilla_asistencia_historica_csv' %}" class="btn btn-outline-primary btn-sm d-inline-flex align-items-center gap-2 flex-shrink-0">
+                                {% include "includes/icon.html" with name="file-spreadsheet" %}
+                                <span>Plantilla CSV</span>
+                            </a>
+                            <p class="form-text m-0">
+                                Plantilla CSV para carga hist&oacute;rica: usar solo RUT y Situaci&oacute;n. El RUT debe ir sin puntos y con guion, por ejemplo 12345678-9. Situaci&oacute;n acepta A/a para Ausente y P/p para Presente.
+                            </p>
+                        </div>
+                        '''
+                    ),
+                    css_class='col-md-8 col-lg-6',
+                ),
             ),
             Submit('submit', 'Guardar reunion', css_class='btn btn-primary'),
         )
@@ -529,9 +735,78 @@ class ReunionCancelacionForm(forms.Form):
         return motivo
 
 
+class CargaAsistenciaHistoricaForm(forms.Form):
+    """Formulario para cargar asistencia historica desde CSV."""
+
+    archivo = forms.FileField(
+        label='Archivo CSV',
+        required=True,
+        help_text=(
+            'El CSV debe incluir solo RUT y Situacion. Use RUT sin puntos y con '
+            'guion, por ejemplo 12345678-9. Situacion acepta A/a para Ausente '
+            'y P/p para Presente.'
+        ),
+        widget=forms.ClearableFileInput(
+            attrs={
+                'accept': '.csv,text/csv',
+            }
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        """Configura layout y enctype para carga de archivos."""
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.form_enctype = 'multipart/form-data'
+        self.helper.layout = Layout(
+            'archivo',
+            Submit('submit', 'Cargar asistencia', css_class='btn btn-primary'),
+        )
+
+    def clean_archivo(self):
+        """Acepta archivos CSV exportados desde planillas."""
+        return validar_archivo_csv(self.cleaned_data['archivo'])
+
+
+class CargaMasivaSociosForm(forms.Form):
+    """Formulario para crear socios en lote desde CSV."""
+
+    archivo = forms.FileField(
+        label='Archivo CSV',
+        required=True,
+        help_text=(
+            'El CSV debe incluir nombre, apellido_paterno, rut, '
+            'correo_electronico, telefono_movil y fecha_ingreso_proyecto. '
+            'La fecha debe usar formato YYYY-MM-DD.'
+        ),
+        widget=forms.ClearableFileInput(
+            attrs={
+                'accept': '.csv,text/csv',
+            }
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        """Configura layout y enctype para carga de archivos."""
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.form_enctype = 'multipart/form-data'
+        self.helper.layout = Layout(
+            'archivo',
+            Submit('submit', 'Cargar socios', css_class='btn btn-primary'),
+        )
+
+    def clean_archivo(self):
+        """Acepta archivos CSV exportados desde planillas."""
+        return validar_archivo_csv(self.cleaned_data['archivo'])
+
+
 class JustificacionInasistenciaForm(forms.Form):
     """Formulario para registrar el motivo obligatorio de justificacion."""
 
+    anio = forms.IntegerField(required=False, widget=forms.HiddenInput())
     asistencia = forms.ModelChoiceField(
         label='Reunion a justificar',
         queryset=AsistenciaReunion.objects.none(),
@@ -554,14 +829,19 @@ class JustificacionInasistenciaForm(forms.Form):
         """Recibe el socio y responsable de la justificacion."""
         self.socio = kwargs.pop('socio')
         self.usuario = kwargs.pop('usuario')
+        self.anio = kwargs.pop('anio', None)
         super().__init__(*args, **kwargs)
+        self.fields['anio'].initial = self.anio
         self.fields['asistencia'].queryset = (
-            AsistenciaReunion.obtener_ausencias_justificables(self.socio)
+            AsistenciaReunion.obtener_ausencias_justificables(
+                self.socio,
+            )
         )
         self.fields['asistencia'].label_from_instance = self.etiquetar_asistencia
         self.helper = FormHelper()
         self.helper.form_method = 'post'
         self.helper.layout = Layout(
+            'anio',
             'asistencia',
             'motivo',
             Submit('submit', 'Justificar inasistencia', css_class='btn btn-primary'),
@@ -618,7 +898,7 @@ class RegistroAsistenciaRutForm(forms.Form):
         max_length=12,
         widget=forms.TextInput(
             attrs={
-                'placeholder': '12.345.678-9',
+                'placeholder': '12.345.678-5',
                 'autocomplete': 'off',
                 'inputmode': 'text',
                 'data-rut-manual-input': 'true',
@@ -790,7 +1070,7 @@ class SocioUpdateForm(TelefonoMovilFormMixin, FechaIngresoProyectoFormMixin, for
         """Mantiene el RUT original aunque el POST intente modificarlo."""
         if self.instance.pk:
             return normalizar_rut(self.instance.rut)
-        return normalizar_rut(self.cleaned_data['rut'])
+        return normalizar_rut_formulario(self.cleaned_data['rut'])
 
     def save(self, commit=True):
         """Actualiza el socio conservando siempre su rol y username."""
@@ -884,7 +1164,7 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
         if self.instance.pk:
             return normalizar_rut(self.instance.rut)
 
-        rut = normalizar_rut(self.cleaned_data['rut'])
+        rut = normalizar_rut_formulario(self.cleaned_data['rut'])
         qs = Usuario.objects.filter(rut__iexact=rut)
         if self.instance.pk:
             qs = qs.exclude(pk=self.instance.pk)

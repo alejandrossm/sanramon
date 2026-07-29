@@ -5,10 +5,40 @@ from . import views
 app_name = 'usuarios'
 
 urlpatterns = [
-    path('', views.dashboard, name='home'),
+    path('', views.index, name='home'),
+    path(
+        'consulta-asistencia/',
+        views.consulta_publica_asistencia,
+        name='consulta_publica_asistencia',
+    ),
+    path(
+        'consulta-asistencia/verificar/',
+        views.verificar_codigo_consulta,
+        name='verificar_codigo_consulta',
+    ),
+    path(
+        'consulta-asistencia/privacidad/',
+        views.aceptar_privacidad_consulta,
+        name='aceptar_privacidad_consulta',
+    ),
+    path(
+        'consulta-asistencia/resultado/',
+        views.resultado_consulta_asistencia,
+        name='resultado_consulta_asistencia',
+    ),
+    path(
+        'politica-privacidad/',
+        views.politica_privacidad,
+        name='politica_privacidad',
+    ),
     path('dashboard/', views.dashboard, name='dashboard'),
     path('login/', views.UsuarioLoginView.as_view(), name='login'),
     path('logout/', views.UsuarioLogoutView.as_view(), name='logout'),
+    path(
+        'seguridad/reautenticar/',
+        views.reauth_seguridad,
+        name='reauth_seguridad',
+    ),
     path(
         'recuperar-contrasena/',
         views.UsuarioPasswordResetView.as_view(),
@@ -31,6 +61,11 @@ urlpatterns = [
     ),
     path('mis-asistencias/', views.mis_asistencias, name='mis_asistencias'),
     path('asistencia/', views.listado_socios_asistencia, name='listado_socios_asistencia'),
+    path(
+        'asistencia/reportes/anual/<str:formato>/',
+        views.exportar_asistencia_anual,
+        name='exportar_asistencia_anual',
+    ),
     path('asistencia/registrar/', views.registrar_asistencia_activa, name='registrar_asistencia_activa'),
     path(
         'asistencia/justificaciones/',
@@ -44,6 +79,21 @@ urlpatterns = [
     ),
     path('reuniones/', views.listado_reuniones, name='listado_reuniones'),
     path('reuniones/crear/', views.crear_reunion, name='crear_reunion'),
+    path(
+        'reuniones/plantilla-asistencia-historica/',
+        views.descargar_plantilla_asistencia_historica,
+        name='descargar_plantilla_asistencia_historica',
+    ),
+    path(
+        'reuniones/plantilla-asistencia-historica.csv',
+        views.descargar_plantilla_asistencia_historica_csv,
+        name='descargar_plantilla_asistencia_historica_csv',
+    ),
+    path(
+        'reuniones/<int:pk>/asistencia-historica/',
+        views.cargar_asistencia_historica,
+        name='cargar_asistencia_historica',
+    ),
     path('reuniones/<int:pk>/iniciar/', views.iniciar_reunion, name='iniciar_reunion'),
     path('reuniones/<int:pk>/finalizar/', views.finalizar_reunion, name='finalizar_reunion'),
     path('reuniones/<int:pk>/cancelar/', views.cancelar_reunion, name='cancelar_reunion'),
@@ -54,6 +104,16 @@ urlpatterns = [
         name='registrar_asistencia_reunion',
     ),
     path('socios/', views.listado_socios, name='listado_socios'),
+    path(
+        'socios/plantilla-carga-masiva.csv',
+        views.descargar_plantilla_carga_masiva_socios,
+        name='descargar_plantilla_carga_masiva_socios',
+    ),
+    path(
+        'socios/carga-masiva/',
+        views.cargar_socios_masivo,
+        name='cargar_socios_masivo',
+    ),
     path('registrar_socio/', views.registro_socio, name='registro_socio'),
     path('socios/<int:pk>/', views.detalle_socio, name='detalle_socio'),
     path('socios/<int:pk>/editar/', views.editar_socio, name='editar_socio'),
@@ -66,6 +126,33 @@ urlpatterns = [
         'socios/<int:pk>/notificar-bloqueo/',
         views.notificar_bloqueo_socio,
         name='notificar_bloqueo_socio',
+    ),
+    path(
+        'socios/reportes/completo/<str:formato>/',
+        views.exportar_socios_completo,
+        name='exportar_socios_completo',
+    ),
+    path(
+        'socios/reportes/anual/<str:formato>/',
+        views.exportar_socios_asistencia_anual,
+        name='exportar_socios_asistencia_anual',
+    ),
+    path('configuracion/', views.configuracion, name='configuracion'),
+    path('configuracion/logs/', views.configuracion, name='registro_logs'),
+    path(
+        'configuracion/logs/descargar/',
+        views.descargar_registro_logs,
+        name='descargar_registro_logs',
+    ),
+    path(
+        'configuracion/respaldo/base-datos/',
+        views.exportar_base_datos_respaldo,
+        name='exportar_base_datos_respaldo',
+    ),
+    path(
+        'configuracion/cargas-historicas/<int:pk>/revertir/',
+        views.revertir_carga_asistencia_historica_view,
+        name='revertir_carga_asistencia_historica',
     ),
     path('socios/<int:pk>/eliminar/', views.eliminar_socio, name='eliminar_socio'),
     path('mi-contrasena/', views.cambiar_mi_password, name='cambiar_mi_password'),

@@ -1,14 +1,23 @@
-from datetime import date, datetime, time
-from io import StringIO
+import csv
+import re
+import sqlite3
+import zipfile
+from datetime import date, datetime, time, timedelta
+from io import BytesIO, StringIO
+from pathlib import Path
+from tempfile import NamedTemporaryFile, gettempdir
 from urllib.parse import urlparse
 from unittest.mock import patch
 
+from django.conf import settings
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.contrib.staticfiles import finders
+from django.core.cache import cache
 from django.core import mail
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
@@ -17,6 +26,24 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .admin import UsuarioAdmin
+from .auditoria import (
+    ACCION_CARGA_HISTORICA_REVERTIDA,
+    ACCION_CARGA_HISTORICA,
+    ACCION_CARGA_MASIVA_SOCIOS,
+    ACCION_LOG_AUDITORIA_DESCARGADO,
+    ACCION_REPORTE_EXPORTADO,
+    ACCION_RESPALDO_BASE_DATOS,
+    ACCION_REUNION_CANCELADA,
+    ACCION_REUNION_ELIMINADA,
+    ACCION_SOCIO_ELIMINADO,
+    ACCION_USUARIO_ACTIVADO,
+    ACCION_USUARIO_DESACTIVADO,
+    ACCION_USUARIO_ELIMINADO,
+    leer_eventos_auditoria,
+    listar_archivos_auditoria,
+    registrar_evento_auditoria,
+    verificar_integridad_archivo,
+)
 from .forms import (
     JustificacionInasistenciaForm,
     ReunionCancelacionForm,
@@ -27,13 +54,22 @@ from .forms import (
 from .identificacion import (
     ORIGEN_QR_REGISTRO_CIVIL,
     ORIGEN_RUT_MANUAL,
+    calcular_digito_verificador_rut,
     parsear_lectura_rut,
 )
 from .models import (
+    AceptacionPrivacidadConsulta,
     AsistenciaReunion,
+    CargaAsistenciaHistorica,
     DesbloqueoSocio,
+    IntentoAcceso,
     NotificacionBloqueoSocio,
     Reunion,
+    SolicitudCodigoConsulta,
+)
+from .privacidad import (
+    POLITICA_PRIVACIDAD_VERSION,
+    SESION_SOLICITUD_ID,
 )
 from .permisos import (
     GRUPO_ADMINISTRADOR,
@@ -44,30 +80,45 @@ from .permisos import (
     PERM_GESTIONAR_USUARIOS,
     ROLES_INTERNOS_GESTIONABLES,
 )
-from .views import (
-    ROLES_FILTRABLES_USUARIOS,
+from .servicios_asistencia import (
     agregar_resumen_asistencia_socios,
     anotar_resumen_asistencia_socios,
+    obtener_historial_asistencia_socio,
     obtener_indicador_asistencia,
+    obtener_proxima_reunion,
+    obtener_resumen_anual_asistencia_socio,
+    obtener_resumen_asistencia_socio,
+    puede_eliminar_socio_seguro,
+)
+from .respaldos import descifrar_respaldo
+from .seguridad import SESION_REAUTENTICADA_HASTA
+from .views import (
+    ROLES_FILTRABLES_USUARIOS,
     obtener_resumen_estado_asistencia_socios,
     puede_acceder_asistencia,
-    puede_eliminar_socio_seguro,
     puede_gestionar_usuarios,
     puede_registrar_socios,
     puede_registrar_usuarios,
-    obtener_resumen_asistencia_socio,
 )
 
 
 @override_settings(
     PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'],
     EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+    AUDITORIA_LOG_PATH=Path(gettempdir()) / 'sanramon_test_auditoria.log',
+    RESPALDO_ENCRYPTION_KEYS=[
+        'tK4O8lU1LMYcatkJFS352xgHz8obw8AvOPRIYV55phM='
+    ],
+    AUDITORIA_HMAC_KEY='clave-hmac-auditoria-exclusiva-para-pruebas',
 )
 class UsuariosModuloTests(TestCase):
     """Pruebas de autenticacion, roles, permisos y gestion de usuarios."""
 
     def setUp(self):
         """Crea usuarios base para validar reglas por rol."""
+        Path(settings.AUDITORIA_LOG_PATH).unlink(missing_ok=True)
+        cache.delete('privacidad:purga-solicitudes-otp:v1')
+        cache.delete('seguridad:purga-intentos:v1')
         self.User = get_user_model()
         self.admin_user = self.User.objects.create_user(
             username='admin',
@@ -100,6 +151,12 @@ class UsuariosModuloTests(TestCase):
             rol=self.User.ENCARGADO_REGISTRO,
         )
 
+    @staticmethod
+    def rut_prueba(cuerpo):
+        """Construye un RUT de prueba con digito verificador valido."""
+        cuerpo = str(cuerpo)
+        return f'{cuerpo}-{calcular_digito_verificador_rut(cuerpo)}'
+
     def registrar_asistencia_historica(self, socio, estado, fecha):
         """Crea un registro historico de asistencia para pruebas de resumen."""
         reunion = Reunion.objects.create(
@@ -119,6 +176,24 @@ class UsuariosModuloTests(TestCase):
             origen=origen,
             registrada_por=self.admin_user,
         )
+
+    def solicitar_codigo_consulta(self, rut=None, anio=2026):
+        """Solicita y extrae el OTP entregado por el backend de pruebas."""
+        response = self.client.post(
+            reverse('usuarios:consulta_publica_asistencia'),
+            {
+                'rut': rut or self.socio_user.rut,
+                'anio': str(anio),
+            },
+        )
+        self.assertRedirects(
+            response,
+            reverse('usuarios:verificar_codigo_consulta'),
+        )
+        mensaje = mail.outbox[-1]
+        coincidencia = re.search(r'Tu código es: (\d{6})', mensaje.body)
+        self.assertIsNotNone(coincidencia)
+        return coincidencia.group(1)
 
     def test_permisos_base_estan_asignados_a_grupos_operativos(self):
         """Crea grupos equivalentes a roles sin acoplar permisos al codigo."""
@@ -210,7 +285,8 @@ class UsuariosModuloTests(TestCase):
         self.assertIn('hora', form.errors)
         self.assertIn('locacion', form.errors)
 
-    def test_formulario_reunion_exige_hora_en_formato_24_horas(self):
+    @patch('usuarios.forms.timezone.localtime', return_value=datetime(2026, 7, 1, 12, 0))
+    def test_formulario_reunion_exige_hora_en_formato_24_horas(self, _localtime):
         """Rechaza horas con AM/PM o sin cero inicial."""
         datos_base = {
             'fecha': '2026-07-20',
@@ -623,6 +699,47 @@ class UsuariosModuloTests(TestCase):
             ).exists()
         )
 
+    def test_reunion_finalizada_no_marca_ausente_socio_bloqueado_anio_previo(self):
+        """Mantiene el bloqueo operativo al finalizar reuniones de otro ano."""
+        anio_actual = timezone.localdate().year
+        socio_bloqueado = self.User.objects.create_user(
+            username='socio.bloqueado.anio.previo',
+            email='socio.bloqueado.anio.previo@example.com',
+            password='ClaveSegura123',
+            first_name='Socio',
+            last_name='Bloqueado',
+            rut=self.rut_prueba(87654321),
+            rol=self.User.SOCIO,
+        )
+        self.registrar_asistencia_historica(
+            socio_bloqueado,
+            AsistenciaReunion.AUSENTE,
+            date(anio_actual - 1, 4, 10),
+        )
+        self.registrar_asistencia_historica(
+            socio_bloqueado,
+            AsistenciaReunion.AUSENTE,
+            date(anio_actual - 1, 4, 17),
+        )
+        reunion = Reunion.objects.create(
+            fecha=date(anio_actual, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+
+        resultado = reunion.finalizar(self.admin_user)
+
+        self.assertEqual(resultado['ausencias_creadas'], 1)
+        self.assertFalse(
+            AsistenciaReunion.objects.filter(
+                reunion=reunion,
+                socio=socio_bloqueado,
+            ).exists()
+        )
+        self.assertTrue(AsistenciaReunion.socio_esta_bloqueado(socio_bloqueado))
+
     def test_reunion_finalizada_marca_ausente_socio_desbloqueado(self):
         """Vuelve a contabilizar ausencias cuando el socio ya fue desbloqueado."""
         socio_desbloqueado = self.User.objects.create_user(
@@ -792,12 +909,306 @@ class UsuariosModuloTests(TestCase):
         )
         self.assertRedirects(response, reverse('usuarios:dashboard'))
 
+    def test_login_bloquea_fuerza_bruta_por_identificador(self):
+        """Bloquea nuevos intentos durante la ventana configurada."""
+        with self.settings(SEGURIDAD_LOGIN_MAX_IDENTIFICADOR=2):
+            for _indice in range(2):
+                response = self.client.post(
+                    reverse('usuarios:login'),
+                    {'username': 'admin', 'password': 'incorrecta'},
+                )
+                self.assertEqual(response.status_code, 200)
+
+            response = self.client.post(
+                reverse('usuarios:login'),
+                {'username': 'admin', 'password': 'ClaveSegura123'},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Demasiados intentos')
+        self.assertFalse(response.wsgi_request.user.is_authenticated)
+        self.assertGreaterEqual(
+            IntentoAcceso.objects.filter(tipo=IntentoAcceso.LOGIN).count(),
+            2,
+        )
+
     def test_login_muestra_link_de_recuperacion_password(self):
         """Expone el acceso publico para recuperar contrasena."""
         response = self.client.get(reverse('usuarios:login'))
 
         self.assertContains(response, reverse('usuarios:password_reset'))
         self.assertContains(response, 'Olvide mi contrasena')
+
+    def test_index_publico_muestra_landing_y_navegacion(self):
+        """Expone la pagina de llegada con proyecto, menu, imagenes y footer."""
+        response = self.client.get(reverse('usuarios:home'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Proyecto San Ram&oacute;n')
+        self.assertContains(response, 'Ver mi asistencia')
+        self.assertContains(response, 'Acceso al sistema')
+        self.assertContains(response, reverse('usuarios:consulta_publica_asistencia'))
+        self.assertContains(response, reverse('usuarios:login'))
+        self.assertContains(response, 'images/f01.jpeg')
+        self.assertContains(response, 'images/f02.jpeg')
+        self.assertContains(response, 'images/f03.jpeg')
+        self.assertContains(response, 'Redes sociales')
+        self.assertContains(response, 'Contacto')
+
+    def test_index_redirige_usuarios_autenticados_al_destino_por_rol(self):
+        """Evita mostrar la portada publica a usuarios con sesion activa."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:home'))
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+
+        self.client.logout()
+        self.client.login(username='socio', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:home'))
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+
+    def test_consulta_publica_rut_invalido_muestra_mensaje_generico(self):
+        """No entrega datos ni confirma coincidencias sin verificar correo."""
+        response = self.client.post(
+            reverse('usuarios:consulta_publica_asistencia'),
+            {'rut': 'rut-invalido', 'anio': '2026'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            'No fue posible encontrar informacion para los datos ingresados.',
+        )
+        self.assertNotIn('socio', response.context)
+
+        response = self.client.post(
+            reverse('usuarios:consulta_publica_asistencia'),
+            {'rut': self.admin_user.rut, 'anio': '2026'},
+        )
+        self.assertRedirects(
+            response,
+            reverse('usuarios:verificar_codigo_consulta'),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(len(mail.outbox), 0)
+        response = self.client.get(reverse('usuarios:verificar_codigo_consulta'))
+        self.assertContains(
+            response,
+            'Si el RUT está registrado, enviamos un código al correo asociado.',
+        )
+        self.assertContains(response, 'data-app-message')
+        self.assertContains(response, 'data-message-level="success"')
+        self.assertContains(
+            response,
+            'Código enviado. Si el RUT está registrado, revisa el correo asociado para continuar.',
+        )
+        self.assertNotContains(response, self.admin_user.email)
+        self.assertNotContains(response, self.admin_user.nombre_completo)
+
+    def test_consulta_publica_muestra_modal_generico_al_enviar_codigo(self):
+        """Confirma el envio sin exponer el correo ni la identidad del socio."""
+        response = self.client.post(
+            reverse('usuarios:consulta_publica_asistencia'),
+            {
+                'rut': self.socio_user.rut,
+                'anio': '2026',
+            },
+            follow=True,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse('usuarios:verificar_codigo_consulta'),
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertContains(response, 'data-app-message')
+        self.assertContains(response, 'data-message-level="success"')
+        self.assertContains(
+            response,
+            'Código enviado. Si el RUT está registrado, revisa el correo asociado para continuar.',
+        )
+        self.assertNotContains(response, self.socio_user.email)
+        self.assertNotContains(response, self.socio_user.nombre_completo)
+
+    def test_consulta_publica_muestra_estado_resumen_e_historial(self):
+        """Exige OTP y aceptacion antes de mostrar el historial anual."""
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.PRESENTE,
+            date(2025, 5, 20),
+        )
+        asistencia_2026 = self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.PRESENTE,
+            date(2026, 5, 20),
+        )
+        ausencia_2026 = self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 21),
+        )
+        DesbloqueoSocio.objects.create(
+            socio=self.socio_user,
+            asistencia=ausencia_2026,
+            motivo='Revision administrativa',
+            desbloqueado_por=self.admin_user,
+            inasistencias_al_desbloquear=1,
+        )
+
+        codigo = self.solicitar_codigo_consulta(anio=2026)
+        solicitud = SolicitudCodigoConsulta.objects.get()
+        self.assertNotEqual(solicitud.codigo_hash, codigo)
+        self.assertNotIn(codigo, solicitud.codigo_hash)
+        self.assertEqual(mail.outbox[0].to, [self.socio_user.email])
+
+        response = self.client.get(
+            reverse('usuarios:resultado_consulta_asistencia'),
+        )
+        self.assertRedirects(
+            response,
+            reverse('usuarios:consulta_publica_asistencia'),
+            fetch_redirect_response=False,
+        )
+
+        response = self.client.post(
+            reverse('usuarios:verificar_codigo_consulta'),
+            {'codigo': codigo},
+        )
+        self.assertRedirects(
+            response,
+            reverse('usuarios:aceptar_privacidad_consulta'),
+        )
+
+        response = self.client.post(
+            reverse('usuarios:aceptar_privacidad_consulta'),
+            {'acepta': 'on'},
+        )
+        self.assertRedirects(
+            response,
+            reverse('usuarios:resultado_consulta_asistencia'),
+        )
+
+        response = self.client.get(
+            reverse('usuarios:resultado_consulta_asistencia'),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('no-store', response['Cache-Control'])
+        self.assertEqual(response.context['socio'], self.socio_user)
+        self.assertNotIn('proxima_reunion', response.context)
+        self.assertEqual(response.context['resumen_general']['total_reuniones'], 3)
+        self.assertEqual(response.context['resumen_general']['total_asistencias'], 2)
+        self.assertEqual(response.context['resumen_general']['total_ausencias'], 1)
+        self.assertEqual(response.context['resumen_anual']['total_reuniones'], 2)
+        self.assertEqual(response.context['resumen_anual']['total_asistencias'], 1)
+        self.assertEqual(response.context['resumen_anual']['total_ausencias'], 1)
+        self.assertEqual(
+            list(response.context['historial']),
+            [ausencia_2026, asistencia_2026],
+        )
+        self.assertContains(response, self.socio_user.nombre_completo)
+        self.assertContains(response, 'Resumen anual 2026')
+        self.assertNotContains(response, 'Pr&oacute;xima reuni&oacute;n')
+        self.assertNotContains(response, 'Ausencias efectivas')
+        self.assertNotContains(response, 'Justificaciones')
+        self.assertNotContains(response, 'JUSTIFICACI')
+        self.assertNotContains(response, 'Justificada')
+        self.assertNotContains(response, '2025')
+        aceptacion = AceptacionPrivacidadConsulta.objects.get(
+            socio=self.socio_user,
+        )
+        self.assertEqual(
+            aceptacion.version_politica,
+            POLITICA_PRIVACIDAD_VERSION,
+        )
+        self.assertEqual(
+            aceptacion.metodo_verificacion,
+            AceptacionPrivacidadConsulta.METODO_EMAIL_OTP,
+        )
+
+    def test_codigo_consulta_es_de_uso_unico_y_limita_intentos(self):
+        """Rechaza reutilizacion y bloquea una solicitud tras cinco errores."""
+        codigo = self.solicitar_codigo_consulta()
+        solicitud_id = self.client.session[SESION_SOLICITUD_ID]
+
+        for _indice in range(5):
+            response = self.client.post(
+                reverse('usuarios:verificar_codigo_consulta'),
+                {'codigo': '999999' if codigo != '999999' else '888888'},
+            )
+            self.assertEqual(response.status_code, 200)
+
+        solicitud = SolicitudCodigoConsulta.objects.get(pk=solicitud_id)
+        self.assertEqual(solicitud.intentos_fallidos, 5)
+        response = self.client.post(
+            reverse('usuarios:verificar_codigo_consulta'),
+            {'codigo': codigo},
+        )
+        self.assertContains(response, 'máximo de intentos')
+
+        SolicitudCodigoConsulta.objects.all().delete()
+        mail.outbox.clear()
+        codigo = self.solicitar_codigo_consulta()
+        response = self.client.post(
+            reverse('usuarios:verificar_codigo_consulta'),
+            {'codigo': codigo},
+        )
+        self.assertEqual(response.status_code, 302)
+        solicitud = SolicitudCodigoConsulta.objects.get()
+        sesion = self.client.session
+        sesion[SESION_SOLICITUD_ID] = str(solicitud.pk)
+        sesion.save()
+        response = self.client.post(
+            reverse('usuarios:verificar_codigo_consulta'),
+            {'codigo': codigo},
+        )
+        self.assertContains(response, 'no es válido')
+
+    def test_codigo_consulta_expira_y_aplica_limite_por_socio(self):
+        """Impide usar codigos vencidos y frena reenvios abusivos."""
+        codigo = self.solicitar_codigo_consulta()
+        solicitud = SolicitudCodigoConsulta.objects.get()
+        solicitud.fecha_expiracion = timezone.now() - timedelta(seconds=1)
+        solicitud.save(update_fields=['fecha_expiracion'])
+        response = self.client.post(
+            reverse('usuarios:verificar_codigo_consulta'),
+            {'codigo': codigo},
+        )
+        self.assertContains(response, 'expiró')
+
+        SolicitudCodigoConsulta.objects.all().delete()
+        mail.outbox.clear()
+        with self.settings(CONSULTA_CODIGO_MAX_SOLICITUDES_SOCIO=1):
+            self.solicitar_codigo_consulta()
+            response = self.client.post(
+                reverse('usuarios:consulta_publica_asistencia'),
+                {'rut': self.socio_user.rut, 'anio': '2026'},
+            )
+        self.assertRedirects(
+            response,
+            reverse('usuarios:verificar_codigo_consulta'),
+        )
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_politica_privacidad_es_publica_y_versionada(self):
+        """Mantiene disponible el aviso usado por la consulta."""
+        response = self.client.get(reverse('usuarios:politica_privacidad'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, POLITICA_PRIVACIDAD_VERSION)
+        self.assertContains(response, 'Derechos de las personas')
+        self.assertContains(response, 'contacto@vallesanramon.cl')
+
+    def test_nueva_solicitud_purga_otp_antiguos(self):
+        """Elimina oportunistamente la evidencia tecnica con mas de 30 dias."""
+        self.solicitar_codigo_consulta()
+        solicitud = SolicitudCodigoConsulta.objects.get()
+        SolicitudCodigoConsulta.objects.filter(pk=solicitud.pk).update(
+            fecha_solicitud=timezone.now() - timedelta(days=31),
+        )
+
+        cache.delete('privacidad:purga-solicitudes-otp:v1')
+        mail.outbox.clear()
+        self.solicitar_codigo_consulta()
+        self.assertFalse(SolicitudCodigoConsulta.objects.filter(pk=solicitud.pk).exists())
 
     def test_recuperacion_password_muestra_link_a_home(self):
         """Permite volver a home desde el flujo publico de recuperacion."""
@@ -854,6 +1265,59 @@ class UsuariosModuloTests(TestCase):
         self.assertRedirects(response, reverse('usuarios:password_reset_complete'))
         self.admin_user.refresh_from_db()
         self.assertTrue(self.admin_user.check_password('ClaveNuevaSegura123'))
+
+    def test_recuperacion_password_limita_envios_sin_revelar_cuenta(self):
+        """Mantiene la respuesta generica y deja de enviar al alcanzar el limite."""
+        with self.settings(SEGURIDAD_RECUPERACION_MAX_IDENTIFICADOR=2):
+            for _indice in range(3):
+                response = self.client.post(
+                    reverse('usuarios:password_reset'),
+                    {'email': self.admin_user.email},
+                )
+                self.assertRedirects(
+                    response,
+                    reverse('usuarios:password_reset_done'),
+                )
+
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertEqual(
+            IntentoAcceso.objects.filter(
+                tipo=IntentoAcceso.RECUPERACION,
+            ).count(),
+            2,
+        )
+
+    def test_exportacion_exige_reautenticacion_cuando_vence_sesion_reciente(self):
+        """Solicita contraseña y vuelve de forma segura a la descarga."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        sesion = self.client.session
+        sesion.pop(SESION_REAUTENTICADA_HASTA, None)
+        sesion.save()
+        destino = reverse('usuarios:exportar_socios_completo', args=['csv'])
+
+        response = self.client.get(destino)
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response['Location'].startswith(reverse('usuarios:reauth_seguridad')))
+
+        response = self.client.post(
+            reverse('usuarios:reauth_seguridad'),
+            {'password': 'incorrecta', 'next': destino},
+        )
+        self.assertContains(response, 'contraseña no es correcta')
+
+        response = self.client.post(
+            reverse('usuarios:reauth_seguridad'),
+            {'password': 'ClaveSegura123', 'next': destino},
+        )
+        self.assertRedirects(response, destino, fetch_redirect_response=False)
+
+        response = self.client.get(destino)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response['Content-Type'].startswith('text/csv'))
+        self.assertEqual(
+            leer_eventos_auditoria()[0]['accion'],
+            ACCION_REPORTE_EXPORTADO,
+        )
 
     def test_recuperacion_password_no_envia_correo_a_socio_activo(self):
         """No envia recuperacion a socios aunque tengan password utilizable."""
@@ -950,6 +1414,7 @@ class UsuariosModuloTests(TestCase):
         self.assertNotContains(response, 'cdn.jsdelivr.net')
         self.assertContains(response, 'vendor/bootstrap/bootstrap.min.css')
         self.assertContains(response, 'vendor/bootstrap-icons/bootstrap-icons.min.css')
+        self.assertContains(response, 'css/styles.css?v=placeholder-1')
         self.assertContains(response, 'vendor/bootstrap/bootstrap.bundle.min.js')
         self.assertContains(response, 'vendor/sweetalert2/sweetalert2.all.min.js')
         self.assertContains(response, 'vendor/chart.js/chart.min.js')
@@ -974,6 +1439,19 @@ class UsuariosModuloTests(TestCase):
         for ruta in rutas_estaticas:
             with self.subTest(ruta=ruta):
                 self.assertIsNotNone(finders.find(ruta))
+
+        ruta_css = finders.find('css/styles.css')
+        with open(ruta_css, encoding='utf-8') as archivo_css:
+            estilos = archivo_css.read()
+        self.assertIn('--color-placeholder', estilos)
+        self.assertIn('.form-control::placeholder', estilos)
+
+    def test_layout_publico_usa_css_con_placeholders_diferenciados(self):
+        """Carga la misma hoja global actualizada en la vista publica."""
+        response = self.client.get(reverse('usuarios:consulta_publica_asistencia'))
+
+        self.assertContains(response, 'css/styles.css?v=placeholder-1')
+        self.assertContains(response, 'placeholder="12.345.678-5"')
 
     def test_dashboard_encargado_no_muestra_registro_socio(self):
         """Oculta el acceso de registro de socio para encargados."""
@@ -1011,6 +1489,9 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Listado asistencia')
         self.assertNotContains(response, 'Justificaciones')
         self.assertNotContains(response, reverse('usuarios:listado_justificaciones'))
+        self.assertNotContains(response, 'Configuraci')
+        self.assertNotContains(response, 'Registro de logs')
+        self.assertNotContains(response, 'Exportar base de datos')
         self.assertNotContains(
             response,
             '<p class="sidebar-section-title text-uppercase fw-bold small mb-1 mt-3 px-3">Socios</p>',
@@ -1071,6 +1552,9 @@ class UsuariosModuloTests(TestCase):
         self.assertNotContains(response, 'Listado asistencia')
         self.assertNotContains(response, 'Reuniones')
         self.assertNotContains(response, 'Crear reuni')
+        self.assertNotContains(response, 'Configuraci')
+        self.assertNotContains(response, 'Registro de logs')
+        self.assertNotContains(response, 'Exportar base de datos')
 
     def test_menu_lateral_admin_separa_socios_y_asistencias(self):
         """Separa gestion de socios y asistencia en secciones del sidebar."""
@@ -1100,6 +1584,11 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'Listado reuniones')
         self.assertContains(response, reverse('usuarios:listado_reuniones'))
         self.assertContains(response, 'bi-list-ul')
+        self.assertContains(response, 'Configuraci')
+        self.assertContains(response, reverse('usuarios:configuracion'))
+        self.assertContains(response, 'bi-gear')
+        self.assertNotContains(response, reverse('usuarios:descargar_registro_logs'))
+        self.assertNotContains(response, reverse('usuarios:exportar_base_datos_respaldo'))
         self.assertLess(
             response.content.decode().index('Crear reuni'),
             response.content.decode().index('Listado reuniones'),
@@ -1116,6 +1605,384 @@ class UsuariosModuloTests(TestCase):
             response.content.decode().index('Registrar socio'),
             response.content.decode().index('Listado usuarios'),
         )
+        self.assertLess(
+            response.content.decode().index('Mi contrase'),
+            response.content.decode().index('Configuraci'),
+        )
+
+    @patch('usuarios.views.obtener_ruta_sqlite_respaldo')
+    def test_configuracion_admin_accede_logs_y_respaldo(self, mock_ruta_respaldo):
+        """Centraliza descargas de logs y respaldo para el administrador."""
+        with NamedTemporaryFile(delete=False, suffix='.sqlite3') as archivo:
+            ruta_respaldo = Path(archivo.name)
+        conexion = sqlite3.connect(ruta_respaldo)
+        try:
+            conexion.execute('CREATE TABLE prueba (id INTEGER PRIMARY KEY)')
+            conexion.commit()
+        finally:
+            conexion.close()
+        mock_ruta_respaldo.return_value = ruta_respaldo
+        with NamedTemporaryFile(delete=False, suffix='.log') as archivo_auditoria:
+            archivo_auditoria.write(b'evento-test\n')
+            ruta_auditoria = Path(archivo_auditoria.name)
+
+        self.client.login(username='admin', password='ClaveSegura123')
+
+        try:
+            with self.settings(AUDITORIA_LOG_PATH=ruta_auditoria):
+                response = self.client.get(reverse('usuarios:configuracion'))
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, 'Configuraci')
+                self.assertContains(response, 'Registro de logs')
+                self.assertContains(response, 'Descargar .log')
+                self.assertContains(response, reverse('usuarios:descargar_registro_logs'))
+                self.assertContains(response, 'Carga masiva de socios')
+                self.assertContains(response, 'Plantilla socios')
+                self.assertContains(response, 'Cargar socios')
+                self.assertContains(
+                    response,
+                    reverse('usuarios:descargar_plantilla_carga_masiva_socios'),
+                )
+                self.assertContains(response, reverse('usuarios:cargar_socios_masivo'))
+                self.assertContains(response, 'Respaldo de base de datos')
+                self.assertContains(response, 'Respaldar base de datos')
+                self.assertContains(response, reverse('usuarios:exportar_base_datos_respaldo'))
+                self.assertContains(response, 'Cargas hist')
+                self.assertContains(response, 'No hay cargas hist')
+                self.assertNotContains(response, '<th>FECHA Y HORA</th>', html=True)
+                self.assertNotContains(response, 'evento-test')
+
+                response = self.client.get(reverse('usuarios:registro_logs'))
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, 'Configuraci')
+                self.assertContains(response, 'Descargar .log')
+                self.assertNotContains(response, '<th>FECHA Y HORA</th>', html=True)
+
+                response = self.client.get(reverse('usuarios:descargar_registro_logs'))
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response['Content-Type'], 'text/plain')
+                self.assertIn('attachment;', response['Content-Disposition'])
+                self.assertIn('.log', response['Content-Disposition'])
+                contenido_log = b''.join(response.streaming_content)
+                self.assertIn(
+                    ACCION_LOG_AUDITORIA_DESCARGADO.encode(),
+                    contenido_log,
+                )
+                response.close()
+
+                response = self.client.get(reverse('usuarios:exportar_base_datos_respaldo'))
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response['Content-Type'], 'application/octet-stream')
+                self.assertIn('attachment;', response['Content-Disposition'])
+                self.assertIn('respaldo_sanramon_', response['Content-Disposition'])
+                self.assertIn('.sqlite3.fernet', response['Content-Disposition'])
+                self.assertTrue(
+                    descifrar_respaldo(response.content).startswith(b'SQLite format 3')
+                )
+
+                eventos = leer_eventos_auditoria()
+                self.assertEqual(eventos[0]['accion'], ACCION_RESPALDO_BASE_DATOS)
+                self.assertEqual(eventos[0]['usuario'], 'admin')
+        finally:
+            ruta_respaldo.unlink(missing_ok=True)
+            ruta_auditoria.unlink(missing_ok=True)
+            ruta_auditoria.with_suffix('.log.lock').unlink(missing_ok=True)
+            for ruta_rotada in ruta_auditoria.parent.glob(
+                f'{ruta_auditoria.stem}-*.log.gz'
+            ):
+                ruta_rotada.unlink(missing_ok=True)
+
+    def test_configuracion_permite_revertir_carga_historica_por_planilla(self):
+        """Revierte todos los registros de una carga historica desde configuracion."""
+        reunion = Reunion.objects.create(
+            fecha=date(2025, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede historica',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        carga = CargaAsistenciaHistorica.objects.create(
+            reunion=reunion,
+            cargado_por=self.admin_user,
+            archivo_nombre='asistencia.csv',
+            total_registros=1,
+            total_presentes=1,
+            total_ausentes=0,
+        )
+        AsistenciaReunion.objects.create(
+            reunion=reunion,
+            socio=self.socio_user,
+            estado=AsistenciaReunion.PRESENTE,
+            origen=AsistenciaReunion.ORIGEN_MANUAL,
+            registrada_por=self.admin_user,
+            carga_historica=carga,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:configuracion'))
+
+        self.assertContains(response, 'Cargas hist')
+        self.assertContains(response, 'asistencia.csv')
+        self.assertContains(response, 'Revertir carga')
+        self.assertContains(
+            response,
+            reverse('usuarios:revertir_carga_asistencia_historica', args=[carga.pk]),
+        )
+
+        response = self.client.post(
+            reverse('usuarios:revertir_carga_asistencia_historica', args=[carga.pk]),
+            follow=True,
+        )
+        carga.refresh_from_db()
+
+        self.assertRedirects(response, reverse('usuarios:configuracion'))
+        self.assertContains(response, 'Carga historica revertida correctamente')
+        self.assertEqual(AsistenciaReunion.objects.filter(reunion=reunion).count(), 0)
+        self.assertTrue(carga.revertida)
+        self.assertEqual(carga.revertida_por, self.admin_user)
+        self.assertEqual(carga.registros_revertidos, 1)
+        self.assertEqual(leer_eventos_auditoria()[0]['accion'], ACCION_CARGA_HISTORICA_REVERTIDA)
+
+    def test_configuracion_bloquea_revertir_carga_historica_con_justificaciones(self):
+        """Evita borrar asistencias de una carga si ya tienen justificacion."""
+        reunion = Reunion.objects.create(
+            fecha=date(2025, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede historica',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        carga = CargaAsistenciaHistorica.objects.create(
+            reunion=reunion,
+            cargado_por=self.admin_user,
+            archivo_nombre='asistencia.csv',
+            total_registros=1,
+            total_presentes=0,
+            total_ausentes=1,
+        )
+        asistencia = AsistenciaReunion.objects.create(
+            reunion=reunion,
+            socio=self.socio_user,
+            estado=AsistenciaReunion.AUSENTE,
+            origen=AsistenciaReunion.ORIGEN_MANUAL,
+            registrada_por=self.admin_user,
+            carga_historica=carga,
+        )
+        DesbloqueoSocio.objects.create(
+            socio=self.socio_user,
+            asistencia=asistencia,
+            motivo='Correccion revisada',
+            desbloqueado_por=self.admin_user,
+            inasistencias_al_desbloquear=1,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:revertir_carga_asistencia_historica', args=[carga.pk]),
+            follow=True,
+        )
+        carga.refresh_from_db()
+
+        self.assertRedirects(response, reverse('usuarios:configuracion'))
+        self.assertContains(response, 'No se puede revertir una carga con justificaciones')
+        self.assertEqual(AsistenciaReunion.objects.filter(reunion=reunion).count(), 1)
+        self.assertFalse(carga.revertida)
+
+    def test_configuracion_restringe_encargado_y_socio(self):
+        """Bloquea opciones criticas de configuracion fuera del rol administrador."""
+        reunion = Reunion.objects.create(
+            fecha=date(2025, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede historica',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        carga = CargaAsistenciaHistorica.objects.create(
+            reunion=reunion,
+            cargado_por=self.admin_user,
+        )
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:configuracion'))
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+        response = self.client.get(reverse('usuarios:descargar_registro_logs'))
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+        response = self.client.get(reverse('usuarios:exportar_base_datos_respaldo'))
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+        response = self.client.get(reverse('usuarios:descargar_plantilla_carga_masiva_socios'))
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+        response = self.client.get(reverse('usuarios:cargar_socios_masivo'))
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+        response = self.client.post(
+            reverse('usuarios:revertir_carga_asistencia_historica', args=[carga.pk]),
+        )
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
+
+        self.client.login(username='socio', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:configuracion'))
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+        response = self.client.get(reverse('usuarios:descargar_registro_logs'))
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+        response = self.client.get(reverse('usuarios:exportar_base_datos_respaldo'))
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+        response = self.client.get(reverse('usuarios:descargar_plantilla_carga_masiva_socios'))
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+        response = self.client.get(reverse('usuarios:cargar_socios_masivo'))
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+        response = self.client.post(
+            reverse('usuarios:revertir_carga_asistencia_historica', args=[carga.pk]),
+        )
+        self.assertRedirects(response, reverse('usuarios:mis_asistencias'))
+
+    def test_auditoria_registra_acciones_criticas_en_auditoria_log(self):
+        """Registra eventos criticos en auditoria.log con actor y entidad."""
+        with NamedTemporaryFile(delete=False, suffix='.log') as archivo_auditoria:
+            ruta_auditoria = Path(archivo_auditoria.name)
+
+        self.client.login(username='admin', password='ClaveSegura123')
+
+        try:
+            with self.settings(AUDITORIA_LOG_PATH=ruta_auditoria):
+                self.client.post(
+                    reverse('usuarios:cambiar_estado_usuario', args=[self.encargado_user.pk]),
+                )
+
+                reunion_cancelada = Reunion.objects.create(
+                    fecha=date(2026, 5, 20),
+                    hora=time(18, 30),
+                    locacion='Sede social',
+                    creador=self.admin_user,
+                )
+                self.client.post(
+                    reverse('usuarios:cancelar_reunion', args=[reunion_cancelada.pk]),
+                    {'motivo_cancelacion': 'Suspension administrativa'},
+                )
+
+                reunion_eliminada = Reunion.objects.create(
+                    fecha=date(2026, 6, 20),
+                    hora=time(18, 30),
+                    locacion='Sede social',
+                    creador=self.admin_user,
+                )
+                self.client.post(
+                    reverse('usuarios:eliminar_reunion', args=[reunion_eliminada.pk]),
+                )
+
+                usuario_borrable = self.User.objects.create_user(
+                    username='usuario.borrable',
+                    email='usuario.borrable@example.com',
+                    password='ClaveSegura123',
+                    first_name='Usuario',
+                    last_name='Borrable',
+                    rut='55.555.555-5',
+                    rol=self.User.ENCARGADO_REGISTRO,
+                )
+                self.client.post(
+                    reverse('usuarios:eliminar_usuario', args=[usuario_borrable.pk]),
+                )
+
+                socio_borrable = self.User.objects.create_user(
+                    username='socio.borrable',
+                    email='socio.borrable@example.com',
+                    password='ClaveSegura123',
+                    first_name='Socio',
+                    last_name='Borrable',
+                    rut='66.666.666-6',
+                    rol=self.User.SOCIO,
+                )
+                self.client.post(
+                    reverse('usuarios:eliminar_socio', args=[socio_borrable.pk]),
+                )
+
+                eventos = leer_eventos_auditoria()
+                acciones = {evento['accion'] for evento in eventos}
+
+                self.assertEqual(len(eventos), 5)
+                self.assertIn(ACCION_USUARIO_DESACTIVADO, acciones)
+                self.assertIn(ACCION_REUNION_CANCELADA, acciones)
+                self.assertIn(ACCION_REUNION_ELIMINADA, acciones)
+                self.assertIn(ACCION_USUARIO_ELIMINADO, acciones)
+                self.assertIn(ACCION_SOCIO_ELIMINADO, acciones)
+                for evento in eventos:
+                    self.assertEqual(evento['usuario'], 'admin')
+                    self.assertTrue(evento['entidad_tipo'])
+                    self.assertTrue(evento['entidad'])
+                    self.assertTrue(evento['fecha_hora'])
+
+                response = self.client.get(reverse('usuarios:configuracion'))
+                self.assertContains(response, 'Registro de logs')
+                self.assertNotContains(response, 'Usuario desactivado')
+                self.assertNotContains(response, 'Reunion cancelada')
+                self.assertNotContains(response, 'Reunion eliminada')
+                self.assertNotContains(response, 'Usuario eliminado')
+                self.assertNotContains(response, 'Socio eliminado')
+                self.assertNotContains(response, 'Suspension administrativa')
+
+                response = self.client.get(reverse('usuarios:descargar_registro_logs'))
+                contenido_log = b''.join(response.streaming_content).decode('utf-8')
+                response.close()
+                self.assertIn(ACCION_USUARIO_DESACTIVADO, contenido_log)
+                self.assertIn(ACCION_REUNION_CANCELADA, contenido_log)
+                self.assertIn(ACCION_REUNION_ELIMINADA, contenido_log)
+                self.assertIn(ACCION_USUARIO_ELIMINADO, contenido_log)
+                self.assertIn(ACCION_SOCIO_ELIMINADO, contenido_log)
+                self.assertIn('Suspension administrativa', contenido_log)
+        finally:
+            ruta_auditoria.unlink(missing_ok=True)
+            ruta_auditoria.with_suffix('.log.lock').unlink(missing_ok=True)
+            for ruta_rotada in ruta_auditoria.parent.glob(
+                f'{ruta_auditoria.stem}-*.log.gz'
+            ):
+                ruta_rotada.unlink(missing_ok=True)
+
+    def test_auditoria_detecta_alteracion_y_rota_archivo(self):
+        """Firma eventos, detecta manipulacion y preserva el archivo observado."""
+        with NamedTemporaryFile(delete=False, suffix='.log') as archivo:
+            ruta_auditoria = Path(archivo.name)
+
+        try:
+            with self.settings(AUDITORIA_LOG_PATH=ruta_auditoria):
+                registrar_evento_auditoria(
+                    self.admin_user,
+                    ACCION_USUARIO_DESACTIVADO,
+                    entidad_tipo='Usuario',
+                    entidad_id=self.encargado_user.pk,
+                    entidad='Usuario interno',
+                )
+                self.assertTrue(verificar_integridad_archivo(ruta_auditoria))
+
+                contenido = ruta_auditoria.read_text(encoding='utf-8')
+                ruta_auditoria.write_text(
+                    contenido.replace(
+                        ACCION_USUARIO_DESACTIVADO,
+                        ACCION_USUARIO_ELIMINADO,
+                        1,
+                    ),
+                    encoding='utf-8',
+                )
+                self.assertFalse(verificar_integridad_archivo(ruta_auditoria))
+
+                registrar_evento_auditoria(
+                    self.admin_user,
+                    ACCION_USUARIO_ACTIVADO,
+                    entidad_tipo='Usuario',
+                    entidad_id=self.encargado_user.pk,
+                    entidad='Usuario interno',
+                )
+                archivos = listar_archivos_auditoria()
+                actual = next(item for item in archivos if item['id'] == 'actual')
+                historicos = [item for item in archivos if item['id'] != 'actual']
+                self.assertTrue(actual['integridad_valida'])
+                self.assertEqual(len(historicos), 1)
+                self.assertFalse(historicos[0]['integridad_valida'])
+                self.assertTrue(historicos[0]['comprimido'])
+        finally:
+            ruta_auditoria.unlink(missing_ok=True)
+            ruta_auditoria.with_suffix('.log.lock').unlink(missing_ok=True)
+            for ruta_rotada in ruta_auditoria.parent.glob(
+                f'{ruta_auditoria.stem}-*.log.gz'
+            ):
+                ruta_rotada.unlink(missing_ok=True)
 
     @patch('usuarios.forms.timezone.localtime', return_value=datetime(2026, 5, 14, 12, 0))
     def test_crear_reunion_solo_disponible_para_administrador(self, _localtime):
@@ -1144,10 +2011,35 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'name="locacion"')
         self.assertContains(response, 'Locaci')
         self.assertContains(response, 'name="estado"')
+        self.assertContains(response, 'class="col-md-4"')
+        self.assertContains(response, 'class="col-md-8 col-lg-6"')
         self.assertContains(response, 'data-reunion-status="true"')
         self.assertContains(response, 'data-historical-value="HISTORICA"')
         self.assertContains(response, 'js/reuniones.js')
         self.assertContains(response, 'Hist')
+        self.assertContains(response, 'Plantilla CSV')
+        self.assertContains(response, 'Plantilla CSV para carga hist')
+        self.assertContains(response, '12345678-9')
+        self.assertContains(response, 'A/a para Ausente')
+        self.assertContains(response, 'P/p para Presente')
+        self.assertContains(response, 'Situaci')
+        self.assertContains(
+            response,
+            reverse('usuarios:descargar_plantilla_asistencia_historica_csv'),
+        )
+        contenido = response.content.decode()
+        self.assertLess(
+            contenido.index('name="locacion"'),
+            contenido.index('data-reunion-status="true"'),
+        )
+        self.assertLess(
+            contenido.index('data-reunion-status="true"'),
+            contenido.index('Plantilla CSV'),
+        )
+        self.assertLess(
+            contenido.index('Plantilla CSV'),
+            contenido.index('Plantilla CSV para carga hist'),
+        )
 
         response = self.client.post(
             url,
@@ -1159,7 +2051,7 @@ class UsuariosModuloTests(TestCase):
             },
             follow=True,
         )
-        self.assertRedirects(response, url)
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
         self.assertContains(response, 'creada correctamente')
         reunion = Reunion.objects.get(locacion='Sede social')
         self.assertEqual(reunion.creador, self.admin_user)
@@ -1367,6 +2259,459 @@ class UsuariosModuloTests(TestCase):
         )
         self.assertEqual(response.context['anio_actual'], '')
         self.assertIn(reunion_2026, response.context['reuniones'])
+
+    def test_listado_reuniones_activa_carga_solo_en_historicas(self):
+        """Expone carga historica solo para reuniones en estado historico."""
+        reunion_historica = Reunion.objects.create(
+            fecha=date(2025, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede historica',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        reunion_programada = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede programada',
+            creador=self.admin_user,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_reuniones'))
+
+        self.assertContains(response, 'Carga hist')
+        self.assertContains(
+            response,
+            reverse('usuarios:cargar_asistencia_historica', args=[reunion_historica.pk]),
+        )
+        self.assertNotContains(
+            response,
+            reverse('usuarios:cargar_asistencia_historica', args=[reunion_programada.pk]),
+        )
+
+    def test_listado_reuniones_reemplaza_carga_historica_si_ya_tiene_registros(self):
+        """Oculta carga historica y muestra badge cuando la reunion ya fue cargada."""
+        reunion_cargada = Reunion.objects.create(
+            fecha=date(2025, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede historica cargada',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        reunion_pendiente = Reunion.objects.create(
+            fecha=date(2025, 5, 21),
+            hora=time(18, 30),
+            locacion='Sede historica pendiente',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        AsistenciaReunion.objects.create(
+            reunion=reunion_cargada,
+            socio=self.socio_user,
+            estado=AsistenciaReunion.PRESENTE,
+            origen=AsistenciaReunion.ORIGEN_MANUAL,
+            registrada_por=self.admin_user,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_reuniones'))
+
+        self.assertContains(response, 'Cargada manualmente')
+        self.assertContains(response, 'data-bs-toggle="tooltip"')
+        self.assertContains(response, 'RUT del usuario y la fecha correspondiente')
+        self.assertNotContains(
+            response,
+            reverse('usuarios:cargar_asistencia_historica', args=[reunion_cargada.pk]),
+        )
+        self.assertContains(
+            response,
+            reverse('usuarios:cargar_asistencia_historica', args=[reunion_pendiente.pk]),
+        )
+
+    def test_listado_reuniones_muestra_badge_si_carga_historica_fue_revertida(self):
+        """Muestra estado revertido y permite cargar nuevamente una planilla."""
+        reunion = Reunion.objects.create(
+            fecha=date(2025, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede historica revertida',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        CargaAsistenciaHistorica.objects.create(
+            reunion=reunion,
+            cargado_por=self.admin_user,
+            total_registros=2,
+            total_presentes=1,
+            total_ausentes=1,
+            revertida=True,
+            revertida_por=self.admin_user,
+            fecha_reversion=timezone.now(),
+            registros_revertidos=2,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_reuniones'))
+
+        self.assertContains(response, 'Reuni&oacute;n revertida')
+        self.assertContains(response, 'La carga anterior fue revertida')
+        self.assertNotContains(
+            response,
+            reverse('usuarios:cargar_asistencia_historica', args=[reunion.pk]),
+        )
+        self.assertNotContains(response, 'Cargada manualmente')
+
+    def test_plantilla_asistencia_historica_descarga_xlsx_base(self):
+        """Propone una plantilla XLSX exportable a CSV para la carga historica."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:descargar_plantilla_asistencia_historica'),
+        )
+
+        with zipfile.ZipFile(BytesIO(response.content)) as archivo:
+            worksheet = archivo.read('xl/worksheets/sheet1.xml').decode('utf-8')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response['Content-Type'],
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        self.assertIn('attachment;', response['Content-Disposition'])
+        self.assertIn('plantilla_asistencia_historica.xlsx', response['Content-Disposition'])
+        self.assertIn('RUT', worksheet)
+        self.assertIn('Situaci', worksheet)
+        self.assertNotIn('Nombre', worksheet)
+        self.assertIn(self.socio_user.rut, worksheet)
+
+    def test_plantilla_asistencia_historica_descarga_csv_encabezados(self):
+        """Entrega CSV de referencia con encabezados para carga historica."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:descargar_plantilla_asistencia_historica_csv'),
+        )
+        filas = list(csv.reader(StringIO(response.content.decode('utf-8-sig'))))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'text/csv; charset=utf-8')
+        self.assertIn('attachment;', response['Content-Disposition'])
+        self.assertIn('plantilla_asistencia_historica.csv', response['Content-Disposition'])
+        self.assertEqual(
+            filas,
+            [['RUT', 'Situaci\u00f3n']],
+        )
+
+    def test_plantilla_carga_masiva_socios_descarga_csv_con_socios_actuales(self):
+        """Entrega CSV con encabezados de carga masiva y socios actuales."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:descargar_plantilla_carga_masiva_socios'),
+        )
+        filas = list(csv.reader(StringIO(response.content.decode('utf-8-sig'))))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'text/csv; charset=utf-8')
+        self.assertIn('attachment;', response['Content-Disposition'])
+        self.assertIn('plantilla_carga_masiva_socios.csv', response['Content-Disposition'])
+        self.assertEqual(
+            filas[0],
+            [
+                'nombre',
+                'apellido_paterno',
+                'apellido_materno',
+                'rut',
+                'correo_electronico',
+                'telefono_movil',
+                'fecha_ingreso_proyecto',
+            ],
+        )
+        self.assertIn(
+            [
+                'Socio',
+                'Prueba',
+                '',
+                self.socio_user.rut,
+                'socio@example.com',
+                '+56922222222',
+                self.socio_user.fecha_ingreso_proyecto.isoformat(),
+            ],
+            filas,
+        )
+        self.assertNotIn('admin@example.com', response.content.decode('utf-8-sig'))
+
+    def test_carga_masiva_socios_csv_crea_socios_sin_password(self):
+        """Crea socios en lote desde CSV y registra auditoria del lote."""
+        rut_nuevo = self.rut_prueba('70000001')
+        archivo = SimpleUploadedFile(
+            'socios.csv',
+            (
+                'sep=;\n'
+                'nombre;apellido_paterno;apellido_materno;rut;correo_electronico;telefono_movil;fecha_ingreso_proyecto\n'
+                f'Nuevo;Masivo;Uno;{rut_nuevo};NUEVO.MASIVO@example.com;56933333333;2026-05-15\n'
+            ).encode('utf-8'),
+            content_type='text/csv',
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:cargar_socios_masivo'),
+            {'archivo': archivo},
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_socios'))
+        self.assertContains(response, 'Carga masiva completada. Socios creados: 1.')
+        socio = self.User.objects.get(email='nuevo.masivo@example.com')
+        self.assertEqual(socio.username, 'nuevo.masivo@example.com')
+        self.assertEqual(socio.rol, self.User.SOCIO)
+        self.assertEqual(socio.rut, rut_nuevo)
+        self.assertEqual(socio.telefono_movil, '+56933333333')
+        self.assertEqual(socio.fecha_ingreso_proyecto, date(2026, 5, 15))
+        self.assertFalse(socio.has_usable_password())
+        evento = leer_eventos_auditoria()[0]
+        self.assertEqual(evento['accion'], ACCION_CARGA_MASIVA_SOCIOS)
+        self.assertNotIn('socios.csv', evento['detalle'])
+
+    def test_carga_csv_rechaza_tamano_tipo_y_contenido_binario(self):
+        """Aplica controles previos antes de procesar una planilla."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        url = reverse('usuarios:cargar_socios_masivo')
+
+        with self.settings(CARGA_CSV_MAX_BYTES=16):
+            response = self.client.post(
+                url,
+                {
+                    'archivo': SimpleUploadedFile(
+                        'socios.csv',
+                        b'columna1,columna2\nvalor1,valor2\n',
+                        content_type='text/csv',
+                    )
+                },
+            )
+        self.assertContains(response, 'máximo permitido')
+
+        response = self.client.post(
+            url,
+            {
+                'archivo': SimpleUploadedFile(
+                    'socios.csv',
+                    b'columna1,columna2\nvalor1,valor2\n',
+                    content_type='application/pdf',
+                )
+            },
+        )
+        self.assertContains(response, 'tipo de contenido')
+
+        response = self.client.post(
+            url,
+            {
+                'archivo': SimpleUploadedFile(
+                    'socios.csv',
+                    b'columna1,columna2\nvalor\x00,valor2\n',
+                    content_type='text/csv',
+                )
+            },
+        )
+        self.assertContains(response, 'datos binarios')
+
+    def test_carga_masiva_socios_csv_rollback_por_error(self):
+        """No crea ningun socio si una fila de la planilla contiene errores."""
+        rut_valido = self.rut_prueba('70000002')
+        archivo = SimpleUploadedFile(
+            'socios.csv',
+            (
+                'nombre,apellido_paterno,apellido_materno,rut,correo_electronico,telefono_movil,fecha_ingreso_proyecto\n'
+                f'Valido,Lote,Uno,{rut_valido},valido.lote@example.com,+56933333333,2026-05-15\n'
+                f'Duplicado,Lote,Dos,{self.socio_user.rut},duplicado.lote@example.com,+56944444444,2026-05-15\n'
+            ).encode('utf-8'),
+            content_type='text/csv',
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:cargar_socios_masivo'),
+            {'archivo': archivo},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Errores de la planilla')
+        self.assertContains(response, 'No se creo ningun socio')
+        self.assertContains(response, 'Ya existe un usuario con este RUT.')
+        self.assertFalse(self.User.objects.filter(email='valido.lote@example.com').exists())
+        self.assertFalse(self.User.objects.filter(email='duplicado.lote@example.com').exists())
+
+    def test_carga_asistencia_historica_csv_semicolon_registro_por_registro(self):
+        """Carga asistencia historica desde CSV separado por punto y coma."""
+        socio_ausente = self.User.objects.create_user(
+            username='socio.ausente',
+            email='socio.ausente@example.com',
+            password='ClaveSegura123',
+            first_name='Socio',
+            last_name='Ausente',
+            rut='77.777.777-7',
+            rol=self.User.SOCIO,
+        )
+        reunion = Reunion.objects.create(
+            fecha=date(2025, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede historica',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        archivo = SimpleUploadedFile(
+            'asistencia.csv',
+            (
+                'sep=;\n'
+                'RUT;Situaci\u00f3n\n'
+                f'{self.socio_user.rut};p\n'
+                f'{socio_ausente.rut};A\n'
+            ).encode('utf-8'),
+            content_type='text/csv',
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:cargar_asistencia_historica', args=[reunion.pk]),
+            {'archivo': archivo},
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'Carga historica completada')
+        asistencias = AsistenciaReunion.objects.filter(reunion=reunion).order_by('socio_id')
+        self.assertEqual(asistencias.count(), 2)
+        carga = CargaAsistenciaHistorica.objects.get(reunion=reunion)
+        self.assertEqual(carga.cargado_por, self.admin_user)
+        self.assertRegex(carga.archivo_nombre, r'^CSV-[0-9a-f]{16}$')
+        self.assertNotEqual(carga.archivo_nombre, 'asistencia.csv')
+        self.assertEqual(carga.total_registros, 2)
+        self.assertEqual(carga.total_presentes, 1)
+        self.assertEqual(carga.total_ausentes, 1)
+        self.assertEqual(asistencias.filter(carga_historica=carga).count(), 2)
+        self.assertEqual(
+            leer_eventos_auditoria()[0]['accion'],
+            ACCION_CARGA_HISTORICA,
+        )
+        self.assertTrue(
+            asistencias.filter(
+                socio=self.socio_user,
+                estado=AsistenciaReunion.PRESENTE,
+                origen=AsistenciaReunion.ORIGEN_MANUAL,
+                registrada_por=self.admin_user,
+            ).exists()
+        )
+        self.assertTrue(
+            asistencias.filter(
+                socio=socio_ausente,
+                estado=AsistenciaReunion.AUSENTE,
+                origen=AsistenciaReunion.ORIGEN_MANUAL,
+                registrada_por=self.admin_user,
+            ).exists()
+        )
+
+    def test_carga_asistencia_historica_csv_coma_y_rollback_por_error(self):
+        """Revierte toda la carga si una fila CSV no cumple reglas de negocio."""
+        reunion = Reunion.objects.create(
+            fecha=date(2025, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede historica',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        archivo = SimpleUploadedFile(
+            'asistencia.csv',
+            (
+                'RUT,Estado\n'
+                f'{self.socio_user.rut},Presente\n'
+                '99.999.999-9,Presente\n'
+            ).encode('utf-8'),
+            content_type='text/csv',
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:cargar_asistencia_historica', args=[reunion.pk]),
+            {'archivo': archivo},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Fila 3')
+        self.assertContains(response, 'socio no encontrado')
+        self.assertEqual(AsistenciaReunion.objects.filter(reunion=reunion).count(), 0)
+
+    def test_carga_asistencia_historica_bloquea_reuniones_no_historicas(self):
+        """Impide cargar CSV en reuniones programadas, activas o cerradas."""
+        reunion = Reunion.objects.create(
+            fecha=date(2026, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede programada',
+            creador=self.admin_user,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:cargar_asistencia_historica', args=[reunion.pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(
+            response,
+            'La carga historica solo esta disponible para reuniones historicas.',
+        )
+
+    def test_carga_asistencia_historica_bloquea_reuniones_ya_cargadas(self):
+        """Impide volver a cargar CSV cuando una historica ya tiene asistencias."""
+        reunion = Reunion.objects.create(
+            fecha=date(2025, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede historica',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        AsistenciaReunion.objects.create(
+            reunion=reunion,
+            socio=self.socio_user,
+            estado=AsistenciaReunion.PRESENTE,
+            origen=AsistenciaReunion.ORIGEN_MANUAL,
+            registrada_por=self.admin_user,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:cargar_asistencia_historica', args=[reunion.pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'ya fue registrada manualmente')
+        self.assertContains(response, 'RUT del usuario y la fecha correspondiente')
+
+    def test_carga_asistencia_historica_bloquea_reuniones_revertidas(self):
+        """Impide cargar planilla nuevamente si la carga historica fue revertida."""
+        reunion = Reunion.objects.create(
+            fecha=date(2025, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede historica',
+            creador=self.admin_user,
+            estado=Reunion.HISTORICA,
+        )
+        CargaAsistenciaHistorica.objects.create(
+            reunion=reunion,
+            cargado_por=self.admin_user,
+            revertida=True,
+            revertida_por=self.admin_user,
+            fecha_reversion=timezone.now(),
+            registros_revertidos=2,
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:cargar_asistencia_historica', args=[reunion.pk]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_reuniones'))
+        self.assertContains(response, 'fue revertida')
+        self.assertContains(response, 'no admite una nueva carga')
 
     def test_administrador_elimina_reunion_sin_asistencias(self):
         """Permite eliminar reuniones, incluidas historicas, sin asistencias."""
@@ -1736,6 +3081,12 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(lectura_manual.origen, ORIGEN_RUT_MANUAL)
         self.assertEqual(lectura_qr.rut, '14333689-1')
         self.assertEqual(lectura_qr.origen, ORIGEN_QR_REGISTRO_CIVIL)
+        self.assertIsNone(parsear_lectura_rut('22.222.222-3'))
+        self.assertIsNone(
+            parsear_lectura_rut(
+                "httpsÃ‘--portal.sidiv.registrocivil.cl-docstatus_RUNÂ¿14333689'2/typeÂ¿CEDULA"
+            )
+        )
 
     def test_encargado_registra_asistencia_por_rut(self):
         """Crea asistencia presente para un socio existente en reunion activa."""
@@ -1972,6 +3323,62 @@ class UsuariosModuloTests(TestCase):
                 estado=AsistenciaReunion.PRESENTE,
             ).exists()
         )
+    def test_bloqueo_operativo_persiste_entre_anios_hasta_justificar(self):
+        """El bloqueo vigente no se reinicia por cambiar de ano calendario."""
+        anio_actual = timezone.localdate().year
+        anio_previo = anio_actual - 1
+        ausencia_justificada = self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(anio_previo, 4, 10),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(anio_previo, 4, 17),
+        )
+        reunion = Reunion.objects.create(
+            fecha=date(anio_actual, 5, 20),
+            hora=time(18, 30),
+            locacion='Sede social',
+            creador=self.admin_user,
+        )
+        reunion.iniciar(self.admin_user)
+
+        self.assertTrue(
+            AsistenciaReunion.socio_esta_bloqueado(
+                self.socio_user,
+                anio=anio_previo,
+            )
+        )
+        self.assertTrue(AsistenciaReunion.socio_esta_bloqueado(self.socio_user))
+
+        with self.assertRaisesMessage(
+            ValidationError,
+            AsistenciaReunion.MENSAJE_SOCIO_BLOQUEADO,
+        ):
+            AsistenciaReunion.registrar_presente(
+                reunion=reunion,
+                socio=self.socio_user,
+                usuario=self.encargado_user,
+                origen=AsistenciaReunion.ORIGEN_RUT,
+            )
+
+        DesbloqueoSocio.registrar(
+            socio=self.socio_user,
+            usuario=self.admin_user,
+            motivo='Revision administrativa',
+            asistencia=ausencia_justificada,
+        )
+
+        self.assertFalse(AsistenciaReunion.socio_esta_bloqueado(self.socio_user))
+        asistencia = AsistenciaReunion.registrar_presente(
+            reunion=reunion,
+            socio=self.socio_user,
+            usuario=self.encargado_user,
+            origen=AsistenciaReunion.ORIGEN_RUT,
+        )
+        self.assertEqual(asistencia.estado, AsistenciaReunion.PRESENTE)
 
     @patch('usuarios.models.timezone.now')
     def test_modelo_justifica_inasistencia_con_motivo_responsable_y_fecha(self, now_mock):
@@ -2134,9 +3541,119 @@ class UsuariosModuloTests(TestCase):
                 'total_reuniones': 1,
                 'total_asistencias': 1,
                 'total_ausencias': 0,
+                'total_ausencias_efectivas': 0,
+                'total_justificaciones': 0,
             },
         )
         self.assertFalse(puede_eliminar_socio_seguro(self.socio_user))
+
+    def test_resumen_anual_asistencia_socio_filtra_ano_y_ausencias_efectivas(self):
+        """Calcula resumen anual sin contar justificaciones como ausencias efectivas."""
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.PRESENTE,
+            date(2025, 5, 22),
+        )
+        ausencia_justificada = self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 21),
+        )
+        DesbloqueoSocio.registrar(
+            socio=self.socio_user,
+            usuario=self.admin_user,
+            motivo='Justificacion administrativa',
+            asistencia=ausencia_justificada,
+        )
+
+        resumen = obtener_resumen_anual_asistencia_socio(self.socio_user, 2026)
+
+        self.assertEqual(
+            resumen,
+            {
+                'anio': 2026,
+                'total_reuniones': 2,
+                'total_asistencias': 0,
+                'total_ausencias': 2,
+                'total_ausencias_efectivas': 1,
+                'total_justificaciones': 1,
+            },
+        )
+
+    def test_historial_asistencia_socio_filtra_ano_y_ordena_por_reunion(self):
+        """Entrega historial acotado al socio y ano seleccionado."""
+        asistencia_reciente = self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.PRESENTE,
+            date(2026, 6, 20),
+        )
+        asistencia_antigua = self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.PRESENTE,
+            date(2025, 5, 20),
+        )
+        otro_socio = self.User.objects.create_user(
+            username='otro.historial',
+            email='otro.historial@example.com',
+            password='ClaveSegura123',
+            first_name='Otro',
+            last_name='Historial',
+            rut='77.333.333-5',
+            rol=self.User.SOCIO,
+        )
+        self.registrar_asistencia_historica(
+            otro_socio,
+            AsistenciaReunion.PRESENTE,
+            date(2026, 7, 20),
+        )
+
+        historial = list(obtener_historial_asistencia_socio(self.socio_user, 2026))
+
+        self.assertEqual(historial, [asistencia_reciente, asistencia_antigua])
+
+    @patch('usuarios.servicios_asistencia.timezone.localtime')
+    def test_proxima_reunion_usa_programada_mas_cercana_desde_ahora(self, localtime_mock):
+        """Selecciona automaticamente la siguiente reunion programada por fecha y hora."""
+        localtime_mock.return_value = timezone.make_aware(
+            datetime(2026, 6, 10, 12, 0),
+        )
+        Reunion.objects.create(
+            fecha=date(2026, 6, 10),
+            hora=time(10, 0),
+            locacion='Sede anterior',
+            creador=self.admin_user,
+        )
+        reunion_esperada = Reunion.objects.create(
+            fecha=date(2026, 6, 10),
+            hora=time(18, 30),
+            locacion='Sede cercana',
+            creador=self.admin_user,
+        )
+        Reunion.objects.create(
+            fecha=date(2026, 6, 11),
+            hora=time(9, 0),
+            locacion='Sede futura',
+            creador=self.admin_user,
+        )
+        Reunion.objects.create(
+            fecha=date(2026, 6, 10),
+            hora=time(13, 0),
+            locacion='Sede finalizada',
+            creador=self.admin_user,
+            estado=Reunion.FINALIZADA,
+        )
+
+        self.assertEqual(obtener_proxima_reunion(), reunion_esperada)
 
     def test_resumen_asistencia_socios_anotado_no_consulta_por_socio(self):
         """Agrega resumenes de asistencia en lote para evitar N+1 consultas."""
@@ -2146,7 +3663,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Ausente',
             last_name='Resumen',
-            rut='77.222.222-2',
+            rut='77.222.222-K',
             rol=self.User.SOCIO,
         )
         self.registrar_asistencia_historica(
@@ -2203,6 +3720,198 @@ class UsuariosModuloTests(TestCase):
         self.assertNotContains(response, self.socio_user.email)
         self.assertNotContains(response, 'admin@example.com')
         self.assertNotContains(response, 'encargado@example.com')
+
+    def test_listado_asistencia_muestra_exportacion_solo_a_administrador(self):
+        """Expone reportes anuales descargables solo a administradores."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
+
+        self.assertContains(response, 'aria-label="Exportar resumen anual"')
+        self.assertContains(response, 'Descargar reporte anual CSV')
+        self.assertContains(response, 'Descargar reporte anual XLSX')
+        self.assertNotContains(response, 'Descargar reporte anual PDF')
+        self.assertContains(
+            response,
+            reverse('usuarios:exportar_asistencia_anual', args=['csv']),
+        )
+        self.assertContains(
+            response,
+            f'anio={timezone.localdate().year}',
+        )
+        self.assertContains(response, 'name="estado"')
+        self.assertContains(response, 'name="anio"')
+        self.assertContains(response, 'filtro-asistencia-anio')
+        self.assertContains(response, 'A&ntilde;o operativo')
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(reverse('usuarios:listado_socios_asistencia'))
+
+        self.assertNotContains(response, 'aria-label="Exportar resumen anual"')
+        self.assertNotContains(
+            response,
+            reverse('usuarios:exportar_asistencia_anual', args=['csv']),
+        )
+
+    def test_listado_asistencia_muestra_bloqueo_operativo_interanual(self):
+        """El ano de la vista controla contadores, no el bloqueo vigente."""
+        anio_actual = timezone.localdate().year
+        anio_previo = anio_actual - 1
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(anio_previo, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(anio_previo, 5, 27),
+        )
+        self.client.login(username='admin', password='ClaveSegura123')
+
+        response_actual = self.client.get(reverse('usuarios:listado_socios_asistencia'))
+        socio_actual = next(
+            socio
+            for socio in response_actual.context['socios']
+            if socio.pk == self.socio_user.pk
+        )
+
+        self.assertEqual(socio_actual.total_reuniones, 0)
+        self.assertEqual(socio_actual.total_ausencias, 0)
+        self.assertEqual(socio_actual.indicador_asistencia['key'], 'bloqueado')
+
+        response_bloqueados = self.client.get(
+            reverse('usuarios:listado_socios_asistencia'),
+            {'indicador': 'bloqueado'},
+        )
+        self.assertContains(response_bloqueados, self.socio_user.rut)
+
+        response_previo = self.client.get(
+            reverse('usuarios:listado_socios_asistencia'),
+            {'anio': anio_previo},
+        )
+        socio_previo = next(
+            socio
+            for socio in response_previo.context['socios']
+            if socio.pk == self.socio_user.pk
+        )
+
+        self.assertEqual(socio_previo.total_reuniones, 2)
+        self.assertEqual(socio_previo.total_ausencias, 2)
+        self.assertEqual(socio_previo.indicador_asistencia['key'], 'bloqueado')
+        self.assertContains(response_previo, f'value="{anio_previo}"')
+
+    def test_exportar_asistencia_csv_usa_dataset_completo_no_paginado(self):
+        """El reporte CSV usa todos los socios filtrados y no solo la pagina actual."""
+        for indice in range(55):
+            self.User.objects.create_user(
+                username=f'exportable_{indice:02d}',
+                email=f'exportable_{indice:02d}@example.com',
+                password='ClaveSegura123',
+                first_name='Exportable',
+                last_name=f'Completo {indice:02d}',
+                rut=self.rut_prueba(95000000 + indice),
+                rol=self.User.SOCIO,
+            )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:exportar_asistencia_anual', args=['csv']),
+            {'nombre': 'Exportable', 'anio': 2026},
+        )
+        contenido = response.content.decode('utf-8-sig')
+        filas = list(csv.DictReader(StringIO(contenido)))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'text/csv; charset=utf-8')
+        self.assertIn('attachment;', response['Content-Disposition'])
+        self.assertIn('reporte_asistencia_anual_2026.csv', response['Content-Disposition'])
+        self.assertEqual(len(filas), 55)
+        self.assertEqual(filas[-1]['Correo electronico'], 'exportable_54@example.com')
+        self.assertIn('Usuario', filas[-1])
+        self.assertIn('Telefono movil', filas[-1])
+        self.assertNotIn('Nombre completo', filas[-1])
+
+    def test_exportar_asistencia_csv_respeta_anio_y_estado(self):
+        """El reporte anual cuenta solo reuniones del ano seleccionado."""
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.PRESENTE,
+            date(2025, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(2026, 5, 21),
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:exportar_asistencia_anual', args=['csv']),
+            {
+                'rut': self.socio_user.rut,
+                'estado': 'activo',
+                'anio': 2026,
+            },
+        )
+        filas = list(csv.DictReader(StringIO(response.content.decode('utf-8-sig'))))
+
+        self.assertEqual(len(filas), 1)
+        self.assertEqual(filas[0]['Ano'], '2026')
+        self.assertEqual(filas[0]['RUT'], self.socio_user.rut)
+        self.assertEqual(filas[0]['Estado actual'], 'Activo')
+        self.assertEqual(filas[0]['Reuniones realizadas'], '1')
+        self.assertEqual(filas[0]['Asistencias'], '0')
+        self.assertEqual(filas[0]['Inasistencias'], '1')
+        self.assertEqual(filas[0]['Inasistencias efectivas'], '1')
+
+    def test_exportar_asistencia_xlsx_y_pdf_descargan_datos_completos(self):
+        """Genera XLSX y PDF descargables con datos no visibles en la tabla."""
+        self.client.login(username='admin', password='ClaveSegura123')
+
+        response_xlsx = self.client.get(
+            reverse('usuarios:exportar_asistencia_anual', args=['xlsx']),
+            {'rut': self.socio_user.rut, 'anio': 2026},
+        )
+        with zipfile.ZipFile(BytesIO(response_xlsx.content)) as archivo:
+            worksheet = archivo.read('xl/worksheets/sheet1.xml').decode('utf-8')
+            styles = archivo.read('xl/styles.xml').decode('utf-8')
+
+        self.assertEqual(response_xlsx.status_code, 200)
+        self.assertEqual(
+            response_xlsx['Content-Type'],
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        self.assertIn('attachment;', response_xlsx['Content-Disposition'])
+        self.assertIn('Correo electronico', worksheet)
+        self.assertIn('socio@example.com', worksheet)
+        self.assertIn('Telefono movil', worksheet)
+        self.assertIn('+56922222222', worksheet)
+        self.assertNotIn('Nombre completo', worksheet)
+        self.assertLess(worksheet.index('<sheetViews>'), worksheet.index('<cols>'))
+        self.assertLess(worksheet.index('<cols>'), worksheet.index('<sheetData>'))
+        self.assertIn('patternType="gray125"', styles)
+
+        response_pdf = self.client.get(
+            reverse('usuarios:exportar_asistencia_anual', args=['pdf']),
+            {'rut': self.socio_user.rut, 'anio': 2026},
+        )
+
+        self.assertEqual(response_pdf.status_code, 200)
+        self.assertEqual(response_pdf['Content-Type'], 'application/pdf')
+        self.assertIn('attachment;', response_pdf['Content-Disposition'])
+        self.assertTrue(response_pdf.content.startswith(b'%PDF-1.4'))
+        self.assertIn(b'socio@example.com', response_pdf.content)
+        self.assertIn(b'+56922222222', response_pdf.content)
+        self.assertNotIn(b'Nombre completo', response_pdf.content)
+
+    def test_exportar_asistencia_restringe_encargados(self):
+        """Solo administradores pueden descargar reportes anuales."""
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:exportar_asistencia_anual', args=['csv']),
+        )
+
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
 
     def test_listado_asistencia_filtra_y_concatena_apellidos(self):
         """Aplica filtros operativos y muestra apellidos en una sola columna."""
@@ -2269,7 +3978,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Riesgo',
             last_name='Asistencia',
-            rut='88.111.111-1',
+            rut='88.111.111-K',
             rol=self.User.SOCIO,
         )
         socio_bloqueado = self.User.objects.create_user(
@@ -2278,7 +3987,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Bloqueado',
             last_name='Asistencia',
-            rut='88.222.222-2',
+            rut='88.222.222-5',
             rol=self.User.SOCIO,
         )
         self.registrar_asistencia_historica(
@@ -2321,7 +4030,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Bloqueado',
             last_name='Filtro',
-            rut='88.333.333-3',
+            rut='88.333.333-0',
             rol=self.User.SOCIO,
         )
         socio_justificado = self.User.objects.create_user(
@@ -2330,7 +4039,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Justificado',
             last_name='Filtro',
-            rut='88.444.444-4',
+            rut='88.444.444-6',
             rol=self.User.SOCIO,
         )
         ausencia_justificada = None
@@ -2396,7 +4105,7 @@ class UsuariosModuloTests(TestCase):
                 password='ClaveSegura123',
                 first_name='AsistenciaFiltro',
                 last_name=f'Paginacion {indice:02d}',
-                rut=f'91.000.{indice:03d}-{indice % 10}',
+                rut=self.rut_prueba(91000000 + indice),
                 rol=self.User.SOCIO,
             )
 
@@ -2418,7 +4127,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Aaron',
             last_name='Orden',
-            rut='92.222.222-2',
+            rut='92.222.222-3',
             rol=self.User.SOCIO,
         )
         self.User.objects.create_user(
@@ -2427,7 +4136,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Zulu',
             last_name='Orden',
-            rut='93.333.333-3',
+            rut='93.333.333-7',
             rol=self.User.SOCIO,
         )
 
@@ -2547,7 +4256,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Super',
             last_name='Oculto',
-            rut='12.000.000-1',
+            rut='12.000.000-4',
         )
 
         self.client.login(username='admin', password='ClaveSegura123')
@@ -2593,7 +4302,7 @@ class UsuariosModuloTests(TestCase):
                 password='ClaveSegura123',
                 first_name='Usuario',
                 last_name=f'Paginado {indice:02d}',
-                rut=f'70.000.{indice:03d}-{indice % 10}',
+                rut=self.rut_prueba(70000000 + indice),
                 rol=self.User.ENCARGADO_REGISTRO,
             )
 
@@ -2717,7 +4426,7 @@ class UsuariosModuloTests(TestCase):
                 password='ClaveSegura123',
                 first_name='Filtro',
                 last_name=f'Paginacion {indice:02d}',
-                rut=f'71.000.{indice:03d}-{indice % 10}',
+                rut=self.rut_prueba(71000000 + indice),
                 rol=self.User.ENCARGADO_REGISTRO,
             )
 
@@ -2739,7 +4448,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Aaron',
             last_name='Orden',
-            rut='72.222.222-2',
+            rut='72.222.222-9',
             rol=self.User.ENCARGADO_REGISTRO,
         )
         self.User.objects.create_user(
@@ -2748,7 +4457,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Zulu',
             last_name='Orden',
-            rut='73.333.333-3',
+            rut='73.333.333-2',
             rol=self.User.ENCARGADO_REGISTRO,
         )
 
@@ -2780,7 +4489,7 @@ class UsuariosModuloTests(TestCase):
                 password='ClaveSegura123',
                 first_name='Orden',
                 last_name=f'Paginacion {indice:02d}',
-                rut=f'74.000.{indice:03d}-{indice % 10}',
+                rut=self.rut_prueba(74000000 + indice),
                 rol=self.User.ENCARGADO_REGISTRO,
             )
 
@@ -2824,8 +4533,105 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'data-confirm-title="Eliminar socio"')
         self.assertContains(response, 'class="btn btn-danger btn-sm"')
         self.assertContains(response, 'bi-trash-fill')
+        self.assertContains(response, 'aria-label="Exportar reporte completo de socios"')
+        self.assertContains(response, 'btn-group btn-group-sm')
+        self.assertContains(response, 'Descargar reporte completo de socios CSV')
+        self.assertNotContains(response, 'Descargar reporte completo de socios PDF')
+        self.assertContains(
+            response,
+            reverse('usuarios:exportar_socios_completo', args=['csv']),
+        )
+        self.assertNotContains(response, 'name="anio"')
+        self.assertNotContains(response, 'filtro-socio-anio')
+        self.assertNotContains(response, 'A&ntilde;o reporte')
         self.assertNotContains(response, 'admin@example.com')
         self.assertNotContains(response, 'encargado@example.com')
+
+    def test_exportar_socios_csv_usa_dataset_completo_no_paginado(self):
+        """Exporta todos los socios filtrados desde el listado administrativo."""
+        for indice in range(55):
+            self.User.objects.create_user(
+                username=f'socio_exportable_{indice:02d}',
+                email=f'socio_exportable_{indice:02d}@example.com',
+                password='ClaveSegura123',
+                first_name='SocioExportable',
+                last_name=f'Completo {indice:02d}',
+                rut=self.rut_prueba(96000000 + indice),
+                telefono_movil='+56933333333',
+                rol=self.User.SOCIO,
+            )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:exportar_socios_completo', args=['csv']),
+            {'nombre': 'SocioExportable'},
+        )
+        filas = list(csv.DictReader(StringIO(response.content.decode('utf-8-sig'))))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'text/csv; charset=utf-8')
+        self.assertIn('attachment;', response['Content-Disposition'])
+        self.assertIn(
+            'reporte_socios_completo.csv',
+            response['Content-Disposition'],
+        )
+        self.assertEqual(len(filas), 55)
+        self.assertEqual(
+            filas[-1]['Correo electronico'],
+            'socio_exportable_54@example.com',
+        )
+        self.assertEqual(filas[-1]['Telefono movil'], '+56933333333')
+        self.assertEqual(filas[-1]['Estado actual'], 'Activo')
+        self.assertEqual(filas[-1]['Indicador asistencia'], 'Sin ausencias')
+        self.assertNotIn('Ano', filas[-1])
+        self.assertNotIn('Reuniones realizadas', filas[-1])
+        self.assertNotIn('Nombre completo', filas[-1])
+
+    def test_exportar_socios_xlsx_pdf_y_restringe_encargados(self):
+        """Descarga XLSX/PDF desde socios y conserva permisos administrativos."""
+        self.client.login(username='admin', password='ClaveSegura123')
+
+        response_xlsx = self.client.get(
+            reverse('usuarios:exportar_socios_completo', args=['xlsx']),
+            {'rut': self.socio_user.rut},
+        )
+        with zipfile.ZipFile(BytesIO(response_xlsx.content)) as archivo:
+            worksheet = archivo.read('xl/worksheets/sheet1.xml').decode('utf-8')
+
+        self.assertEqual(response_xlsx.status_code, 200)
+        self.assertIn('attachment;', response_xlsx['Content-Disposition'])
+        self.assertIn(
+            'reporte_socios_completo.xlsx',
+            response_xlsx['Content-Disposition'],
+        )
+        self.assertIn('socio@example.com', worksheet)
+        self.assertIn('+56922222222', worksheet)
+        self.assertIn('Indicador asistencia', worksheet)
+        self.assertIn('Estado actual', worksheet)
+        self.assertNotIn('Nombre completo', worksheet)
+
+        response_pdf = self.client.get(
+            reverse('usuarios:exportar_socios_completo', args=['pdf']),
+            {'rut': self.socio_user.rut},
+        )
+
+        self.assertEqual(response_pdf.status_code, 200)
+        self.assertEqual(response_pdf['Content-Type'], 'application/pdf')
+        self.assertIn(
+            'reporte_socios_completo.pdf',
+            response_pdf['Content-Disposition'],
+        )
+        self.assertTrue(response_pdf.content.startswith(b'%PDF-1.4'))
+        self.assertIn(b'Indicador asistencia', response_pdf.content)
+        self.assertIn(b'Estado actual', response_pdf.content)
+        self.assertNotIn(b'Nombre completo', response_pdf.content)
+
+        self.client.login(username='encargado', password='ClaveSegura123')
+        response = self.client.get(
+            reverse('usuarios:exportar_socios_completo', args=['csv']),
+        )
+
+        self.assertRedirects(response, reverse('usuarios:dashboard'))
 
     def test_listado_socios_filtra_y_separa_nombre_apellido(self):
         """Aplica filtros administrativos y muestra nombre y apellido separados."""
@@ -3246,7 +5052,10 @@ class UsuariosModuloTests(TestCase):
         )
         detalle_url = reverse('usuarios:detalle_asistencia_socio', args=[self.socio_user.pk])
         justificar_url = reverse('usuarios:justificar_inasistencia', args=[self.socio_user.pk])
-        url_justificar_ausencia = f'{justificar_url}?asistencia={ausencia_justificable.pk}'
+        url_justificar_ausencia = (
+            f'{justificar_url}?anio={timezone.localdate().year}'
+            f'&asistencia={ausencia_justificable.pk}'
+        )
 
         self.client.login(username='admin', password='ClaveSegura123')
         response = self.client.get(detalle_url)
@@ -3257,6 +5066,53 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context['form'].initial['asistencia'], ausencia_justificable)
 
+    def test_justificacion_admin_desbloquea_inasistencia_de_anio_anterior(self):
+        """Permite justificar ausencias antiguas que mantienen el bloqueo vigente."""
+        anio_actual = timezone.localdate().year
+        anio_previo = anio_actual - 1
+        ausencia_justificable = self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(anio_previo, 5, 20),
+        )
+        self.registrar_asistencia_historica(
+            self.socio_user,
+            AsistenciaReunion.AUSENTE,
+            date(anio_previo, 5, 27),
+        )
+        justificar_url = reverse(
+            'usuarios:justificar_inasistencia',
+            args=[self.socio_user.pk],
+        )
+        url_justificar_ausencia = (
+            f'{justificar_url}?anio={anio_actual}'
+            f'&asistencia={ausencia_justificable.pk}'
+        )
+
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.get(url_justificar_ausencia)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'20-05-{anio_previo}')
+        self.assertEqual(response.context['form'].initial['asistencia'], ausencia_justificable)
+
+        response = self.client.post(
+            justificar_url,
+            {
+                'anio': anio_actual,
+                'asistencia': ausencia_justificable.pk,
+                'motivo': 'Revision administrativa',
+            },
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('usuarios:listado_socios_asistencia'))
+        self.assertFalse(AsistenciaReunion.socio_esta_bloqueado(self.socio_user))
+        self.assertTrue(
+            DesbloqueoSocio.objects.filter(
+                socio=self.socio_user,
+                asistencia=ausencia_justificable,
+            ).exists()
+        )
     def test_listado_justificaciones_admin_muestra_trazabilidad_general(self):
         """Expone una vista general de justificaciones solo para administradores."""
         ausencia_justificada = self.registrar_asistencia_historica(
@@ -3366,7 +5222,7 @@ class UsuariosModuloTests(TestCase):
                 password='ClaveSegura123',
                 first_name='JustificacionFiltro',
                 last_name=f'Paginacion {indice:02d}',
-                rut=f'61.000.{indice:03d}-{indice % 10}',
+                rut=self.rut_prueba(61000000 + indice),
                 rol=self.User.SOCIO,
             )
             ausencia_justificada = self.registrar_asistencia_historica(
@@ -3466,7 +5322,7 @@ class UsuariosModuloTests(TestCase):
                 password='ClaveSegura123',
                 first_name='FiltroSocio',
                 last_name=f'Paginacion {indice:02d}',
-                rut=f'81.000.{indice:03d}-{indice % 10}',
+                rut=self.rut_prueba(81000000 + indice),
                 rol=self.User.SOCIO,
             )
 
@@ -3488,7 +5344,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Aaron',
             last_name='Orden',
-            rut='82.222.222-2',
+            rut='82.222.222-6',
             rol=self.User.SOCIO,
         )
         self.User.objects.create_user(
@@ -3497,7 +5353,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Zulu',
             last_name='Orden',
-            rut='83.333.333-3',
+            rut='83.333.333-K',
             rol=self.User.SOCIO,
         )
 
@@ -3529,7 +5385,7 @@ class UsuariosModuloTests(TestCase):
                 password='ClaveSegura123',
                 first_name='OrdenSocio',
                 last_name=f'Paginacion {indice:02d}',
-                rut=f'84.000.{indice:03d}-{indice % 10}',
+                rut=self.rut_prueba(84000000 + indice),
                 rol=self.User.SOCIO,
             )
 
@@ -3652,6 +5508,40 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, 'data-message-level="success"')
         self.assertContains(response, 'js/app.js')
 
+    def test_formularios_rechazan_rut_con_digito_verificador_incorrecto(self):
+        """Valida el digito verificador chileno en ingresos de RUT."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:registro_usuario'),
+            {
+                'username': 'rut_invalido',
+                'email': 'rut.invalido@example.com',
+                'first_name': 'Rut',
+                'last_name': 'Invalido',
+                'rut': '33.333.333-4',
+                'telefono_movil': '+56933333333',
+                'rol': self.User.ENCARGADO_REGISTRO,
+                'is_active': 'on',
+                'password1': 'ClaveSegura123',
+                'password2': 'ClaveSegura123',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Ingrese un RUT valido.')
+        self.assertFalse(self.User.objects.filter(username='rut_invalido').exists())
+
+        usuario = self.User(
+            username='modelo.rut.invalido',
+            email='modelo.rut.invalido@example.com',
+            first_name='Modelo',
+            last_name='Invalido',
+            rut='33.333.333-4',
+            rol=self.User.ENCARGADO_REGISTRO,
+        )
+        with self.assertRaises(ValidationError):
+            usuario.full_clean()
+
     def test_registro_usuario_interno_no_ofrece_rol_socio(self):
         """Reserva el formulario interno para administradores y encargados."""
         self.client.login(username='admin', password='ClaveSegura123')
@@ -3711,7 +5601,7 @@ class UsuariosModuloTests(TestCase):
                 'email_confirmacion': 'socio.telefono@example.com',
                 'first_name': 'Socio',
                 'last_name': 'Telefono',
-                'rut': '76.666.666-6',
+                'rut': '76.666.666-3',
                 'telefono_movil': '+561234',
                 'is_active': 'on',
             },
@@ -4075,7 +5965,7 @@ class UsuariosModuloTests(TestCase):
             email='super.rol.manual@example.com',
             first_name='Super',
             last_name='Manual',
-            rut='14.444.444-4',
+            rut='14.444.444-2',
             rol=self.User.SUPERADMINISTRADOR,
             is_staff=False,
             is_superuser=False,
@@ -4121,7 +6011,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Super',
             last_name='Admin',
-            rut='98.765.432-1',
+            rut='98.765.432-5',
         )
         self.client.force_login(superusuario)
 
@@ -4137,7 +6027,7 @@ class UsuariosModuloTests(TestCase):
             password='ClaveSegura123',
             first_name='Super',
             last_name='Protegido',
-            rut='15.555.555-5',
+            rut='15.555.555-6',
         )
 
         self.client.login(username='admin', password='ClaveSegura123')
@@ -4148,7 +6038,7 @@ class UsuariosModuloTests(TestCase):
                 'email': 'super.editado@example.com',
                 'first_name': 'Super',
                 'last_name': 'Editado',
-                'rut': '15.555.555-5',
+                'rut': '15.555.555-6',
                 'rol': self.User.ADMINISTRADOR,
             },
         )
@@ -4437,6 +6327,97 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.wsgi_request.user.is_authenticated)
 
+    def test_modelo_rechaza_username_que_coincide_con_email_ajeno(self):
+        """Evita que un identificador de login represente dos cuentas."""
+        cuerpo_rut = '70000001'
+        usuario = self.User(
+            username=self.admin_user.email.upper(),
+            email='identidad.nueva@example.com',
+            first_name='Identidad',
+            last_name='Nueva',
+            rut=f'{cuerpo_rut}-{calcular_digito_verificador_rut(cuerpo_rut)}',
+            rol=self.User.ENCARGADO_REGISTRO,
+        )
+
+        with self.assertRaises(ValidationError) as contexto:
+            usuario.save()
+
+        self.assertIn('username', contexto.exception.message_dict)
+
+    def test_modelo_rechaza_email_que_coincide_con_username_ajeno(self):
+        """Aplica la proteccion de identidad aunque se omitan los formularios web."""
+        cuerpo_existente = '70000002'
+        self.User.objects.create_user(
+            username='identidad.cruzada@example.com',
+            email='correo.original@example.com',
+            password='ClaveSegura123',
+            first_name='Identidad',
+            last_name='Original',
+            rut=(
+                f'{cuerpo_existente}-'
+                f'{calcular_digito_verificador_rut(cuerpo_existente)}'
+            ),
+            rol=self.User.ENCARGADO_REGISTRO,
+        )
+        cuerpo_nuevo = '70000003'
+        usuario = self.User(
+            username='identidad_nueva',
+            email='IDENTIDAD.CRUZADA@example.com',
+            first_name='Identidad',
+            last_name='Nueva',
+            rut=f'{cuerpo_nuevo}-{calcular_digito_verificador_rut(cuerpo_nuevo)}',
+            rol=self.User.ENCARGADO_REGISTRO,
+        )
+
+        with self.assertRaises(ValidationError) as contexto:
+            usuario.save()
+
+        self.assertIn('email', contexto.exception.message_dict)
+
+    def test_comando_verifica_identidades_sin_exponer_datos(self):
+        """Confirma una base valida informando solo cantidades."""
+        output = StringIO()
+
+        call_command('verificar_identidades', stdout=output)
+
+        self.assertIn('sin colisiones', output.getvalue())
+        self.assertNotIn(self.admin_user.email, output.getvalue())
+
+    def test_comando_verifica_identidades_detecta_colision_historica(self):
+        """Detecta datos antiguos que pudieron omitir la validacion del modelo."""
+        cuerpo_uno = '70000004'
+        cuerpo_dos = '70000005'
+        self.User.objects.bulk_create(
+            [
+                self.User(
+                    username='identidad_historica_uno',
+                    email='colision.historica@example.com',
+                    first_name='Historica',
+                    last_name='Uno',
+                    rut=(
+                        f'{cuerpo_uno}-'
+                        f'{calcular_digito_verificador_rut(cuerpo_uno)}'
+                    ),
+                    rol=self.User.ENCARGADO_REGISTRO,
+                ),
+                self.User(
+                    username='COLISION.HISTORICA@example.com',
+                    email='identidad.historica.dos@example.com',
+                    first_name='Historica',
+                    last_name='Dos',
+                    rut=(
+                        f'{cuerpo_dos}-'
+                        f'{calcular_digito_verificador_rut(cuerpo_dos)}'
+                    ),
+                    rol=self.User.ENCARGADO_REGISTRO,
+                ),
+            ]
+        )
+
+        with self.assertRaises(CommandError):
+            call_command('verificar_identidades')
+
+    @override_settings(DEBUG=True)
     def test_comando_crea_usuarios_demo_con_acceso_solo_para_roles_internos(self):
         """Verifica que el comando demo no deje password utilizable en socios."""
         output = StringIO()
@@ -4451,6 +6432,13 @@ class UsuariosModuloTests(TestCase):
         self.assertFalse(socio.has_usable_password())
         self.assertIn('socio.demo@example.com / sin contrasena de acceso', output.getvalue())
 
+    @override_settings(DEBUG=False)
+    def test_comando_usuarios_demo_bloquea_produccion(self):
+        """Impide crear cuentas con credenciales demo cuando DEBUG esta desactivado."""
+        with self.assertRaises(CommandError):
+            call_command('crear_usuarios_prueba')
+
+    @override_settings(DEBUG=True)
     def test_comando_carga_encargados_paginacion_sin_validacion(self):
         """Carga encargados por bulk sin ejecutar validaciones del modelo."""
         output = StringIO()
@@ -4469,6 +6457,12 @@ class UsuariosModuloTests(TestCase):
         self.assertFalse(usuario.has_usable_password())
         self.assertIn('Encargados creados: 100; actualizados: 0', output.getvalue())
         self.assertIn('Encargados creados: 0; actualizados: 100', output.getvalue())
+
+    @override_settings(DEBUG=False)
+    def test_comando_paginacion_bloquea_produccion(self):
+        """Impide cargar cuentas masivas de prueba en produccion."""
+        with self.assertRaises(CommandError):
+            call_command('cargar_encargados_paginacion')
 
     @override_settings(DEBUG=True)
     def test_comando_resetea_asistencia_de_pruebas(self):

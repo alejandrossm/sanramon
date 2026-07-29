@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+
+{% block title %}Configuraci&oacute;n | Sistema San Ramon{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-start mb-4">
+    <div class="d-flex align-items-center gap-3">
+        {% include "includes/icon.html" with name="settings" classes="fs-4 text-primary" %}
+        <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-1">Configuraci&oacute;n</p>
+            <h1 class="h3 mb-1">Configuraci&oacute;n</h1>
+            <p class="text-muted mb-0">Acciones administrativas de auditor&iacute;a y respaldo.</p>
+        </div>
+    </div>
+</div>
+
+<section class="bg-white border rounded shadow-sm overflow-hidden">
+    <div class="row g-3 align-items-center p-4 border-bottom">
+        <div class="col-12 col-lg">
+            <div class="d-flex align-items-start gap-3">
+                {% include "includes/icon.html" with name="list" classes="fs-4 text-primary flex-shrink-0" %}
+                <div>
+                    <h2 class="h5 mb-1">Registro de logs</h2>
+                    <p class="text-muted mb-0">Selecciona un log activo o hist&oacute;rico. La integridad se verifica antes de mostrarlo como disponible.</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-lg-auto">
+            {% if archivos_auditoria %}
+                <form method="get" action="{% url 'usuarios:descargar_registro_logs' %}" class="d-flex flex-column flex-sm-row gap-2">
+                    <label for="archivo-auditoria" class="visually-hidden">Archivo de auditor&iacute;a</label>
+                    <select id="archivo-auditoria" name="archivo" class="form-select">
+                        {% for archivo in archivos_auditoria %}
+                            <option value="{{ archivo.id }}">
+                                {{ archivo.label }} - {% if archivo.integridad_valida %}integridad v&aacute;lida{% else %}revisar integridad{% endif %}
+                            </option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="btn btn-outline-primary d-inline-flex align-items-center justify-content-center gap-2 text-nowrap">
+                        {% include "includes/icon.html" with name="download" %}
+                        <span>Descargar .log</span>
+                    </button>
+                </form>
+            {% else %}
+                <span class="text-muted">No hay logs disponibles.</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="row g-3 align-items-center p-4 border-bottom">
+        <div class="col-12 col-lg">
+            <div class="d-flex align-items-start gap-3">
+                {% include "includes/icon.html" with name="file-spreadsheet" classes="fs-4 text-primary flex-shrink-0" %}
+                <div>
+                    <h2 class="h5 mb-1">Carga masiva de socios</h2>
+                    <p class="text-muted mb-0">Descarga la plantilla con socios actuales o importa nuevos socios desde un CSV validado.</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-lg-auto">
+            <div class="d-flex flex-wrap gap-2 justify-content-lg-end">
+                <a href="{% url 'usuarios:descargar_plantilla_carga_masiva_socios' %}" class="btn btn-outline-primary d-inline-flex align-items-center gap-2">
+                    {% include "includes/icon.html" with name="download" %}
+                    <span>Plantilla socios</span>
+                </a>
+                <a href="{% url 'usuarios:cargar_socios_masivo' %}" class="btn btn-primary d-inline-flex align-items-center gap-2">
+                    {% include "includes/icon.html" with name="file-spreadsheet" %}
+                    <span>Cargar socios</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 align-items-center p-4">
+        <div class="col-12 col-lg">
+            <div class="d-flex align-items-start gap-3">
+                {% include "includes/icon.html" with name="download" classes="fs-4 text-primary flex-shrink-0" %}
+                <div>
+                    <h2 class="h5 mb-1">Respaldo de base de datos</h2>
+                    <p class="text-muted mb-0">Descarga una copia consistente de SQLite, cifrada y autenticada con una clave externa.</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-lg-auto">
+            <a href="{% url 'usuarios:exportar_base_datos_respaldo' %}" class="btn btn-primary d-inline-flex align-items-center gap-2">
+                {% include "includes/icon.html" with name="download" %}
+                <span>Respaldar base de datos</span>
+            </a>
+        </div>
+    </div>
+
+    <div class="p-4 border-top">
+        <div class="d-flex align-items-start gap-3 mb-3">
+            {% include "includes/icon.html" with name="file-spreadsheet" classes="fs-4 text-primary flex-shrink-0" %}
+            <div>
+                <h2 class="h5 mb-1">Cargas hist&oacute;ricas por planilla</h2>
+                <p class="text-muted mb-0">
+                    Revierte todos los registros de una carga para corregir una planilla importada. Si solo necesita corregir un socio, use Justificaciones buscando por RUT y fecha.
+                </p>
+            </div>
+        </div>
+
+        <div class="table-responsive rounded overflow-hidden border">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>FECHA DE CARGA</th>
+                        <th>REUNI&Oacute;N</th>
+                        <th>CARGADO POR</th>
+                        <th class="text-center">REGISTROS</th>
+                        <th class="text-end">ACCI&Oacute;N</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for carga in cargas_historicas %}
+                        <tr>
+                            <td>
+                                <span class="d-block fw-semibold">{{ carga.fecha_carga|date:"d-m-Y" }}</span>
+                                <span class="d-block text-muted small">{{ carga.fecha_carga|time:"H:i" }}</span>
+                            </td>
+                            <td>
+                                <span class="d-block fw-semibold">{{ carga.reunion.fecha|date:"d-m-Y" }} {{ carga.reunion.hora|time:"H:i" }}</span>
+                                <span class="d-block text-muted small">{{ carga.reunion.locacion }}</span>
+                                {% if carga.archivo_nombre %}
+                                    <span class="d-block text-muted small">{{ carga.archivo_nombre }}</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ carga.cargado_por.nombre_completo }}</td>
+                            <td class="text-center">
+                                <span class="badge text-bg-secondary">{{ carga.total_registros_actuales }}</span>
+                            </td>
+                            <td class="text-end">
+                                <form
+                                    method="post"
+                                    action="{% url 'usuarios:revertir_carga_asistencia_historica' carga.pk %}"
+                                    class="d-inline"
+                                    data-confirm-submit
+                                    data-confirm-title="Revertir carga hist&oacute;rica"
+                                    data-confirm-text="Se eliminar&aacute;n todos los registros de asistencia importados por esta planilla. Esta acci&oacute;n no se puede deshacer."
+                                    data-confirm-button="Revertir carga"
+                                    data-confirm-color="#b42318"
+                                    data-confirm-icon="error"
+                                >
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-outline-danger btn-sm">
+                                        {% include "includes/icon.html" with name="trash-2" %}
+                                        <span>Revertir carga</span>
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="5" class="text-center text-muted py-4">
+                                No hay cargas hist&oacute;ricas por planilla pendientes de reversi&oacute;n.
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+{% endblock %}

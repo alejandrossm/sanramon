@@ -73,6 +73,29 @@
             {% endfor %}
         </select>
     </div>
+    <div class="col-12 col-md-3">
+        <label for="filtro-asistencia-estado" class="form-label">Estado</label>
+        <select class="form-select" id="filtro-asistencia-estado" name="estado">
+            <option value="">Todos los estados</option>
+            {% for valor_estado, etiqueta_estado in estados_filtrables %}
+                <option value="{{ valor_estado }}" {% if filtros.estado == valor_estado %}selected{% endif %}>
+                    {{ etiqueta_estado }}
+                </option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-12 col-md-3">
+        <label for="filtro-asistencia-anio" class="form-label">A&ntilde;o operativo</label>
+        <input
+            type="number"
+            class="form-control"
+            id="filtro-asistencia-anio"
+            name="anio"
+            min="2000"
+            value="{{ filtros.anio }}"
+            placeholder="{{ anio_exportacion }}"
+        >
+    </div>
     <div class="col-12 col-md-3 d-flex flex-wrap gap-2">
         <button type="submit" class="btn btn-outline-primary">
             {% include "includes/icon.html" with name="search" %}
@@ -86,6 +109,44 @@
         {% endif %}
     </div>
 </form>
+
+{% if puede_exportar_reportes %}
+    <div class="d-flex justify-content-end mb-2">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Exportar resumen anual">
+            <a
+                href="{% url 'usuarios:exportar_asistencia_anual' 'csv' %}?{{ export_query }}"
+                class="btn btn-outline-primary btn-sm"
+                title="Descargar reporte anual CSV"
+                aria-label="Descargar reporte anual CSV"
+            >
+                {% include "includes/icon.html" with name="download" %}
+                <span>CSV</span>
+            </a>
+            <a
+                href="{% url 'usuarios:exportar_asistencia_anual' 'xlsx' %}?{{ export_query }}"
+                class="btn btn-outline-primary btn-sm"
+                title="Descargar reporte anual XLSX"
+                aria-label="Descargar reporte anual XLSX"
+            >
+                {% include "includes/icon.html" with name="file-spreadsheet" %}
+                <span>XLSX</span>
+            </a>
+            {% comment %}
+            Botón PDF desactivado temporalmente. Para reactivarlo, elimina este
+            bloque comment/endcomment; la ruta y la lógica de exportación se conservan.
+            <a
+                href="{% url 'usuarios:exportar_asistencia_anual' 'pdf' %}?{{ export_query }}"
+                class="btn btn-outline-primary btn-sm"
+                title="Descargar reporte anual PDF"
+                aria-label="Descargar reporte anual PDF"
+            >
+                {% include "includes/icon.html" with name="file-pdf" %}
+                <span>PDF</span>
+            </a>
+            {% endcomment %}
+        </div>
+    </div>
+{% endif %}
 
 <div class="table-responsive rounded overflow-hidden shadow-sm border bg-white d-none d-md-block">
     <table class="table table-hover align-middle mb-0">

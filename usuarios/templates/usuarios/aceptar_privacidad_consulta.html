@@ -1,0 +1,53 @@
+{% extends "base_public.html" %}
+
+{% block title %}Privacidad de la consulta | Valle San Ramon{% endblock %}
+
+{% block content %}
+<section class="container py-4 py-lg-5">
+    <div class="mx-auto" style="max-width: 760px;">
+        <div class="d-flex align-items-center gap-3 mb-4">
+            {% include "includes/icon.html" with name="shield-check" classes="fs-3 text-primary" %}
+            <div>
+                <p class="text-uppercase text-primary fw-semibold small mb-1">Privacidad</p>
+                <h1 class="h3 mb-1">Autorización de consulta digital</h1>
+                <p class="text-muted mb-0">Versión {{ version_politica }}</p>
+            </div>
+        </div>
+
+        <section class="public-panel p-4" aria-label="Aceptar privacidad">
+            <p>
+                Utilizaremos tu RUT, correo registrado y datos de asistencia para verificar
+                tu acceso y mostrarte exclusivamente tu historial. El código es temporal,
+                de un solo uso y no se almacena en texto legible.
+            </p>
+            <p>
+                Puedes consultar la información completa sobre finalidades, conservación,
+                seguridad y ejercicio de derechos en la
+                <a href="{% url 'usuarios:politica_privacidad' %}" target="_blank" rel="noopener">
+                    política de privacidad
+                </a>.
+            </p>
+
+            <form method="post" class="d-grid gap-3">
+                {% csrf_token %}
+                <div class="form-check">
+                    {{ form.acepta }}
+                    <label class="form-check-label" for="{{ form.acepta.id_for_label }}">
+                        {{ form.acepta.label }}
+                    </label>
+                    {% for error in form.acepta.errors %}
+                        <div class="invalid-feedback d-block">{{ error }}</div>
+                    {% endfor %}
+                </div>
+                <button type="submit" class="btn btn-primary btn-lg">
+                    Aceptar y ver mi asistencia
+                </button>
+            </form>
+        </section>
+
+        <p class="text-muted small mt-3">
+            Si no deseas utilizar la consulta digital, puedes solicitar atención asistida.
+        </p>
+    </div>
+</section>
+{% endblock %}
