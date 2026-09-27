@@ -119,7 +119,10 @@ def cargar_socios_desde_csv(archivo_csv):
     }
     correos_existentes = {
         (email or '').lower()
-        for email in Usuario.objects.values_list('email', flat=True)
+        for email in Usuario.objects.filter(rol=Usuario.SOCIO).values_list(
+            'email',
+            flat=True,
+        )
     }
     usernames_existentes = {
         (username or '').lower()

@@ -6,6 +6,7 @@ from django.contrib.auth.models import AbstractUser, UserManager
 from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import models, transaction
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 from .identificacion import MENSAJE_RUT_INVALIDO, normalizar_rut, validar_rut_chileno
@@ -51,7 +52,7 @@ def normalizar_telefono_movil(telefono):
 
 
 class Usuario(AbstractUser):
-    """Usuario principal del sistema con RUT, correo único y rol operativo."""
+    """Usuario principal con identidad diferenciada por su rol operativo."""
 
     ADMINISTRADOR = ROL_ADMINISTRADOR
     ENCARGADO_REGISTRO = ROL_ENCARGADO_REGISTRO
@@ -74,6 +75,8 @@ class Usuario(AbstractUser):
     )
     rut = models.CharField(
         max_length=12,
+        blank=True,
+        null=True,
         unique=True,
         validators=[
             RegexValidator(
@@ -84,7 +87,7 @@ class Usuario(AbstractUser):
         ],
         verbose_name='RUT',
     )
-    email = models.EmailField(unique=True, verbose_name='Correo electrónico')
+    email = models.EmailField(verbose_name='Correo electrónico')
     telefono_movil = models.CharField(
         max_length=12,
         blank=True,
@@ -104,7 +107,7 @@ class Usuario(AbstractUser):
 
     objects = UsuarioManager()
 
-    REQUIRED_FIELDS = ['email', 'first_name', 'last_name', 'rut']
+    REQUIRED_FIELDS = ['email', 'first_name', 'last_name']
 
     class Meta:
         """Orden y nombres legibles del modelo en Django."""
@@ -114,6 +117,16 @@ class Usuario(AbstractUser):
         verbose_name_plural = 'usuarios'
         permissions = PERMISOS_USUARIO
         constraints = [
+            models.UniqueConstraint(
+                Lower('email'),
+                condition=models.Q(rol='SOCIO'),
+                name='usuario_email_unico_socios_ci',
+            ),
+            models.UniqueConstraint(
+                Lower('email'),
+                condition=~models.Q(rol='SOCIO'),
+                name='usuario_email_unico_internos_ci',
+            ),
             models.CheckConstraint(
                 condition=(
                     ~models.Q(rol='SOCIO')
@@ -170,7 +183,12 @@ class Usuario(AbstractUser):
 
     def clean_fields(self, exclude=None):
         """Normaliza campos antes de ejecutar validadores de modelo."""
+        exclude = set(exclude or ())
         self.telefono_movil = normalizar_telefono_movil(self.telefono_movil)
+        if self.rol != self.SOCIO:
+            self.rut = None
+        elif not self.rut and 'rut' not in exclude:
+            raise ValidationError({'rut': 'El RUT es obligatorio para los socios.'})
         super().clean_fields(exclude=exclude)
 
     def clean(self):
@@ -178,25 +196,31 @@ class Usuario(AbstractUser):
         super().clean()
         self.username = (self.username or '').strip()
         self.email = (self.email or '').strip().lower()
-        self.rut = normalizar_rut(self.rut)
+        if self.rol == self.SOCIO:
+            self.rut = normalizar_rut(self.rut)
+        else:
+            self.rut = None
 
         errores = {}
         otros_usuarios = type(self).objects.exclude(pk=self.pk)
+        mismo_ambito = otros_usuarios.filter(rol=self.SOCIO)
+        if self.rol != self.SOCIO:
+            mismo_ambito = otros_usuarios.exclude(rol=self.SOCIO)
         if self.username:
             if otros_usuarios.filter(username__iexact=self.username).exists():
                 errores['username'] = (
                     'Ya existe un usuario con este nombre, sin distinguir mayusculas.'
                 )
-            elif otros_usuarios.filter(email__iexact=self.username).exists():
+            elif mismo_ambito.filter(email__iexact=self.username).exists():
                 errores['username'] = (
                     'El nombre de usuario coincide con el correo de otra cuenta.'
                 )
         if self.email:
-            if otros_usuarios.filter(email__iexact=self.email).exists():
+            if mismo_ambito.filter(email__iexact=self.email).exists():
                 errores['email'] = (
-                    'Ya existe un usuario con este correo, sin distinguir mayusculas.'
+                    'Ya existe una cuenta del mismo tipo con este correo.'
                 )
-            elif otros_usuarios.filter(username__iexact=self.email).exists():
+            elif mismo_ambito.filter(username__iexact=self.email).exists():
                 errores['email'] = (
                     'El correo coincide con el nombre de usuario de otra cuenta.'
                 )
@@ -235,7 +259,13 @@ class Usuario(AbstractUser):
         """Normaliza email y RUT antes de persistir el usuario."""
         self.username = (self.username or '').strip()
         self.email = (self.email or '').strip().lower()
-        self.rut = normalizar_rut(self.rut)
+        if self.rol == self.SOCIO:
+            self.rut = normalizar_rut(self.rut)
+            self.first_name = (self.first_name or '').strip().upper()
+            self.last_name = (self.last_name or '').strip().upper()
+            self.apellido_materno = (self.apellido_materno or '').strip().upper()
+        else:
+            self.rut = None
         self.telefono_movil = normalizar_telefono_movil(self.telefono_movil)
         self.full_clean()
         super().save(*args, **kwargs)
@@ -327,6 +357,10 @@ class Reunion(models.Model):
         verbose_name = 'reunión'
         verbose_name_plural = 'reuniones'
         constraints = [
+            models.UniqueConstraint(
+                fields=['fecha', 'hora'],
+                name='reunion_unica_por_fecha_hora',
+            ),
             models.UniqueConstraint(
                 fields=['estado'],
                 condition=models.Q(estado='ACTIVA'),

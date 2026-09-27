@@ -1,6 +1,6 @@
-# Candidato de release 1.0.0
+# Candidato de release 1.0.1
 
-Este documento define la puerta de salida para crear el tag anotado `v1.0.0`.
+Este documento define la puerta de salida para crear el tag anotado `v1.0.1`.
 El tag solo debe crearse cuando todos los controles tecnicos y operativos
 aplicables esten aprobados sobre el mismo commit.
 
@@ -62,6 +62,6 @@ responsable del proyecto debe aceptar o cerrar formalmente esas brechas.
 Con todos los controles aprobados, desde `main` y sobre el commit desplegado:
 
 ```bash
-git tag -a v1.0.0 -m "Release 1.0.0"
-git push origin v1.0.0
+git tag -a v1.0.1 -m "Release 1.0.1"
+git push origin v1.0.1
 ```

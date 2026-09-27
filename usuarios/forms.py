@@ -363,7 +363,6 @@ class UsuarioCreationForm(TelefonoMovilFormMixin, UserCreationForm):
             'username',
             'first_name',
             'last_name',
-            'rut',
             'email',
             'telefono_movil',
             'rol',
@@ -383,11 +382,11 @@ class UsuarioCreationForm(TelefonoMovilFormMixin, UserCreationForm):
         self.actor = kwargs.pop('actor', None)
         super().__init__(*args, **kwargs)
         self.fields['is_active'].initial = True
-        marcar_campo_rut(self.fields['rut'])
         self.configurar_telefono_movil()
         self._limitar_roles_por_actor()
         self.helper = FormHelper()
         self.helper.form_method = 'post'
+        self.helper.attrs = {'data-submit-lock': 'true'}
         self.helper.layout = Layout(
             Row(
                 Column('username', css_class='col-md-6'),
@@ -398,7 +397,6 @@ class UsuarioCreationForm(TelefonoMovilFormMixin, UserCreationForm):
                 Column('last_name', css_class='col-md-6'),
             ),
             Row(
-                Column('rut', css_class='col-md-6'),
                 Column('telefono_movil', css_class='col-md-6'),
             ),
             Row(
@@ -415,16 +413,13 @@ class UsuarioCreationForm(TelefonoMovilFormMixin, UserCreationForm):
     def clean_email(self):
         """Valida que el correo sea único sin distinguir mayúsculas."""
         email = self.cleaned_data['email'].strip().lower()
-        if Usuario.objects.filter(email__iexact=email).exists():
-            raise forms.ValidationError('Ya existe un usuario con este correo.')
+        if (
+            Usuario.objects.exclude(rol=Usuario.SOCIO)
+            .filter(email__iexact=email)
+            .exists()
+        ):
+            raise forms.ValidationError('Ya existe un usuario interno con este correo.')
         return email
-
-    def clean_rut(self):
-        """Normaliza y valida unicidad del RUT ingresado."""
-        rut = normalizar_rut_formulario(self.cleaned_data['rut'])
-        if Usuario.objects.filter(rut__iexact=rut).exists():
-            raise forms.ValidationError('Ya existe un usuario con este RUT.')
-        return rut
 
     def clean_rol(self):
         """Impide crear socios desde el formulario de usuarios internos."""
@@ -487,6 +482,7 @@ class SocioCreationForm(TelefonoMovilFormMixin, FechaIngresoProyectoFormMixin, f
         self.configurar_fecha_ingreso_proyecto()
         self.helper = FormHelper()
         self.helper.form_method = 'post'
+        self.helper.attrs = {'data-submit-lock': 'true'}
         self.helper.layout = Layout(
             Row(
                 Column('first_name', css_class='col-md-4'),
@@ -511,8 +507,8 @@ class SocioCreationForm(TelefonoMovilFormMixin, FechaIngresoProyectoFormMixin, f
     def clean_email(self):
         """Valida que el correo sea único sin distinguir mayúsculas."""
         email = self.cleaned_data['email'].strip().lower()
-        if Usuario.objects.filter(email__iexact=email).exists():
-            raise forms.ValidationError('Ya existe un usuario con este correo.')
+        if Usuario.objects.filter(rol=Usuario.SOCIO, email__iexact=email).exists():
+            raise forms.ValidationError('Ya existe un socio con este correo.')
         if Usuario.objects.filter(username__iexact=email).exists():
             raise forms.ValidationError('Ya existe un usuario técnico con este correo.')
         return email
@@ -626,6 +622,7 @@ class ReunionCreationForm(forms.ModelForm):
         )
         self.helper = FormHelper()
         self.helper.form_method = 'post'
+        self.helper.attrs = {'data-submit-lock': 'true'}
         self.helper.layout = Layout(
             Row(
                 Column('fecha', css_class='col-md-4'),
@@ -890,29 +887,21 @@ class JustificacionInasistenciaForm(forms.Form):
 
 
 class RegistroAsistenciaRutForm(forms.Form):
-    """Formulario para registrar asistencia de un socio existente por RUT."""
+    """Formulario único para registrar asistencia mediante RUT o lectura QR."""
 
     rut = forms.CharField(
-        label='RUT',
-        required=False,
-        max_length=12,
-        widget=forms.TextInput(
-            attrs={
-                'placeholder': '12.345.678-5',
-                'autocomplete': 'off',
-                'inputmode': 'text',
-                'data-rut-manual-input': 'true',
-                'aria-disabled': 'true',
-                'disabled': 'disabled',
-                'readonly': 'readonly',
-                'tabindex': '-1',
-            }
-        ),
-    )
-    lectura_qr = forms.CharField(
+        label='RUT o lectura QR',
         required=False,
         max_length=512,
-        widget=forms.HiddenInput(),
+        widget=forms.TextInput(
+            attrs={
+                'placeholder': 'Ingrese el RUT o escanee el código QR',
+                'autocomplete': 'off',
+                'inputmode': 'text',
+                'autofocus': 'autofocus',
+                'data-asistencia-input': 'true',
+            }
+        ),
     )
 
     def __init__(self, *args, **kwargs):
@@ -922,27 +911,29 @@ class RegistroAsistenciaRutForm(forms.Form):
         self.socio = None
         self.lectura_rut = None
         super().__init__(*args, **kwargs)
-        marcar_campo_rut(self.fields['rut'])
         self.helper = FormHelper()
         self.helper.form_method = 'post'
+        self.helper.attrs = {
+            'data-asistencia-form': 'true',
+            'data-submit-lock': 'true',
+        }
         self.helper.layout = Layout(
             Row(
-                Column('rut', css_class='col-md-8'),
+                Column('rut', css_class='col-12'),
             ),
             Submit(
                 'submit',
-                'Registrar por RUT',
+                'Registrar asistencia',
                 css_class='btn btn-primary',
-                data_rut_manual_submit='true',
-                disabled='disabled',
-                aria_disabled='true',
             ),
         )
 
     def clean(self):
         """Valida que el RUT o QR corresponda a un socio existente."""
         cleaned_data = super().clean()
-        entrada = cleaned_data.get('lectura_qr') or cleaned_data.get('rut')
+        # Se conserva la lectura del nombre antiguo para tolerar clientes abiertos
+        # durante el despliegue, aunque la interfaz ya expone un solo campo.
+        entrada = cleaned_data.get('rut') or self.data.get('lectura_qr')
         lectura_rut = parsear_lectura_rut(entrada)
         if not lectura_rut:
             raise forms.ValidationError('Ingrese un RUT valido o escanee un QR con bloque RUN.')
@@ -1023,6 +1014,7 @@ class SocioUpdateForm(TelefonoMovilFormMixin, FechaIngresoProyectoFormMixin, for
             self.initial['email_confirmacion'] = self.instance.email
         self.helper = FormHelper()
         self.helper.form_method = 'post'
+        self.helper.attrs = {'data-submit-lock': 'true'}
         self.helper.layout = Layout(
             Row(
                 Column('first_name', css_class='col-md-4'),
@@ -1046,15 +1038,11 @@ class SocioUpdateForm(TelefonoMovilFormMixin, FechaIngresoProyectoFormMixin, for
     def clean_email(self):
         """Valida unicidad de correo y username técnico excluyendo al socio."""
         email = self.cleaned_data['email'].strip().lower()
-        email_qs = Usuario.objects.filter(email__iexact=email)
-        username_qs = Usuario.objects.filter(username__iexact=email)
+        email_qs = Usuario.objects.filter(rol=Usuario.SOCIO, email__iexact=email)
         if self.instance.pk:
             email_qs = email_qs.exclude(pk=self.instance.pk)
-            username_qs = username_qs.exclude(pk=self.instance.pk)
         if email_qs.exists():
             raise forms.ValidationError('Ya existe un usuario con este correo.')
-        if username_qs.exists():
-            raise forms.ValidationError('Ya existe un usuario técnico con este correo.')
         return email
 
     def clean(self):
@@ -1104,7 +1092,6 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
         fields = (
             'first_name',
             'last_name',
-            'rut',
             'email',
             'telefono_movil',
             'rol',
@@ -1120,22 +1107,17 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
         """Recibe el usuario actor y construye el layout de edición."""
         self.actor = kwargs.pop('actor', None)
         super().__init__(*args, **kwargs)
-        self.fields['rut'].disabled = True
-        marcar_campo_rut(self.fields['rut'])
         self.configurar_telefono_movil()
-        self.fields['rut'].help_text = 'El RUT no puede modificarse una vez creado.'
-        if self.instance.pk:
-            self.initial['rut'] = normalizar_rut(self.instance.rut)
         self._limitar_roles_por_actor()
         self.helper = FormHelper()
         self.helper.form_method = 'post'
+        self.helper.attrs = {'data-submit-lock': 'true'}
         self.helper.layout = Layout(
             Row(
                 Column('first_name', css_class='col-md-6'),
                 Column('last_name', css_class='col-md-6'),
             ),
             Row(
-                Column('rut', css_class='col-md-6'),
                 Column('telefono_movil', css_class='col-md-6'),
             ),
             Row(
@@ -1152,25 +1134,12 @@ class UsuarioUpdateForm(TelefonoMovilFormMixin, forms.ModelForm):
     def clean_email(self):
         """Valida unicidad del correo excluyendo el usuario editado."""
         email = self.cleaned_data['email'].strip().lower()
-        qs = Usuario.objects.filter(email__iexact=email)
+        qs = Usuario.objects.exclude(rol=Usuario.SOCIO).filter(email__iexact=email)
         if self.instance.pk:
             qs = qs.exclude(pk=self.instance.pk)
         if qs.exists():
             raise forms.ValidationError('Ya existe un usuario con este correo.')
         return email
-
-    def clean_rut(self):
-        """Mantiene el RUT original aunque el POST intente modificarlo."""
-        if self.instance.pk:
-            return normalizar_rut(self.instance.rut)
-
-        rut = normalizar_rut_formulario(self.cleaned_data['rut'])
-        qs = Usuario.objects.filter(rut__iexact=rut)
-        if self.instance.pk:
-            qs = qs.exclude(pk=self.instance.pk)
-        if qs.exists():
-            raise forms.ValidationError('Ya existe un usuario con este RUT.')
-        return rut
 
     def clean(self):
         """Valida coincidencia y seguridad del password cuando se informa."""

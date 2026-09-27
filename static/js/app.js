@@ -220,162 +220,58 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    document.querySelectorAll('[data-rut-scan-toggle]').forEach((toggle) => {
-        const target = document.querySelector(toggle.dataset.rutScanTarget || '[data-rut-scan-input]');
-        const label = toggle.dataset.rutScanLabel
-            ? document.querySelector(toggle.dataset.rutScanLabel)
-            : document.querySelector('[data-rut-scan-toggle-label]');
-        const status = document.querySelector('[data-rut-scan-status]');
-        const manualRegion = document.querySelector('[data-rut-manual-region]');
-        const manualInput = document.querySelector('[data-rut-manual-input]');
-        const manualSubmit = document.querySelector('[data-rut-manual-submit]');
-        const isCheckboxSwitch = toggle.matches('input[type="checkbox"]');
-        const storageKey = `sanramon:rut-manual-mode:${window.location.pathname}`;
-
-        if (!target) {
-            return;
-        }
-
-        const setManualMode = (manualEnabled) => {
-            const qrEnabled = !manualEnabled;
-
-            toggle.dataset.rutManualActive = manualEnabled ? 'true' : 'false';
-            toggle.dataset.rutScanActive = qrEnabled ? 'true' : 'false';
-            if (isCheckboxSwitch) {
-                toggle.checked = manualEnabled;
-                toggle.setAttribute('aria-checked', manualEnabled ? 'true' : 'false');
-            } else {
-                toggle.setAttribute('aria-pressed', manualEnabled ? 'true' : 'false');
-                toggle.classList.toggle('btn-primary', manualEnabled);
-                toggle.classList.toggle('btn-outline-primary', !manualEnabled);
+    const SUBMIT_LOCK_TIMEOUT_MS = 8000;
+    document.querySelectorAll('form[data-submit-lock]').forEach((form) => {
+        form.addEventListener('submit', (event) => {
+            if (form.dataset.submitting === 'true') {
+                event.preventDefault();
+                return;
             }
-            if (label) {
-                label.textContent = manualEnabled ? 'Registro manual activo' : 'Registro manual';
-            }
-            if (status) {
-                status.textContent = qrEnabled
-                    ? 'Escaneo con lector QR activo'
-                    : 'Registro manual habilitado';
-            }
-            if (manualRegion) {
-                manualRegion.classList.toggle('opacity-50', qrEnabled);
-                manualRegion.classList.toggle('pe-none', qrEnabled);
-                if (qrEnabled) {
-                    manualRegion.setAttribute('aria-disabled', 'true');
+
+            form.dataset.submitting = 'true';
+            form.setAttribute('aria-busy', 'true');
+            const buttons = form.querySelectorAll('button[type="submit"], input[type="submit"]');
+            buttons.forEach((button) => {
+                button.disabled = true;
+                if (button.tagName === 'INPUT') {
+                    button.dataset.originalLabel = button.value;
+                    button.value = 'Guardando...';
                 } else {
-                    manualRegion.removeAttribute('aria-disabled');
+                    button.dataset.originalLabel = button.textContent;
+                    button.textContent = 'Guardando...';
                 }
-                manualRegion
-                    .querySelectorAll('input, button, select, textarea')
-                    .forEach((control) => {
-                        control.disabled = qrEnabled;
-                        if (qrEnabled) {
-                            control.setAttribute('aria-disabled', 'true');
-                            control.setAttribute('tabindex', '-1');
-                        } else {
-                            control.removeAttribute('aria-disabled');
-                            control.removeAttribute('tabindex');
-                        }
-                    });
-            }
-            if (manualInput) {
-                manualInput.disabled = qrEnabled;
-                manualInput.readOnly = qrEnabled;
-                manualInput.value = '';
-                if (qrEnabled) {
-                    manualInput.setAttribute('aria-disabled', 'true');
-                    manualInput.setAttribute('tabindex', '-1');
-                } else {
-                    manualInput.removeAttribute('aria-disabled');
-                    manualInput.removeAttribute('tabindex');
-                }
-            }
-            if (manualSubmit) {
-                manualSubmit.disabled = qrEnabled;
-                if (qrEnabled) {
-                    manualSubmit.setAttribute('aria-disabled', 'true');
-                } else {
-                    manualSubmit.removeAttribute('aria-disabled');
-                }
-            }
-            target.value = '';
-            if (qrEnabled) {
-                target.focus();
-                target.select();
-            } else if (manualInput) {
-                manualInput.focus();
-            }
-        };
+            });
 
-        setManualMode(window.localStorage.getItem(storageKey) === 'true');
-
-        const handleModeChange = () => {
-            const manualEnabled = isCheckboxSwitch
-                ? toggle.checked
-                : toggle.dataset.rutManualActive !== 'true';
-            window.localStorage.setItem(storageKey, manualEnabled ? 'true' : 'false');
-            setManualMode(manualEnabled);
-        };
-
-        toggle.addEventListener(isCheckboxSwitch ? 'change' : 'click', handleModeChange);
+            window.setTimeout(() => {
+                form.dataset.submitting = 'false';
+                form.removeAttribute('aria-busy');
+                buttons.forEach((button) => {
+                    button.disabled = false;
+                    if (button.tagName === 'INPUT') {
+                        button.value = button.dataset.originalLabel || button.value;
+                    } else {
+                        button.textContent = button.dataset.originalLabel || button.textContent;
+                    }
+                });
+            }, SUBMIT_LOCK_TIMEOUT_MS);
+        });
     });
 
-    const qrRunPattern = /RUN[^0-9]{0,8}[0-9]{7,8}[^0-9A-Z]?[0-9K]/i;
-    const submitRutScanForm = (form) => {
-        if (form.dataset.submitting === 'true') {
-            return;
-        }
-
-        form.dataset.submitting = 'true';
-        form.submit();
-    };
-
-    document.querySelectorAll('[data-rut-scan-form]').forEach((form) => {
-        const input = form.querySelector('[data-rut-scan-input]');
-        const toggle = form.querySelector('[data-rut-scan-toggle]')
-            || document.querySelector('[data-rut-scan-toggle]');
-        let submitTimer = null;
-
+    document.querySelectorAll('[data-asistencia-form]').forEach((form) => {
+        const input = form.querySelector('[data-asistencia-input]');
         if (!input) {
             return;
         }
 
-        input.addEventListener('input', () => {
-            window.clearTimeout(submitTimer);
-
-            if (
-                (!toggle || toggle.dataset.rutScanActive === 'true')
-                && qrRunPattern.test(input.value)
-            ) {
-                submitTimer = window.setTimeout(() => submitRutScanForm(form), 120);
-            }
-        });
-
         input.addEventListener('keydown', (event) => {
-            if (event.key !== 'Enter') {
-                return;
-            }
-
-            event.preventDefault();
-            if (
-                (!toggle || toggle.dataset.rutScanActive === 'true')
-                && input.value.trim()
-            ) {
-                submitRutScanForm(form);
+            if (event.key === 'Enter' && input.value.trim()) {
+                event.preventDefault();
+                form.requestSubmit();
             }
         });
+        input.focus();
+        input.select();
     });
-
-    const rutScanInput = document.querySelector('[data-rut-scan-input]');
-    const rutScanToggle = document.querySelector('[data-rut-scan-toggle]');
-    if (
-        rutScanInput
-        && rutScanToggle
-        && rutScanToggle.dataset.rutScanActive === 'true'
-        && document.activeElement === document.body
-    ) {
-        rutScanInput.focus();
-    }
 
     // Mantiene telefonos moviles chilenos con prefijo +56 y 9 digitos locales.
     const formatPhoneWithPrefix = (value, prefix) => {

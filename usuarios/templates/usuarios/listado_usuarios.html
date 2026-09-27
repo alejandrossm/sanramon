@@ -50,17 +50,6 @@
         <input type="hidden" name="direccion" value="{{ direccion_actual }}">
     {% endif %}
     <div class="col-12 col-md-3">
-        <label for="filtro-rut" class="form-label">RUT</label>
-        <input
-            type="search"
-            class="form-control"
-            id="filtro-rut"
-            name="rut"
-            value="{{ filtros.rut }}"
-            placeholder="Buscar por RUT"
-        >
-    </div>
-    <div class="col-12 col-md-3">
         <label for="filtro-nombre" class="form-label">Nombre</label>
         <input
             type="search"
@@ -130,7 +119,7 @@
                             </a>
                         </div>
                     </th>
-                    {% if columna.key == 'rut' %}
+                    {% if columna.key == 'apellido' %}
                         <th class="text-center text-nowrap px-1" style="width: 1%;" title="Contacto" aria-label="Contacto">
                             <span class="d-inline-flex align-items-center justify-content-center" style="width: 2.5rem;">
                                 {% include "includes/icon.html" with name="contact-card" %}
@@ -150,7 +139,6 @@
                     <td class="fw-semibold"><span class="table-cell-truncate is-user" title="{{ usuario.username }}">{{ usuario.username }}</span></td>
                     <td><span class="table-cell-truncate is-name" title="{{ usuario.first_name }}">{{ usuario.first_name }}</span></td>
                     <td><span class="table-cell-truncate is-name" title="{{ usuario.last_name }}">{{ usuario.last_name }}</span></td>
-                    <td>{{ usuario.rut }}</td>
                     <td class="text-center text-nowrap px-1" style="width: 1%;">
                         {% include "usuarios/includes/contacto_usuario_iconos.html" %}
                     </td>
@@ -173,7 +161,7 @@
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="{% if puede_administrar_privilegios %}9{% else %}8{% endif %}" class="text-center text-muted py-4">No hay usuarios registrados.</td>
+                    <td colspan="{% if puede_administrar_privilegios %}8{% else %}7{% endif %}" class="text-center text-muted py-4">No hay usuarios registrados.</td>
                 </tr>
             {% endfor %}
         </tbody>
@@ -201,8 +189,6 @@
             </div>
 
             <dl class="row g-2 small mt-3 mb-0">
-                <dt class="col-4 text-muted fw-semibold">RUT</dt>
-                <dd class="col-8 mb-0 text-break">{{ usuario.rut }}</dd>
                 <dt class="col-4 text-muted fw-semibold">EMAIL</dt>
                 <dd class="col-8 mb-0 text-break">{{ usuario.email }}</dd>
                 <dt class="col-4 text-muted fw-semibold">TELÉFONO</dt>

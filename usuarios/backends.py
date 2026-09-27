@@ -1,6 +1,5 @@
 from django.contrib.auth.backends import ModelBackend
 from django.contrib.auth import get_user_model
-from django.db.models import Q
 
 
 class EmailOrUsernameBackend(ModelBackend):
@@ -13,14 +12,26 @@ class EmailOrUsernameBackend(ModelBackend):
         if login is None or password is None:
             return None
 
-        try:
-            user = UserModel.objects.get(Q(username__iexact=login) | Q(email__iexact=login))
-        except UserModel.DoesNotExist:
-            UserModel().set_password(password)
-            return None
-        except UserModel.MultipleObjectsReturned:
-            return None
+        internos = UserModel.objects.exclude(rol=UserModel.SOCIO)
+        candidatos = list(internos.filter(username__iexact=login))
+        candidatos.extend(
+            internos.filter(email__iexact=login)
+            .exclude(pk__in=[usuario.pk for usuario in candidatos])
+        )
+        if not candidatos:
+            candidatos.extend(UserModel.objects.filter(username__iexact=login))
+        if not candidatos:
+            candidatos.extend(
+                UserModel.objects.filter(
+                    rol=UserModel.SOCIO,
+                    email__iexact=login,
+                )
+            )
 
-        if user.check_password(password) and self.user_can_authenticate(user):
-            return user
+        for user in candidatos:
+            if user.check_password(password) and self.user_can_authenticate(user):
+                return user
+
+        if not candidatos:
+            UserModel().set_password(password)
         return None

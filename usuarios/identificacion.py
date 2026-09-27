@@ -18,7 +18,7 @@ class LecturaRut:
 
 
 RUN_QR_REGEX = re.compile(
-    r'(?:^|[^A-Z0-9])RUN\s*=\s*([0-9]{7,8})\s*-?\s*([0-9K])(?=[^0-9K]|$)',
+    r'(?:^|[^A-Z0-9])RUN[^A-Z0-9]{0,12}([0-9]{7,8})[^0-9A-Z]{0,4}([0-9K])(?=[^0-9K]|$)',
     re.IGNORECASE,
 )
 RUT_MANUAL_REGEX = re.compile(

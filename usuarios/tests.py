@@ -44,8 +44,10 @@ from .auditoria import (
     registrar_evento_auditoria,
     verificar_integridad_archivo,
 )
+from .carga_masiva_socios import cargar_socios_desde_csv
 from .forms import (
     JustificacionInasistenciaForm,
+    RecuperarPasswordForm,
     ReunionCancelacionForm,
     ReunionCreationForm,
     UsuarioCreationForm,
@@ -159,9 +161,14 @@ class UsuariosModuloTests(TestCase):
 
     def registrar_asistencia_historica(self, socio, estado, fecha):
         """Crea un registro historico de asistencia para pruebas de resumen."""
+        reuniones_misma_fecha = Reunion.objects.filter(fecha=fecha).count()
+        hora_reunion = (
+            datetime.combine(fecha, time(18, 30))
+            + timedelta(minutes=reuniones_misma_fecha)
+        ).time()
         reunion = Reunion.objects.create(
             fecha=fecha,
-            hora=time(18, 30),
+            hora=hora_reunion,
             locacion='Sede social',
             creador=self.admin_user,
             estado=Reunion.FINALIZADA,
@@ -982,7 +989,7 @@ class UsuariosModuloTests(TestCase):
 
         response = self.client.post(
             reverse('usuarios:consulta_publica_asistencia'),
-            {'rut': self.admin_user.rut, 'anio': '2026'},
+            {'rut': '33.333.333-3', 'anio': '2026'},
         )
         self.assertRedirects(
             response,
@@ -2436,8 +2443,8 @@ class UsuariosModuloTests(TestCase):
         )
         self.assertIn(
             [
-                'Socio',
-                'Prueba',
+                'SOCIO',
+                'PRUEBA',
                 '',
                 self.socio_user.rut,
                 'socio@example.com',
@@ -3043,8 +3050,8 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, url_registro)
         self.assertContains(response, 'Registrar asistencia')
 
-    def test_registro_asistencia_reunion_muestra_rut_y_qr_operativo(self):
-        """Muestra la vista de registro con RUT manual y scanner QR operativo."""
+    def test_registro_asistencia_reunion_muestra_campo_unico_rut_qr(self):
+        """Muestra un único campo visible para RUT manual o lectura QR."""
         reunion = Reunion.objects.create(
             fecha=date(2026, 5, 20),
             hora=time(18, 30),
@@ -3059,26 +3066,13 @@ class UsuariosModuloTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, 'Scanner QR')
-        self.assertContains(response, 'Escaneo con lector QR activo')
-        self.assertContains(response, 'form-switch')
-        self.assertContains(response, 'role="switch"')
-        self.assertContains(response, 'Registro manual')
-        self.assertContains(response, 'data-rut-scan-toggle')
-        self.assertContains(response, 'data-rut-scan-target="#id_lectura_qr_scanner"')
-        self.assertContains(response, 'data-rut-scan-input')
-        self.assertContains(response, 'name="lectura_qr"')
-        self.assertContains(response, 'data-rut-manual-region')
-        self.assertContains(response, 'aria-disabled="true"')
-        self.assertContains(response, 'pe-none')
-        self.assertContains(response, 'Registro Manual')
-        self.assertContains(response, 'data-rut-format="true"')
-        self.assertContains(response, 'data-rut-manual-input="true"')
-        self.assertContains(response, 'readonly="readonly"')
-        self.assertContains(response, 'tabindex="-1"')
-        self.assertContains(response, 'data-rut-manual-submit="true"')
-        self.assertContains(response, 'disabled="disabled"')
-        self.assertContains(response, 'Registrar por RUT')
+        self.assertContains(response, 'RUT o lectura QR')
+        self.assertContains(response, 'data-asistencia-form="true"')
+        self.assertContains(response, 'data-asistencia-input="true"')
+        self.assertContains(response, 'data-submit-lock="true"')
+        self.assertContains(response, 'Registrar asistencia')
+        self.assertNotContains(response, 'data-rut-scan-toggle')
+        self.assertNotContains(response, 'name="lectura_qr"')
         self.assertContains(response, reverse('usuarios:listado_reuniones'))
 
     def test_parser_reutilizable_extrae_rut_manual_o_run_qr(self):
@@ -3120,7 +3114,7 @@ class UsuariosModuloTests(TestCase):
             response,
             reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
         )
-        self.assertContains(response, 'Asistencia registrada para Socio Prueba.')
+        self.assertContains(response, 'Asistencia registrada para SOCIO PRUEBA.')
         asistencia = AsistenciaReunion.objects.get(reunion=reunion, socio=self.socio_user)
         self.assertEqual(asistencia.estado, AsistenciaReunion.PRESENTE)
         self.assertEqual(asistencia.origen, AsistenciaReunion.ORIGEN_RUT)
@@ -3143,7 +3137,7 @@ class UsuariosModuloTests(TestCase):
         self.client.login(username='encargado', password='ClaveSegura123')
         response = self.client.post(
             reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
-            {'lectura_qr': payload_qr},
+            {'rut': payload_qr},
             follow=True,
         )
 
@@ -3151,7 +3145,7 @@ class UsuariosModuloTests(TestCase):
             response,
             reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
         )
-        self.assertContains(response, 'Asistencia registrada para Socio Prueba.')
+        self.assertContains(response, 'Asistencia registrada para SOCIO PRUEBA.')
         asistencia = AsistenciaReunion.objects.get(reunion=reunion, socio=self.socio_user)
         self.assertEqual(asistencia.estado, AsistenciaReunion.PRESENTE)
         self.assertEqual(asistencia.origen, AsistenciaReunion.ORIGEN_QR)
@@ -3283,7 +3277,7 @@ class UsuariosModuloTests(TestCase):
         self.client.login(username='encargado', password='ClaveSegura123')
         response = self.client.post(
             reverse('usuarios:registrar_asistencia_reunion', args=[reunion.pk]),
-            {'lectura_qr': '22.222.222-2'},
+            {'rut': 'https://portal.sidiv.registrocivil.cl/docstatus?RUN=22222222-2&type=CEDULA'},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -3967,12 +3961,12 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, '<td class="fw-semibold">77777777-7</td>', html=True)
         self.assertContains(
             response,
-            '<span class="table-cell-truncate is-name" title="Ana">Ana</span>',
+            '<span class="table-cell-truncate is-name" title="ANA">ANA</span>',
             html=True,
         )
         self.assertContains(
             response,
-            '<span class="table-cell-truncate is-name-wide" title="Asistencia Rojas">Asistencia Rojas</span>',
+            '<span class="table-cell-truncate is-name-wide" title="ASISTENCIA ROJAS">ASISTENCIA ROJAS</span>',
             html=True,
         )
         self.assertContains(response, 'value="77.777.777-7"')
@@ -4330,8 +4324,8 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(len(response.context['usuarios']), 2)
         self.assertContains(response, '?page=1')
 
-    def test_listado_usuarios_filtra_por_rut_nombre_y_apellido(self):
-        """Permite filtrar usuarios internos por RUT, nombre y apellido."""
+    def test_listado_usuarios_filtra_por_nombre_y_apellido_sin_rut(self):
+        """Filtra usuarios internos sin exponer RUT."""
         usuario_filtrado = self.User.objects.create_user(
             username='ana.zapata',
             email='ana.zapata@example.com',
@@ -4355,7 +4349,6 @@ class UsuariosModuloTests(TestCase):
         response = self.client.get(
             reverse('usuarios:listado_usuarios'),
             {
-                'rut': '77.777.777-7',
                 'nombre': 'Ana',
                 'apellido': 'Zapata',
             },
@@ -4375,9 +4368,9 @@ class UsuariosModuloTests(TestCase):
             '<span class="table-cell-truncate is-name" title="Zapata">Zapata</span>',
             html=True,
         )
-        self.assertContains(response, 'value="77.777.777-7"')
         self.assertContains(response, 'value="Ana"')
         self.assertContains(response, 'value="Zapata"')
+        self.assertNotContains(response, 'Buscar por RUT')
         self.assertNotContains(response, 'bruno.zapata@example.com')
         self.assertNotContains(response, 'admin@example.com')
 
@@ -4423,7 +4416,7 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'd-none d-md-block')
         self.assertContains(response, 'list-group shadow-sm border rounded overflow-hidden d-md-none')
-        self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">RUT</dt>', html=True)
+        self.assertNotContains(response, '<dt class="col-4 text-muted fw-semibold">RUT</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">EMAIL</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">TELÉFONO</dt>', html=True)
         self.assertContains(response, '<dt class="col-4 text-muted fw-semibold">ROL</dt>', html=True)
@@ -4687,17 +4680,17 @@ class UsuariosModuloTests(TestCase):
         self.assertContains(response, '<td class="fw-semibold">77777777-7</td>', html=True)
         self.assertContains(
             response,
-            '<span class="table-cell-truncate is-name" title="Ana">Ana</span>',
+            '<span class="table-cell-truncate is-name" title="ANA">ANA</span>',
             html=True,
         )
         self.assertContains(
             response,
-            '<span class="table-cell-truncate is-name" title="Zapata">Zapata</span>',
+            '<span class="table-cell-truncate is-name" title="ZAPATA">ZAPATA</span>',
             html=True,
         )
         self.assertContains(
             response,
-            '<span class="table-cell-truncate is-name" title="Rojas">Rojas</span>',
+            '<span class="table-cell-truncate is-name" title="ROJAS">ROJAS</span>',
             html=True,
         )
         self.assertNotContains(response, '15-05-2026')
@@ -5447,13 +5440,11 @@ class UsuariosModuloTests(TestCase):
                 self.assertContains(response, 'app-sidebar')
                 self.assertContains(response, 'Valle San Ramon')
 
-    def test_formularios_con_rut_activan_formateo_visual(self):
-        """Expone el atributo usado por el formateo visual de RUT."""
+    def test_solo_formularios_de_socios_formatean_rut(self):
+        """Mantiene el RUT únicamente en altas y ediciones de socios."""
         self.client.login(username='admin', password='ClaveSegura123')
         urls = [
-            reverse('usuarios:registro_usuario'),
             reverse('usuarios:registro_socio'),
-            reverse('usuarios:editar_usuario', args=[self.encargado_user.pk]),
             reverse('usuarios:editar_socio', args=[self.socio_user.pk]),
         ]
 
@@ -5462,6 +5453,14 @@ class UsuariosModuloTests(TestCase):
                 response = self.client.get(url)
                 self.assertEqual(response.status_code, 200)
                 self.assertContains(response, 'data-rut-format="true"')
+
+        for url in (
+            reverse('usuarios:registro_usuario'),
+            reverse('usuarios:editar_usuario', args=[self.encargado_user.pk]),
+        ):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertNotContains(response, 'name="rut"')
 
     def test_edicion_socio_no_muestra_check_de_estado(self):
         """Reserva activar/desactivar socios para el flujo de gestion de estado."""
@@ -5501,7 +5500,6 @@ class UsuariosModuloTests(TestCase):
                 'email': 'encargado.nuevo@example.com',
                 'first_name': 'Encargado',
                 'last_name': 'Registro',
-                'rut': '333333333',
                 'telefono_movil': '+56933333333',
                 'rol': self.User.ENCARGADO_REGISTRO,
                 'is_active': 'on',
@@ -5512,43 +5510,40 @@ class UsuariosModuloTests(TestCase):
         )
         self.assertRedirects(response, reverse('usuarios:listado_usuarios'))
         usuario = self.User.objects.get(username='encargado_nuevo')
-        self.assertEqual(usuario.rut, '33333333-3')
+        self.assertIsNone(usuario.rut)
         self.assertEqual(usuario.telefono_movil, '+56933333333')
         self.assertContains(response, 'Usuario encargado_nuevo creado correctamente.')
         self.assertContains(response, 'data-app-message')
         self.assertContains(response, 'data-message-level="success"')
         self.assertContains(response, 'js/app.js')
 
-    def test_formularios_rechazan_rut_con_digito_verificador_incorrecto(self):
-        """Valida el digito verificador chileno en ingresos de RUT."""
+    def test_formulario_socio_rechaza_rut_con_digito_verificador_incorrecto(self):
+        """Valida el dígito verificador en el alta de socios."""
         self.client.login(username='admin', password='ClaveSegura123')
         response = self.client.post(
-            reverse('usuarios:registro_usuario'),
+            reverse('usuarios:registro_socio'),
             {
-                'username': 'rut_invalido',
                 'email': 'rut.invalido@example.com',
+                'email_confirmacion': 'rut.invalido@example.com',
                 'first_name': 'Rut',
                 'last_name': 'Invalido',
                 'rut': '33.333.333-4',
                 'telefono_movil': '+56933333333',
-                'rol': self.User.ENCARGADO_REGISTRO,
                 'is_active': 'on',
-                'password1': 'ClaveSegura123',
-                'password2': 'ClaveSegura123',
             },
         )
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Ingrese un RUT valido.')
-        self.assertFalse(self.User.objects.filter(username='rut_invalido').exists())
+        self.assertFalse(self.User.objects.filter(email='rut.invalido@example.com').exists())
 
         usuario = self.User(
-            username='modelo.rut.invalido',
+            username='modelo.rut.invalido@example.com',
             email='modelo.rut.invalido@example.com',
             first_name='Modelo',
             last_name='Invalido',
             rut='33.333.333-4',
-            rol=self.User.ENCARGADO_REGISTRO,
+            rol=self.User.SOCIO,
         )
         with self.assertRaises(ValidationError):
             usuario.full_clean()
@@ -5675,7 +5670,7 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(usuario.rol, self.User.SOCIO)
         self.assertEqual(usuario.username, 'socio.nuevo@example.com')
         self.assertEqual(usuario.telefono_movil, '+56966666666')
-        self.assertEqual(usuario.apellido_materno, 'Materno')
+        self.assertEqual(usuario.apellido_materno, 'MATERNO')
         self.assertEqual(usuario.fecha_ingreso_proyecto, timezone.localdate())
         self.assertFalse(usuario.has_usable_password())
         self.assertFalse(usuario.check_password('66666666-6'))
@@ -5818,8 +5813,8 @@ class UsuariosModuloTests(TestCase):
         self.socio_user.refresh_from_db()
         self.assertTrue(self.socio_user.is_active)
 
-    def test_administrador_edita_usuario_sin_modificar_rut(self):
-        """Normaliza email y rol, pero conserva el RUT original al editar."""
+    def test_administrador_edita_usuario_interno_sin_rut(self):
+        """Normaliza email y rol manteniendo el RUT interno en NULL."""
         self.client.login(username='admin', password='ClaveSegura123')
         response = self.client.post(
             reverse('usuarios:editar_usuario', args=[self.encargado_user.pk]),
@@ -5836,7 +5831,7 @@ class UsuariosModuloTests(TestCase):
         self.assertRedirects(response, reverse('usuarios:listado_usuarios'))
         self.encargado_user.refresh_from_db()
         self.assertEqual(self.encargado_user.email, 'encargado.actualizado@example.com')
-        self.assertEqual(self.encargado_user.rut, '44444444-4')
+        self.assertIsNone(self.encargado_user.rut)
         self.assertEqual(self.encargado_user.telefono_movil, '+56955555555')
         self.assertEqual(self.encargado_user.rol, self.User.ADMINISTRADOR)
         self.assertEqual(self.encargado_user.username, 'encargado')
@@ -5890,7 +5885,7 @@ class UsuariosModuloTests(TestCase):
         self.assertEqual(self.socio_user.username, 'socio')
         self.assertEqual(self.socio_user.rut, '22222222-2')
         self.assertEqual(self.socio_user.telefono_movil, '+56977777777')
-        self.assertEqual(self.socio_user.apellido_materno, 'Materno')
+        self.assertEqual(self.socio_user.apellido_materno, 'MATERNO')
         self.assertEqual(self.socio_user.fecha_ingreso_proyecto, date(2026, 5, 20))
         self.assertEqual(self.socio_user.rol, self.User.SOCIO)
 
@@ -6269,7 +6264,7 @@ class UsuariosModuloTests(TestCase):
 
         self.assertRedirects(response, reverse('usuarios:listado_socios'))
         self.assertFalse(self.User.objects.filter(pk=socio_pk).exists())
-        self.assertContains(response, 'Socio Socio Prueba eliminado correctamente.')
+        self.assertContains(response, 'Socio SOCIO PRUEBA eliminado correctamente.')
 
     def test_administrador_no_elimina_socio_con_asistencias_contabilizadas(self):
         """Bloquea la eliminacion cuando el socio tiene historial operativo."""
@@ -6349,6 +6344,7 @@ class UsuariosModuloTests(TestCase):
             rut=f'{cuerpo_rut}-{calcular_digito_verificador_rut(cuerpo_rut)}',
             rol=self.User.ENCARGADO_REGISTRO,
         )
+        usuario.set_unusable_password()
 
         with self.assertRaises(ValidationError) as contexto:
             usuario.save()
@@ -6379,6 +6375,7 @@ class UsuariosModuloTests(TestCase):
             rut=f'{cuerpo_nuevo}-{calcular_digito_verificador_rut(cuerpo_nuevo)}',
             rol=self.User.ENCARGADO_REGISTRO,
         )
+        usuario.set_unusable_password()
 
         with self.assertRaises(ValidationError) as contexto:
             usuario.save()
@@ -6537,3 +6534,240 @@ class UsuariosModuloTests(TestCase):
         """Impide ejecutar el reset cuando DEBUG esta desactivado."""
         with self.assertRaises(CommandError):
             call_command('resetdata', confirmar=True)
+
+    def test_identidad_permite_internos_sin_rut_y_exige_rut_a_socios(self):
+        """Aplica la obligatoriedad de RUT exclusivamente al ámbito socio."""
+        interno = self.User.objects.create_user(
+            username='interno_sin_rut',
+            email='interno.sin.rut@example.com',
+            password='ClaveSegura123',
+            first_name='Interno',
+            last_name='Prueba',
+            rol=self.User.ENCARGADO_REGISTRO,
+        )
+        self.assertIsNone(interno.rut)
+
+        socio = self.User(
+            username='socio.sin.rut@example.com',
+            email='socio.sin.rut@example.com',
+            first_name='Socio',
+            last_name='Sin Rut',
+            rol=self.User.SOCIO,
+        )
+        socio.set_unusable_password()
+        with self.assertRaises(ValidationError) as contexto:
+            socio.save()
+        self.assertIn('rut', contexto.exception.message_dict)
+
+    def test_identidad_permite_correo_compartido_entre_ambitos(self):
+        """Permite un correo común sin vincular las dos cuentas."""
+        correo = 'persona.doble@example.com'
+        interno = self.User.objects.create_user(
+            username='operador_doble',
+            email=correo,
+            password='ClaveSegura123',
+            first_name='Operador',
+            last_name='Doble',
+            rol=self.User.ENCARGADO_REGISTRO,
+        )
+        socio = self.User(
+            username=correo,
+            email=correo.upper(),
+            first_name='José',
+            last_name='Muñoz',
+            apellido_materno='Ñanculef',
+            rut=self.rut_prueba(70123456),
+            rol=self.User.SOCIO,
+        )
+        socio.set_unusable_password()
+        socio.save()
+
+        self.assertNotEqual(interno.pk, socio.pk)
+        self.assertEqual(socio.email, correo)
+        self.assertEqual(socio.first_name, 'JOSÉ')
+        self.assertEqual(socio.last_name, 'MUÑOZ')
+        self.assertEqual(socio.apellido_materno, 'ÑANCULEF')
+
+    def test_identidad_rechaza_correo_repetido_en_el_mismo_ambito(self):
+        """Conserva unicidad insensible a mayúsculas dentro de cada ámbito."""
+        interno = self.User(
+            username='interno_repetido',
+            email=self.admin_user.email.upper(),
+            first_name='Interno',
+            last_name='Repetido',
+            rol=self.User.ENCARGADO_REGISTRO,
+        )
+        interno.set_unusable_password()
+        with self.assertRaises(ValidationError) as contexto_interno:
+            interno.save()
+        self.assertIn('email', contexto_interno.exception.message_dict)
+
+        socio = self.User(
+            username='otro.socio@example.com',
+            email=self.socio_user.email.upper(),
+            first_name='Otro',
+            last_name='Socio',
+            rut=self.rut_prueba(70123457),
+            rol=self.User.SOCIO,
+        )
+        socio.set_unusable_password()
+        with self.assertRaises(ValidationError) as contexto_socio:
+            socio.save()
+        self.assertIn('email', contexto_socio.exception.message_dict)
+
+    def test_carga_masiva_normaliza_nombres_de_socios_con_tildes_y_enie(self):
+        """Aplica mayúsculas Unicode también a socios importados por CSV."""
+        rut = self.rut_prueba(70123460)
+        contenido = (
+            'nombre;apellido_paterno;apellido_materno;rut;correo_electronico\n'
+            f'josé;muñoz;ñanculef;{rut};socio.unicode@example.com\n'
+        ).encode('utf-8')
+        archivo = SimpleUploadedFile(
+            'socios.csv',
+            contenido,
+            content_type='text/csv',
+        )
+
+        cargar_socios_desde_csv(archivo)
+
+        socio = self.User.objects.get(email='socio.unicode@example.com')
+        self.assertEqual(socio.first_name, 'JOSÉ')
+        self.assertEqual(socio.last_name, 'MUÑOZ')
+        self.assertEqual(socio.apellido_materno, 'ÑANCULEF')
+
+    def test_correo_compartido_autentica_y_recupera_solo_cuenta_interna(self):
+        """Resuelve login y recuperación hacia la identidad interna."""
+        correo = 'identidad.compartida@example.com'
+        interno = self.User.objects.create_user(
+            username='identidad_interna',
+            email=correo,
+            password='ClaveCompartida123',
+            first_name='Identidad',
+            last_name='Interna',
+            rol=self.User.ENCARGADO_REGISTRO,
+        )
+        socio = self.User(
+            username=correo,
+            email=correo,
+            first_name='Identidad',
+            last_name='Socio',
+            rut=self.rut_prueba(70123458),
+            rol=self.User.SOCIO,
+        )
+        socio.set_unusable_password()
+        socio.save()
+
+        self.assertTrue(self.client.login(username=correo, password='ClaveCompartida123'))
+        self.assertEqual(int(self.client.session['_auth_user_id']), interno.pk)
+        usuarios_recuperables = list(RecuperarPasswordForm().get_users(correo))
+        self.assertEqual(usuarios_recuperables, [interno])
+
+    def test_consulta_otp_con_correo_compartido_conserva_el_socio_por_rut(self):
+        """Asocia la solicitud pública al socio aunque el correo sea compartido."""
+        correo = 'otp.compartido@example.com'
+        self.User.objects.create_user(
+            username='operador_otp',
+            email=correo,
+            password='ClaveSegura123',
+            first_name='Operador',
+            last_name='Otp',
+            rol=self.User.ENCARGADO_REGISTRO,
+        )
+        socio = self.User(
+            username=correo,
+            email=correo,
+            first_name='Socio',
+            last_name='Otp',
+            rut=self.rut_prueba(70123459),
+            rol=self.User.SOCIO,
+        )
+        socio.set_unusable_password()
+        socio.save()
+
+        response = self.client.post(
+            reverse('usuarios:consulta_publica_asistencia'),
+            {'rut': socio.rut, 'anio': '2026'},
+        )
+
+        self.assertRedirects(response, reverse('usuarios:verificar_codigo_consulta'))
+        self.assertEqual(SolicitudCodigoConsulta.objects.latest('fecha_solicitud').socio, socio)
+        self.assertEqual(mail.outbox[-1].to, [correo])
+
+    def test_parser_qr_tolera_separadores_de_teclado_y_parametros_codificados(self):
+        """Extrae RUN sin depender del resto ni de la distribución del teclado."""
+        lecturas = (
+            'https://portal.sidiv.registrocivil.cl/docstatus?RUN=14333689-1&type=CEDULA&name=JOS%C3%89',
+            "httpsÑ--portal.sidiv.registrocivil.cl-docstatus_RUN¿14333689'1/type¿CEDULA",
+            'RUN?14333689:1&TYPE=CEDULA',
+        )
+        for lectura in lecturas:
+            with self.subTest(lectura=lectura):
+                resultado = parsear_lectura_rut(lectura)
+                self.assertIsNotNone(resultado)
+                self.assertEqual(resultado.rut, '14333689-1')
+                self.assertEqual(resultado.origen, ORIGEN_QR_REGISTRO_CIVIL)
+
+    def test_reautenticacion_redirige_a_configuracion_sin_next(self):
+        """No permanece en confirmación cuando no se solicitó otro destino."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        response = self.client.post(
+            reverse('usuarios:reauth_seguridad'),
+            {'password': 'ClaveSegura123'},
+        )
+        self.assertRedirects(response, reverse('usuarios:configuracion'))
+
+    def test_altas_renderizan_bloqueo_global_de_doble_envio(self):
+        """Marca formularios de alta para deshabilitar envíos repetidos."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        for url in (
+            reverse('usuarios:registro_usuario'),
+            reverse('usuarios:registro_socio'),
+            reverse('usuarios:crear_reunion'),
+        ):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertContains(response, 'data-submit-lock="true"')
+
+        app_js = (Path(settings.BASE_DIR) / 'static' / 'js' / 'app.js').read_text(
+            encoding='utf-8'
+        )
+        self.assertIn("form[data-submit-lock]", app_js)
+        self.assertIn("form.setAttribute('aria-busy', 'true')", app_js)
+        self.assertIn('Guardando...', app_js)
+
+    def test_conflictos_concurrentes_de_alta_no_responden_error_500(self):
+        """Convierte colisiones tardías de usuario y reunión en errores controlados."""
+        self.client.login(username='admin', password='ClaveSegura123')
+        datos_usuario = {
+            'username': 'usuario_concurrente',
+            'email': 'usuario.concurrente@example.com',
+            'first_name': 'Usuario',
+            'last_name': 'Concurrente',
+            'telefono_movil': '+56933333333',
+            'rol': self.User.ENCARGADO_REGISTRO,
+            'is_active': 'on',
+            'password1': 'ClaveSegura123',
+            'password2': 'ClaveSegura123',
+        }
+        with patch.object(UsuarioCreationForm, 'save', side_effect=ValidationError('conflicto')):
+            response = self.client.post(
+                reverse('usuarios:registro_usuario'),
+                datos_usuario,
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'El usuario ya fue registrado o sus datos están en uso.')
+
+        manana = timezone.localdate() + timedelta(days=1)
+        datos_reunion = {
+            'fecha': manana.isoformat(),
+            'hora': '18:30',
+            'locacion': 'Sede concurrente',
+            'estado': Reunion.PROGRAMADA,
+        }
+        with patch.object(ReunionCreationForm, 'save', side_effect=ValidationError('conflicto')):
+            response = self.client.post(
+                reverse('usuarios:crear_reunion'),
+                datos_reunion,
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, ReunionCreationForm.REUNION_DUPLICADA_MENSAJE)

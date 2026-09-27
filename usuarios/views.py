@@ -18,7 +18,7 @@ from django.core.mail import BadHeaderError, send_mail
 from django.core.exceptions import ValidationError
 from django.http import FileResponse, HttpResponse
 from django.core.paginator import Paginator
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404, redirect, render
@@ -254,7 +254,6 @@ COLUMNAS_ORDENABLES_USUARIOS = [
     {'key': 'usuario', 'label': 'Usuario', 'field': 'username'},
     {'key': 'nombre', 'label': 'Nombre', 'field': 'first_name'},
     {'key': 'apellido', 'label': 'Apellido', 'field': 'last_name'},
-    {'key': 'rut', 'label': 'RUT', 'field': 'rut'},
     {'key': 'rol', 'label': 'Rol', 'field': 'rol'},
     {'key': 'estado', 'label': 'Estado', 'field': 'is_active'},
 ]
@@ -1659,12 +1658,18 @@ def crear_reunion(request):
     if request.method == 'POST':
         form = ReunionCreationForm(request.POST, creador=request.user)
         if form.is_valid():
-            reunion = form.save()
-            messages.success(
-                request,
-                f'Reunion del {reunion.fecha:%d-%m-%Y} a las {reunion.hora:%H:%M} creada correctamente.',
-            )
-            return redirect('usuarios:listado_reuniones')
+            try:
+                with transaction.atomic():
+                    reunion = form.save()
+            except (IntegrityError, ValidationError):
+                form.reunion_duplicada = True
+                form.add_error(None, form.REUNION_DUPLICADA_MENSAJE)
+            else:
+                messages.success(
+                    request,
+                    f'Reunion del {reunion.fecha:%d-%m-%Y} a las {reunion.hora:%H:%M} creada correctamente.',
+                )
+                return redirect('usuarios:listado_reuniones')
         if form.reunion_duplicada:
             messages.warning(request, form.REUNION_DUPLICADA_MENSAJE)
         if form.reunion_pasada_requiere_historica:
@@ -2002,6 +2007,10 @@ def registrar_asistencia_reunion(request, pk):
                     f'Asistencia registrada para {asistencia.socio.nombre_completo}.',
                 )
                 return redirect('usuarios:registrar_asistencia_reunion', pk=reunion.pk)
+        if form.is_bound:
+            datos_limpios = form.data.copy()
+            datos_limpios['rut'] = ''
+            form.data = datos_limpios
     else:
         form = RegistroAsistenciaRutForm(reunion=reunion, registrador=request.user)
 
@@ -2038,7 +2047,6 @@ def listado_usuarios(request):
         direccion_actual = 'asc'
 
     filtros = {
-        'rut': request.GET.get('rut', '').strip(),
         'nombre': request.GET.get('nombre', '').strip(),
         'apellido': request.GET.get('apellido', '').strip(),
         'rol': request.GET.get('rol', '').strip(),
@@ -2047,11 +2055,6 @@ def listado_usuarios(request):
     if filtros['rol'] not in roles_permitidos:
         filtros['rol'] = ''
 
-    if filtros['rut']:
-        filtro_rut = Q()
-        for valor_rut in obtener_valores_busqueda_rut(filtros['rut']):
-            filtro_rut |= Q(rut__icontains=valor_rut)
-        usuarios = usuarios.filter(filtro_rut)
     if filtros['nombre']:
         usuarios = usuarios.filter(first_name__icontains=filtros['nombre'])
     if filtros['apellido']:
@@ -2169,9 +2172,14 @@ def registro_usuario(request):
     if request.method == 'POST':
         form = UsuarioCreationForm(request.POST, actor=request.user)
         if form.is_valid():
-            usuario = form.save()
-            messages.success(request, f'Usuario {usuario.username} creado correctamente.')
-            return redirect('usuarios:listado_usuarios')
+            try:
+                with transaction.atomic():
+                    usuario = form.save()
+            except (IntegrityError, ValidationError):
+                form.add_error(None, 'El usuario ya fue registrado o sus datos están en uso.')
+            else:
+                messages.success(request, f'Usuario {usuario.username} creado correctamente.')
+                return redirect('usuarios:listado_usuarios')
     else:
         form = UsuarioCreationForm(actor=request.user)
 
@@ -2190,9 +2198,14 @@ def registro_socio(request):
     if request.method == 'POST':
         form = SocioCreationForm(request.POST)
         if form.is_valid():
-            socio = form.save()
-            messages.success(request, f'Socio {socio.nombre_completo} creado correctamente.')
-            return redirect('usuarios:listado_socios')
+            try:
+                with transaction.atomic():
+                    socio = form.save()
+            except (IntegrityError, ValidationError):
+                form.add_error(None, 'El socio ya fue registrado o sus datos están en uso.')
+            else:
+                messages.success(request, f'Socio {socio.nombre_completo} creado correctamente.')
+                return redirect('usuarios:listado_socios')
     else:
         form = SocioCreationForm()
 

@@ -1,6 +1,6 @@
 # SISTEMA ASISTENCIA VALLE SAN RAMON
 
-Version candidata: `1.0.0` (aun sin tag).
+Version candidata: `1.0.1` (aun sin tag).
 
 ## Requisitos
 
@@ -28,5 +28,5 @@ exclusivamente en el repositorio de trabajo.
 ## Despliegue
 
 - [PythonAnywhere](docs/PYTHONANYWHERE.md)
-- [Checklist del release 1.0.0](docs/RELEASE_1.0.0.md)
+- [Checklist de validacion](docs/RELEASE_1.0.1.md)
 - [Memoria de cumplimiento de la Ley 21.719](docs/MEMORIA_CUMPLIMIENTO_LEY_21719.md)

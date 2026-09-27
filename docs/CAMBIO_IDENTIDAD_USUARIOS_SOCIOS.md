@@ -2,13 +2,13 @@
 
 ## Estado
 
-Documento de diseño planificado para el hotfix `1.0.1`. Este documento no
-describe una funcionalidad ya disponible en produccion.
+Implementado en la rama del hotfix `1.0.1`. La migracion y las pruebas deben
+validarse antes de desplegarlo en produccion.
 
 Rama sugerida:
 
 ```text
-hotfix/1.0.1-identidad-usuarios-socios
+hotfix/1.0.1
 ```
 
 ## Motivo

@@ -2,6 +2,26 @@
 
 Los cambios relevantes del proyecto se documentan en este archivo.
 
+## [1.0.1] - Sin publicar
+
+### Correcciones
+
+- Separacion de identidad entre usuarios internos y socios: RUT exclusivo para
+  socios y correo unico dentro de cada ambito.
+- Recuperacion de contrasena y autenticacion seguras cuando un usuario interno
+  comparte correo con un socio.
+- Normalizacion Unicode a mayusculas de nombres y apellidos de socios.
+- Campo unico para registrar asistencia mediante RUT o lectura QR completa, con
+  envio explicito mediante `Enter`.
+- Redireccion segura despues de la reautenticacion.
+- Prevencion de envios duplicados en altas y control de conflictos concurrentes
+  en el servidor.
+
+### Pruebas
+
+- Regresiones para correos compartidos, OTP, recuperacion, nombres con tildes y
+  `ñ`, variantes de lectores QR, reautenticacion e idempotencia.
+
 ## [1.0.0] - Sin publicar
 
 ### Funcionalidad
