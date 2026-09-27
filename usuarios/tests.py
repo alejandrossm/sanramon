@@ -1266,8 +1266,8 @@ class UsuariosModuloTests(TestCase):
         self.admin_user.refresh_from_db()
         self.assertTrue(self.admin_user.check_password('ClaveNuevaSegura123'))
 
-    def test_recuperacion_password_limita_envios_sin_revelar_cuenta(self):
-        """Mantiene la respuesta generica y deja de enviar al alcanzar el limite."""
+    def test_recuperacion_password_limita_y_habilita_tras_la_ventana(self):
+        """Bloquea al alcanzar el limite y vuelve a enviar al vencer la ventana."""
         with self.settings(SEGURIDAD_RECUPERACION_MAX_IDENTIFICADOR=2):
             for _indice in range(3):
                 response = self.client.post(
@@ -1276,15 +1276,26 @@ class UsuariosModuloTests(TestCase):
                 )
                 self.assertRedirects(
                     response,
-                    reverse('usuarios:password_reset_done'),
-                )
+                reverse('usuarios:password_reset_done'),
+            )
 
         self.assertEqual(len(mail.outbox), 2)
+        with patch(
+            'usuarios.seguridad.timezone.now',
+            return_value=timezone.now() + timedelta(minutes=2),
+        ):
+            response = self.client.post(
+                reverse('usuarios:password_reset'),
+                {'email': self.admin_user.email},
+            )
+
+        self.assertRedirects(response, reverse('usuarios:password_reset_done'))
+        self.assertEqual(len(mail.outbox), 3)
         self.assertEqual(
             IntentoAcceso.objects.filter(
                 tipo=IntentoAcceso.RECUPERACION,
             ).count(),
-            2,
+            3,
         )
 
     def test_exportacion_exige_reautenticacion_cuando_vence_sesion_reciente(self):

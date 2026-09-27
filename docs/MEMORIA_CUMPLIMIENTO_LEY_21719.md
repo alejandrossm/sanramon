@@ -254,7 +254,9 @@ La existencia de esta memoria y de controles técnicos no reemplaza esa revisió
 ### Fuerza bruta
 
 - Login: cinco fallos por identificador en 15 minutos y veinte por IP.
-- Recuperación: tres solicitudes por correo en 60 minutos y diez por IP.
+- Recuperación: control configurable con respuesta genérica para no revelar si
+  una cuenta existe. Temporalmente usa una ventana de un minuto y límites de
+  cien solicitudes por correo y por IP para pruebas funcionales.
 - Reautenticación: cinco fallos en 15 minutos.
 - Identificadores e IP se conservan como HMAC, no en texto legible.
 - Los intentos se eliminan oportunistamente después de 30 días.

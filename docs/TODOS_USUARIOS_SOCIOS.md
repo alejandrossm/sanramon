@@ -2,6 +2,82 @@
 
 Pendientes para una siguiente iteracion del modulo de usuarios, socios y asistencia.
 
+## Pendientes inmediatos
+
+- [ ] Restablecer en el hotfix `1.0.1` los limites definitivos de recuperacion
+  de contrasena (ventana de 60 minutos, 3 solicitudes por identificador y 10
+  por IP) y ejecutar las pruebas asociadas.
+- [ ] Completar la validacion manual del candidato `1.0.1`: autenticacion,
+  recuperacion de contrasena, consulta con OTP, gestion de usuarios y socios,
+  reuniones, asistencias, cargas, exportaciones y auditoria. Checklist detallado
+  en `docs/RELEASE_1.0.0.md`.
+- [ ] Validar el despliegue sobre una copia de la base de produccion, ejecutar
+  `python manage.py verificar_identidades` y comprobar una restauracion desde un
+  respaldo cifrado reciente.
+- [ ] Revisar y cerrar formalmente las brechas organizativas y juridicas
+  registradas en `docs/MEMORIA_CUMPLIMIENTO_LEY_21719.md`.
+
+## Hotfix proxima version (`1.0.1`)
+
+- [ ] Corregir la separacion entre identidad interna y socio: usuarios internos
+  sin RUT, RUT obligatorio solo para socios y correo unico por ambito,
+  permitiendo que un socio y un usuario interno compartan el mismo correo.
+  Diseno, migracion y criterios en
+  `docs/CAMBIO_IDENTIDAD_USUARIOS_SOCIOS.md`.
+- [ ] Asegurar que un correo compartido no mezcle cuentas ni repita el problema
+  anterior: la recuperacion de contrasena debe seleccionar exclusivamente al
+  usuario interno activo con contrasena utilizable, mientras que la consulta
+  publica y su codigo OTP deben operar sobre el socio localizado por RUT.
+- [ ] Normalizar a mayusculas los nombres y apellidos de todos los socios,
+  incluyendo una migracion para los registros existentes y normalizacion en
+  altas, ediciones y cargas masivas futuras.
+  - [x] Datos de produccion normalizados el 2026-08-02: 549 socios revisados,
+    469 modificados y 80 que ya se encontraban en mayusculas. Se genero
+    previamente un respaldo cifrado desde la aplicacion.
+  - [ ] Aplicar la normalizacion automaticamente en nuevas altas, ediciones y
+    cargas masivas.
+- [ ] Ejecutar el hotfix primero sobre una copia de la base de produccion,
+  comprobar duplicados de correo por ambito y verificar el respaldo y el plan
+  de restauracion antes del despliegue.
+- [ ] Agregar pruebas de regresion para correos compartidos, recuperacion de
+  contrasena, envio de OTP y normalizacion de nombres con tildes y letra `ñ`.
+- [ ] Evitar registros duplicados por doble clic: al enviar un formulario de
+  alta, deshabilitar inmediatamente sus botones de envio, marcar el formulario
+  con `aria-busy` y mostrar `Guardando...` hasta recibir la respuesta. Reutilizar
+  de forma global el bloqueo existente en `static/js/reuniones.js`, con un
+  timeout de recuperacion si la navegacion falla; no introducir una espera
+  artificial antes de enviar la solicitud.
+- [ ] Reforzar en el servidor las operaciones de registro que no esten
+  protegidas por restricciones de unicidad, mediante una clave de idempotencia
+  o una restriccion de base de datos, para que dos solicitudes simultaneas,
+  incluso desde usuarios o sesiones distintas, no creen registros duplicados
+  aunque JavaScript este deshabilitado. Capturar el conflicto de integridad y
+  mostrar un mensaje controlado en vez de responder con un error `500`.
+- [ ] Corregir la redireccion posterior a la reautenticacion: despues de
+  confirmar correctamente la contrasena, no debe permanecer en la pagina de
+  confirmacion. Debe redirigir a Configuracion o al destino seguro solicitado
+  originalmente mediante `next`, con una prueba de regresion para ambos casos.
+- [ ] Evaluar e implementar para el registro de asistencia un unico campo
+  visible que reciba indistintamente el RUT manual o la lectura completa del
+  QR, eliminando el selector entre modo QR y modo manual. La pistola debe
+  completar la lectura y enviar con `Enter` (automatico si esta configurado o
+  presionado por el operador), sin usar el envio temporizado actual. Despues de
+  cada intento, el campo debe quedar limpio y recuperar el foco.
+  - [ ] Detectar automaticamente el origen: un RUT aislado se registra como
+    ingreso manual y una URL o carga con bloque `RUN` como lectura QR.
+  - [ ] Hacer tolerante la extraccion del RUN a las variaciones de teclado que
+    alteran caracteres como `=`, `-`, `:`, `?` y `&`, validando siempre el
+    digito verificador.
+  - [ ] Probar el flujo con cedulas antiguas y nuevas, lectores configurados con
+    teclado espanol e ingles, perdida y recuperacion del foco, sufijo `Enter` y
+    lecturas incompletas.
+  - [ ] Conservar como caso de prueba anonimizado el formato observado en las
+    cedulas nuevas, sin almacenar datos reales:
+    `https://portal.sidiv.registrocivil.cl/docstatus?RUN={rut}&type=CEDULA&serial={numero_documento_alfanumerico}&mrz={cadena_mrz}&name={nombre_codificado}`.
+    El formato puede incluir nombres con caracteres acentuados representados
+    mediante secuencias `%XX`; la extraccion del RUN no debe depender del
+    contenido, orden o codificacion de los parametros posteriores.
+
 ## Interfaz
 
 - [x] Implementar SweetAlert para reemplazar o complementar mensajes de confirmacion, exito y error.
@@ -21,6 +97,9 @@ Pendientes para una siguiente iteracion del modulo de usuarios, socios y asisten
 - [x] Endurecer configuracion HTTPS: `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE` y `SECURE_HSTS_SECONDS` se configuran por entorno y fallan cerrado con `DEBUG=False`.
 - [ ] Antes de subir a produccion, activar `Force HTTPS` en PythonAnywhere para que `http://alejandrossm.pythonanywhere.com/` redirija a `https://alejandrossm.pythonanywhere.com/`.
 - [x] Agregar limitacion de intentos en login, recuperacion y reautenticacion.
+  Durante las pruebas de correo, la recuperacion usa temporalmente una ventana
+  de 1 minuto y limites de 100 solicitudes por identificador y por IP; ajustar
+  los parametros antes de produccion definitiva.
 - [x] Bloquear con `DEBUG=False` los comandos que crean usuarios o datos demo.
 - [x] Validar globalmente en el modelo que ningun `username` o `email` coincida, sin distinguir mayusculas, con los identificadores de otra cuenta.
 

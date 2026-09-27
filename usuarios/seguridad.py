@@ -44,13 +44,13 @@ def _configuracion_tipo(tipo):
         return {
             'ventana': _entero_configurado(
                 'SEGURIDAD_RECUPERACION_VENTANA_MINUTOS',
-                60,
+                1,
             ),
             'max_identificador': _entero_configurado(
                 'SEGURIDAD_RECUPERACION_MAX_IDENTIFICADOR',
-                3,
+                100,
             ),
-            'max_ip': _entero_configurado('SEGURIDAD_RECUPERACION_MAX_IP', 10),
+            'max_ip': _entero_configurado('SEGURIDAD_RECUPERACION_MAX_IP', 100),
         }
     if tipo == IntentoAcceso.REAUTENTICACION:
         return {

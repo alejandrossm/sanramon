@@ -17,7 +17,9 @@ Los cambios relevantes del proyecto se documentan en este archivo.
 
 ### Seguridad y operacion
 
-- Limitacion de intentos de login, recuperacion y reautenticacion.
+- Limitacion de intentos de login, recuperacion y reautenticacion. La
+  recuperacion queda temporalmente configurada con una ventana de un minuto y
+  limites de cien solicitudes para pruebas funcionales.
 - Separacion entre administradores web y superadministradores Django.
 - Cookies seguras, redireccion HTTPS y HSTS configurables por entorno.
 - Auditoria con verificacion de integridad y respaldos cifrados.
